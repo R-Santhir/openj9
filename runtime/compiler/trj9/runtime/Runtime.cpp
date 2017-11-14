@@ -466,6 +466,9 @@ JIT_HELPER(ECP256addNoMod_PPC);
 JIT_HELPER(ECP256subNoMod_PPC);
 #endif
 
+
+JIT_HELPER(my_log);
+
 #ifdef ENABLE_SIMD_LIB
 JIT_HELPER(__logd2);
 #endif
@@ -1373,6 +1376,9 @@ void initializeCodeRuntimeHelperTable(J9JITConfig *jitConfig, char isSMP)
 #ifdef ENABLE_SIMD_LIB
    SET(TR_PPCVectorLogDouble,              (void *) __logd2,                        TR_Helper);
 #endif
+
+   SET(TR_PPCFastMathLog,                  (void *) my_log,                  TR_Helper);
+
 #if 1
    SET(TR_PPCarrayTranslateTRTOSimpleVMX, (void *) 0, TR_Helper);
    SET(TR_PPCarrayCmpVMX,                 (void *) 0, TR_Helper);

@@ -1349,7 +1349,8 @@ int32_t TR::PPCJNILinkage::buildJNIArgs(TR::Node *callNode,
    int32_t floatRegsUsed = (numFloatArgs>properties.getNumFloatArgRegs())?properties.getNumFloatArgRegs():numFloatArgs;
 
    bool isHelper = false;
-   if (callNode->getSymbolReference()->getReferenceNumber() == TR_PPCVectorLogDouble)
+   if (callNode->getSymbolReference()->getReferenceNumber() == TR_PPCVectorLogDouble ||
+       callNode->getSymbolReference()->getReferenceNumber() == TR_PPCFastMathLog)
       {
       isHelper = true;
       }

@@ -323,6 +323,10 @@ bool J9::Power::CodeGenerator::suppressInliningOfRecognizedMethod(TR::Recognized
       return true;
       }
 
+   static bool disableAcceleratedLog = (feGetEnv("TR_DisableAcceleratedLog") ? true : false);
+   if (!disableAcceleratedLog && method == TR::java_lang_Math_log)
+       return true;
+
    if (method == TR::java_lang_Math_abs_F ||
        method == TR::java_lang_Math_abs_D ||
        method == TR::java_lang_Math_abs_I ||
