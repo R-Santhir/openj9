@@ -11190,6 +11190,16 @@ static TR::Register *inlineAbsLong(TR::Node *node, TR::CodeGenerator *cg)
     }
 }
 
+static TR::Register *inlineAcceleratedLog(TR::Node *node, TR::CodeGenerator *cg)
+{
+   TR::SymbolReference *helper = cg->comp()->getSymRefTab()->findOrCreateRuntimeHelper(TR_PPCFastMathLog, false, false, true);
+   helper->getSymbol()->castToMethodSymbol()->setLinkage(TR_System);
+   TR::Node::recreate(node, TR::dcall);
+   node->setSymbolReference(helper);
+
+   return TR::TreeEvaluator::directCallEvaluator(node, cg);
+}
+
 static TR::Register *inlineLongNumberOfLeadingZeros(TR::Node *node, TR::CodeGenerator *cg)
    {
    TR_ASSERT(node->getNumChildren() == 1, "Wrong number of children in inlineLongNumberOfLeadingZeros");
@@ -11818,6 +11828,7 @@ J9::Power::CodeGenerator::inlineDirectCall(TR::Node *node, TR::Register *&result
 
    static bool disableDCAS = (feGetEnv("TR_DisablePPCDCAS") != NULL);
    static bool useJapaneseCompression = (feGetEnv("TR_JapaneseComp") != NULL);
+   static bool disableAcceleratedLog = (feGetEnv("TR_DisableAcceleratedLog") ? true : false);
 
    if (comp->getSymRefTab()->isNonHelper(node->getSymbolReference(), TR::SymbolReferenceTable::singlePrecisionSQRTSymbol))
       {
@@ -12032,6 +12043,14 @@ J9::Power::CodeGenerator::inlineDirectCall(TR::Node *node, TR::Register *&result
       case TR::java_lang_Math_abs_L:
          resultReg = inlineAbsLong(node,cg);
          return true;
+
+      case TR::java_lang_Math_log:
+         if (!disableAcceleratedLog)
+            {
+            resultReg = inlineAcceleratedLog(node,cg);
+            return true;
+            }
+         break;
 
       case TR::java_lang_Integer_numberOfLeadingZeros:
          resultReg = inlineFixedTrg1Src1(node, TR::InstOpCode::cntlzw, cg);

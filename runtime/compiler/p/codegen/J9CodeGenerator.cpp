@@ -327,6 +327,7 @@ bool J9::Power::CodeGenerator::suppressInliningOfRecognizedMethod(TR::Recognized
        method == TR::java_lang_Math_abs_D ||
        method == TR::java_lang_Math_abs_I ||
        method == TR::java_lang_Math_abs_L ||
+       method == TR::java_lang_Math_log ||
        method == TR::java_lang_Integer_highestOneBit ||
        method == TR::java_lang_Integer_numberOfLeadingZeros ||
        method == TR::java_lang_Integer_numberOfTrailingZeros ||

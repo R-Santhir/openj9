@@ -370,6 +370,8 @@ TR_PPC64RelocationTarget::platformAddPICtoPatchPtrOnClassUnload(TR_OpaqueClassBl
    createClassUnloadPicSite(classKey, sitePointer, sizeof(int32_t), reloRuntime()->comp()->getMetadataAssumptionList());
    }
 
+extern "C" double my_log(double);
+
 #ifdef ENABLE_SIMD_LIB
 #ifndef LINUX
 #include "logd2.i"
