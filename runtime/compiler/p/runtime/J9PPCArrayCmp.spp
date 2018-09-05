@@ -18,7 +18,7 @@
 !!
 !! SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
 
-#if 0
+#if 1
 #include "j9cfg.h"
 #include "jilconsts.inc"
 #include "p/runtime/ppcasmdefines.inc"
@@ -322,7 +322,7 @@ __arrayCmpScalar:
 
 	li	    r3, 0
 	cmpwi	    cr0, r6,0		    ! if len <= 0
-	bclr	    BO_IF_NOT_2, CR0_GT	    ! return 0 (unlikely)
+	bclr	    BO_IF_NOT, CR0_GT	    ! return 0 (unlikely)
 
 	addi	    r4, r4, -1
 	addi	    r5, r5, -1
@@ -368,7 +368,7 @@ __arrayCmpLenScalar:
 
 	li	    r3, 0		    ! index = 0
 	cmpwi	    cr0, r6,0		    ! if len <= 0
-	bclr	    BO_IF_NOT_2, CR0_GT	    ! return 0 (unlikely)
+	bclr	    BO_IF_NOT, CR0_GT	    ! return 0 (unlikely)
 
 	addi	    r4, r4, -1
 	addi	    r5, r5, -1

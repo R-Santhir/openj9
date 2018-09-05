@@ -1446,7 +1446,7 @@ void initializeCodeRuntimeHelperTable(J9JITConfig *jitConfig, char isSMP)
    SET(TR_PPCarrayTranslateTRTOSimpleVMX, (void *) 0, TR_Helper);
    SET(TR_PPCarrayCmpVMX,                 (void *) 0, TR_Helper);
    SET(TR_PPCarrayCmpLenVMX,              (void *) 0, TR_Helper);
-   SET(TR_PPCarrayCmpScalar,              (void *) 0, TR_Helper);
+   SET(TR_PPCarrayCmpScalar,              (void *) __arrayCmpScalar,              TR_Helper);
    SET(TR_PPCarrayCmpLenScalar,           (void *) 0, TR_Helper);
 #else
    SET(TR_PPCarrayTranslateTRTOSimpleVMX, (void *) __arrayTranslateTRTOSimpleVMX, TR_Helper);
