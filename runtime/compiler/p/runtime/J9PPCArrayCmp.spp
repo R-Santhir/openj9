@@ -366,22 +366,68 @@ __arrayCmpLenScalar:
 	!   ctr                         DESTROYED
 	!   cr0                         DESTROYED
 
-	li	    r3, 0		    ! index = 0
-	cmpwi	    cr0, r6,0		    ! if len <= 0
-	bclr	    BO_IF_NOT, CR0_GT	    ! return 0 (unlikely)
+    ori     r7, r6, 0
+    cmpdi   cr1, r7, 8
+    blt     cr1, L.arrayCmpLenScalar1
 
-	addi	    r4, r4, -1
-	addi	    r5, r5, -1
-	mtctr	    r6			    ! Note CTR >= 1
-L.arrayCmpLenScalar1:
-    	lbzu	    r7, 1(r4)		    ! ch0 = *++src0
-	lbzu	    r8, 1(r5)		    ! ch1 = *++src1
-	cmpw	    cr0, r7, r8
-	bc	    BO_IF_NOT, CR0_EQ, L.arrayCmpLenScalar2
-	addi	    r3, r3, 1
-	bdnz	    L.arrayCmpLenScalar1
+    addi    r4, r4, -8
+    addi    r5, r5, -8
+
+    srawi   r8,r7,3
+    mtctr   r8
+
+L.arrayCmpLenScalar3:
+    ldu     r0, 8(r4)
+    ldu     r2, 8(r5)
+
+    cmpd    r0, r2
+
+    bc      BO_IF_NOT, CR0_EQ, L.arrayCmpLenScalar2
+    bdnz    L.arrayCmpLenScalar3
+
+    addi    r4, r4, 8
+    addi    r5, r5, 8
+
 L.arrayCmpLenScalar2:
-	blr
+    mfctr   r7
+    cmpdi   cr1, r7, 0
+    subf    r7, r7, r8
+    rlwinm  r7, r7, 3, 0, 28
+    bc      BO_IF_NOT, CR1_VX, L.arrayCmpLenScalar4 !bne cr1
+
+    cmpd    cr1, r7, r6
+
+L.arrayCmpLenScalar4:
+    subf    r7, r7, r6
+
+L.arrayCmpLenScalar1:
+    bc      BO_IF, CR1_VX, L.arrayCmpLenScalar5 !beq cr1
+
+    mtctr   r7
+    addi    r4, r4, -1
+    addi    r5, r5, -1
+
+L.arrayCmpLenScalar6:
+    lbzu    r0, 1(r4)
+    lbzu    r2, 1(r5)
+
+    cmpw    r0,r2
+
+    bc      BO_IF_NOT, CR0_EQ, L.arrayCmpLenScalar7 !bne
+    bdnz    L.arrayCmpLenScalar6
+
+L.arrayCmpLenScalar7:
+    mfctr   r7
+
+L.arrayCmpLenScalar5:
+    cmpdi   cr1, r7, 0
+    bclr    BO_IF_NOT, CR1_VX !bne cr1
+    li      r3, 0
+    blr
+    li      r3, 1
+	bclr    BO_IF, CR0_LT	    ! return 0 (unlikely)
+    li      r3, 2
+    blr
 
       	endproc.__arrayCmpLenScalar:
 
