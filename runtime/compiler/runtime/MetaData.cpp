@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -69,7 +69,7 @@
 #include "control/CompilationRuntime.hpp"
 #include "runtime/HWProfiler.hpp"
 
-TR_MetaDataStats metaDataStats;
+typedef std::set<TR_GCStackMap*, std::less<TR_GCStackMap*>, TR::typed_allocator<TR_GCStackMap*, TR::Region&>> GCStackMapSet;
 
 struct TR_StackAtlasStats
    {
@@ -99,8 +99,6 @@ static uint8_t * allocateGCData(TR_J9VMBase * vm, uint32_t numBytes, TR::Compila
          }
       comp->failCompilation<J9::DataCacheError>("Failed to allocate GC Data");
       }
-   if (debug("metaDataStats"))
-      metaDataStats._gcDataSize += size;
 
    return gcData;
    }
@@ -108,31 +106,6 @@ static uint8_t * allocateGCData(TR_J9VMBase * vm, uint32_t numBytes, TR::Compila
 ///////////////////////////////////////////////////////////////////////////
 //  Meta Data Creation
 ///////////////////////////////////////////////////////////////////////////
-
-#if defined(DEBUG)
-   // HACK 1GAN1V9 :: OSE Runtime cannot link with destructors defined
-TR_MetaDataStats::~TR_MetaDataStats()
-   {
-   if (!debug("metaDataStats"))
-      return;
-
-   uint32_t totalMetaData = _exceptionDataSize + _tableSize + _inlinedCallDataSize + _gcDataSize + _relocationSize;
-
-   printf("\nMetaDataStats\n");
-   printf("number of methods jitted:      %10d\n", _counter);
-   printf("tot code size:                 %10d\n", _codeSize);
-   printf("av. code size:                 %10d\n", _codeSize / _counter);
-   printf("max code size:                 %10d\n", _maxCodeSize);
-   printf("tot meta size:                 %10d\n", totalMetaData);
-   printf("av. meta data size:            %10d\n", totalMetaData / _counter);
-   printf("   av. exception data size:    %10d\n", _exceptionDataSize / _counter);
-   printf("   av. table size:             %10d\n", _tableSize / _counter);
-   printf("   av. inlined call data size: %10d\n", _inlinedCallDataSize / _counter);
-   printf("   av. gc data size:           %10d\n", _gcDataSize / _counter);
-   printf("   av. relocation size:        %10d\n", _relocationSize / _counter);
-   fflush(stdout);
-   }
-#endif
 
 #if defined(DEBUG)
 TR_StackAtlasStats::~TR_StackAtlasStats()
@@ -533,12 +506,6 @@ createStackMap(
    memcpy(location, &byteCodeInfo, sizeof(TR_ByteCodeInfo));
    location += sizeof(int32_t);
 
-#ifdef TR_HOST_S390
-   //traceMsg(comp, "hprmap %p : %x location %p\n", map, location, map->getHighWordRegisterMap());
-   *(int32_t *)location = map->getHighWordRegisterMap();
-   location += sizeof(int32_t);
-#endif
-
    ///traceMsg(comp, "map %p rsd %x location %p\n", map, location, map->getRegisterSaveDescription());
    *(int32_t *)location = map->getRegisterSaveDescription();
    location += sizeof(int32_t);
@@ -691,7 +658,8 @@ mapsAreIdentical(
       TR_GCStackMap *mapCursor,
       TR_GCStackMap *nextMapCursor,
       TR::GCStackAtlas *trStackAtlas,
-      TR::Compilation *comp)
+      TR::Compilation *comp,
+      const GCStackMapSet& nonmergeableBCI)
    {
    if (!comp->getOption(TR_FullSpeedDebug) && // Must keep maps with different bytecode info even if GC info is identical
        nextMapCursor &&
@@ -700,11 +668,7 @@ mapsAreIdentical(
        mapCursor->getMapSizeInBytes() == nextMapCursor->getMapSizeInBytes() &&
        mapCursor->getRegisterMap() == nextMapCursor->getRegisterMap() &&
        !memcmp(mapCursor->getMapBits(), nextMapCursor->getMapBits(), mapCursor->getMapSizeInBytes()) &&
-#ifdef TR_HOST_S390
-       (mapCursor->getHighWordRegisterMap() == nextMapCursor->getHighWordRegisterMap()) &&
-#endif
-       (comp->getOption(TR_DisableShrinkWrapping) ||
-        (mapCursor->getRegisterSaveDescription() == nextMapCursor->getRegisterSaveDescription())) &&
+       (mapCursor->isByteCodeInfoIdenticalTo(nextMapCursor) || nonmergeableBCI.find(mapCursor) == nonmergeableBCI.end()) &&
        (comp->getOption(TR_DisableLiveMonitorMetadata) ||
         ((mapCursor->getLiveMonitorBits() != 0) == (nextMapCursor->getLiveMonitorBits() != 0) &&
          (mapCursor->getLiveMonitorBits() == 0 ||
@@ -726,17 +690,16 @@ calculateSizeOfStackAtlas(
       bool fourByteOffsets,
       uint32_t numberOfSlotsMapped,
       uint32_t numberOfMapBytes,
-      TR::Compilation *comp)
+      TR::Compilation *comp,
+      const GCStackMapSet& nonmergeableBCI)
    {
    TR::GCStackAtlas * trStackAtlas = cg->getStackAtlas();
 
    uint32_t mapSize;
    uint32_t sizeOfMapOffset = (comp->isAlignStackMaps() || fourByteOffsets) ? 4 : 2;
-#ifdef TR_HOST_S390
-   uint32_t sizeOfStackMap = 4*sizeof(U_32) + sizeOfMapOffset; //4 words in header
-#else
-   uint32_t sizeOfStackMap = 3*sizeof(U_32) + sizeOfMapOffset; //3 words in header
-#endif
+
+   // ByteCodeInfo, RegisterSaveDescription, RegisterMap
+   uint32_t sizeOfStackMap = 3*sizeof(U_32) + sizeOfMapOffset;
 
    uint32_t sizeOfByteCodeInfoMap = sizeof(U_32) + sizeOfMapOffset;
 
@@ -779,7 +742,7 @@ calculateSizeOfStackAtlas(
          calculateMapSize(nextMapCursor->getInternalPointerMap(), comp);
          }
 
-      if (mapsAreIdentical(mapCursor, nextMapCursor, trStackAtlas, comp))
+      if (mapsAreIdentical(mapCursor, nextMapCursor, trStackAtlas, comp, nonmergeableBCI))
          {
          atlasSize += sizeOfByteCodeInfoMap;
          }
@@ -885,20 +848,20 @@ createStackAtlas(
       uint32_t numberOfMapBytes,
       TR::Compilation *comp,
       uint8_t *atlasBits,
-      uint32_t atlasSizeInBytes)
+      uint32_t atlasSizeInBytes,
+      const GCStackMapSet& nonmergeableBCI)
    {
    TR::GCStackAtlas * trStackAtlas = cg->getStackAtlas();
 
    trStackAtlas->setAtlasBits(atlasBits);
 
+   // TODO: Seems to be quite a bit of overlap/duplication between the code here and calculateSizeOfStackAtlas. Are we
+   // able to consolidate this somehow?
    uint32_t mapSizeInBytes;
    uint32_t sizeOfMapOffset = (comp->isAlignStackMaps() || fourByteOffsets) ? 4 : 2;
 
-#ifdef TR_HOST_S390
-   uint32_t sizeOfStackMapInBytes = 4*sizeof(U_32) + sizeOfMapOffset; // 4 words in header
-#else
+   // ByteCodeInfo, RegisterSaveDescription, RegisterMap
    uint32_t sizeOfStackMapInBytes = 3*sizeof(U_32) + sizeOfMapOffset; // 3 words in header
-#endif
 
    uint32_t sizeOfByteCodeInfoMap = sizeof(U_32) + sizeOfMapOffset;
 
@@ -997,7 +960,7 @@ createStackAtlas(
       /* Fill in gaps with bogus stack map for tagged information.
        * Also need to create more space for stack maps above */
 
-      if (mapsAreIdentical(mapCursor, nextMapCursor, trStackAtlas, comp))
+      if (mapsAreIdentical(mapCursor, nextMapCursor, trStackAtlas, comp, nonmergeableBCI))
          {
          cursor -= sizeOfByteCodeInfoMap; //GET_SIZEOF_BYTECODEINFO_MAP(fourByteOffsets);
          createByteCodeInfoRange(mapCursor, cursor, fourByteOffsets, trStackAtlas, comp);
@@ -1316,6 +1279,25 @@ createMethodMetaData(
       dbg->setSingleAllocMetaData(true);
       }
 
+   // --------------------------------------------------------------------------
+   // Find unmergeable GC maps
+   //
+   GCStackMapSet nonmergeableBCI(std::less<TR_GCStackMap*>(), cg->trMemory()->heapMemoryRegion());
+   if (comp->getOptions()->getReportByteCodeInfoAtCatchBlock())
+      {
+      for (TR::TreeTop* treetop = comp->getStartTree(); treetop; treetop = treetop->getNextTreeTop())
+         {
+         if (treetop->getNode()->getOpCodeValue() == TR::BBStart)
+            {
+            TR::Block* block = treetop->getNode()->getBlock();
+            if (block->getCatchBlockExtension())
+               {
+               nonmergeableBCI.insert(block->getFirstInstruction()->getGCMap());
+               }
+            }
+         }
+      }
+
    bool fourByteOffsets = RANGE_NEEDS_FOUR_BYTE_OFFSET(cg->getCodeLength());
 
    uint32_t tableSize = sizeof(TR_MethodMetaData);
@@ -1356,14 +1338,6 @@ createMethodMetaData(
    uint32_t inlinedCallSize = comp->getNumInlinedCallSites() * (sizeof(TR_InlinedCallSite) + numberOfMapBytes);
    tableSize += inlinedCallSize;
 
-   if (debug("metaDataStats"))
-      {
-      ++metaDataStats._counter;
-      metaDataStats._exceptionDataSize += exceptionsSize;
-      metaDataStats._tableSize += sizeof(TR_MethodMetaData);
-      metaDataStats._inlinedCallDataSize += inlinedCallSize;
-      }
-
    // Add size of stack atlas to allocate
    //
    int32_t sizeOfStackAtlasInBytes = calculateSizeOfStackAtlas(
@@ -1372,7 +1346,8 @@ createMethodMetaData(
          fourByteOffsets,
          numberOfSlotsMapped,
          numberOfMapBytes,
-         comp);
+         comp,
+         nonmergeableBCI);
 
    tableSize += sizeOfStackAtlasInBytes;
 
@@ -1491,38 +1466,15 @@ createMethodMetaData(
          numberOfMapBytes,
          comp,
          ((uint8_t *)data + exceptionTableSize + inlinedCallSize),
-         sizeOfStackAtlasInBytes);
+         sizeOfStackAtlasInBytes,
+         nonmergeableBCI);
 
-   if (comp->cg()->getShrinkWrappingDone())
-      {
-      traceMsg(comp, "lowestSavedRegister %x\n", comp->cg()->getLowestSavedRegister());
-      data->registerSaveDescription = J9TR_SHRINK_WRAP;
-
-      // Stash the lowest register saved in the prologue in the last byte of the
-      // rsd hung off the method's metadata. this is consulted during the stackwalk
-      // so that the right stack slots are checked
-      //
-      // note: on x86, the preserved registers are not necessarily allocated in sequence,
-      // so the info looks like this:
-      // data->registerSaveDescription = 0x....| abcd
-      // the low 16bits are used to store a bitvector of registers that are shrinkwrapped
-      // in this method. this bitvector is consulted during the stackwalk to determine
-      // which stack slots need to be checked
-      //
-      // on ppc and s390, the registers are always allocated in sequence, so just store
-      // the lowest number in the low byte
-      //
-      data->registerSaveDescription |= (comp->cg()->getLowestSavedRegister() & 0xFFFF);
-      }
-   else
-      {
-      data->registerSaveDescription = comp->cg()->getRegisterSaveDescription();
-      }
+   data->registerSaveDescription = comp->cg()->getRegisterSaveDescription();
 
 #if defined(J9VM_INTERP_AOT_COMPILE_SUPPORT)
    if (vm->isAOT_DEPRECATED_DO_NOT_USE())
       {
-      TR::CodeCache * codeCache = comp->getCurrentCodeCache(); // MCT
+      TR::CodeCache * codeCache = comp->cg()->getCodeCache(); // MCT
 
       /* Align code caches */
       codeCache->alignWarmCodeAlloc(3);
@@ -1547,9 +1499,9 @@ createMethodMetaData(
          aotMethodHeaderEntry->offsetToRelocationDataItems = 0;
          }
 
-      aotMethodHeaderEntry->compileMethodCodeStartPC = (UDATA)comp->getAotMethodCodeStart();
+      aotMethodHeaderEntry->compileMethodCodeStartPC = (UDATA)comp->getRelocatableMethodCodeStart();
       aotMethodHeaderEntry->compileMethodDataStartPC = (UDATA)comp->getAotMethodDataStart();
-      aotMethodHeaderEntry->compileMethodCodeSize = (UDATA)codeCache->getWarmCodeAlloc() - (UDATA)comp->getAotMethodCodeStart();
+      aotMethodHeaderEntry->compileMethodCodeSize = (UDATA)codeCache->getWarmCodeAlloc() - (UDATA)comp->getRelocatableMethodCodeStart();
 
       // For AOT we should have a reserved dataCache
       //
@@ -1559,13 +1511,13 @@ createMethodMetaData(
 
       // Set some flags in the AOTMethodHeader
       //
-      if (!vm->isMethodExitTracingEnabled(vmMethod->getPersistentIdentifier()) &&
+      if (!vm->isMethodTracingEnabled(vmMethod->getPersistentIdentifier()) &&
           !vm->canMethodExitEventBeHooked())
          {
          aotMethodHeaderEntry->flags |= TR_AOTMethodHeader_IsNotCapableOfMethodExitTracing;
          }
 
-      if (!vm->isMethodEnterTracingEnabled(vmMethod->getPersistentIdentifier()) &&
+      if (!vm->isMethodTracingEnabled(vmMethod->getPersistentIdentifier()) &&
           !vm->canMethodEnterEventBeHooked())
          {
          aotMethodHeaderEntry->flags |= TR_AOTMethodHeader_IsNotCapableOfMethodEnterTracing;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -780,11 +780,9 @@ typedef struct J9CfrMethod {
 #define CFR_BC_ifnonnull 199
 #define CFR_BC_goto_w 200
 #define CFR_BC_jsr_w 201
-#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
-#define CFR_BC_defaultvalue 224
-#define CFR_BC_withfield 226
-#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 #define CFR_BC_breakpoint 202  			/* Reserved opcodes */
+#define CFR_BC_defaultvalue 203
+#define CFR_BC_withfield 204
 #define CFR_BC_impdep1 254
 #define CFR_BC_impdep2 255
 #define CFR_BC_invokehandle 232 		/* JSR 292 internals */
@@ -828,9 +826,7 @@ typedef struct J9CfrClassFile {
 #define CFR_ACC_BRIDGE  					0x00000040
 #define CFR_ACC_VOLATILE  					0x00000040
 #define CFR_ACC_TRANSIENT  					0x00000080
-#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
 #define CFR_ACC_VALUE_TYPE					0x00000100
-#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 #define CFR_ACC_VARARGS  					0x00000080
 #define CFR_ACC_NATIVE  					0x00000100
 #define CFR_ACC_INTERFACE  					0x00000200

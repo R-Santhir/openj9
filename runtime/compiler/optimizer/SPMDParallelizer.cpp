@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,56 +22,56 @@
 
 #include "optimizer/SPMDParallelizer.hpp"
 
-#include <limits.h>                                // for INT_MAX
-#include <stdint.h>                                // for int32_t, uint16_t
-#include <stdio.h>                                 // for printf
-#include <string.h>                                // for NULL, memset, etc
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include "codegen/CodeGenerator.hpp"
-#include "codegen/FrontEnd.hpp"                    // for TR_VerboseLog, etc
+#include "codegen/FrontEnd.hpp"
 #include "codegen/LinkageConventionsEnum.hpp"
 #include "codegen/RecognizedMethods.hpp"
-#include "compile/Compilation.hpp"                 // for Compilation, etc
-#include "compile/ResolvedMethod.hpp"              // for TR_ResolvedMethod
+#include "compile/Compilation.hpp"
+#include "compile/ResolvedMethod.hpp"
 #include "compile/SymbolReferenceTable.hpp"
 #include "control/Options.hpp"
-#include "control/Options_inlines.hpp"             // for TR::Options, etc
-#include "cs2/allocator.h"                         // for shared_allocator
-#include "cs2/arrayof.h"                           // for ArrayOf<>::Cursor, etc
+#include "control/Options_inlines.hpp"
+#include "cs2/allocator.h"
+#include "cs2/arrayof.h"
 #include "cs2/bitvectr.h"
 #include "cs2/sparsrbit.h"
 #include "env/StackMemoryRegion.hpp"
-#include "env/TRMemory.hpp"                        // for Allocator, etc
+#include "env/TRMemory.hpp"
 #include "il/AliasSetInterface.hpp"
-#include "il/Block.hpp"                            // for Block, toBlock
+#include "il/Block.hpp"
 #include "il/DataTypes.hpp"
-#include "il/ILOpCodes.hpp"                        // for ILOpCodes, etc
-#include "il/ILOps.hpp"                            // for TR::ILOpCode, etc
-#include "il/Node.hpp"                             // for Node, etc
+#include "il/ILOpCodes.hpp"
+#include "il/ILOps.hpp"
+#include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
-#include "il/Symbol.hpp"                           // for Symbol
-#include "il/SymbolReference.hpp"                  // for SymbolReference
-#include "il/TreeTop.hpp"                          // for TreeTop
-#include "il/TreeTop_inlines.hpp"                  // for TreeTop::getNode, etc
-#include "il/symbol/AutomaticSymbol.hpp"           // for AutomaticSymbol
-#include "il/symbol/MethodSymbol.hpp"              // for MethodSymbol
-#include "infra/Assert.hpp"                        // for TR_ASSERT
-#include "infra/BitVector.hpp"                     // for TR_BitVector, etc
-#include "infra/Cfg.hpp"                           // for CFG
-#include "infra/HashTab.hpp"                       // for TR_HashTab, etc
-#include "infra/List.hpp"                          // for ListIterator, etc
-#include "infra/TRCfgEdge.hpp"                     // for CFGEdge
-#include "infra/TRCfgNode.hpp"                     // for CFGNode
-#include "optimizer/Dominators.hpp"                // for TR_Dominators
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/TreeTop.hpp"
+#include "il/TreeTop_inlines.hpp"
+#include "il/symbol/AutomaticSymbol.hpp"
+#include "il/symbol/MethodSymbol.hpp"
+#include "infra/Assert.hpp"
+#include "infra/BitVector.hpp"
+#include "infra/Cfg.hpp"
+#include "infra/HashTab.hpp"
+#include "infra/List.hpp"
+#include "infra/TRCfgEdge.hpp"
+#include "infra/TRCfgNode.hpp"
+#include "optimizer/Dominators.hpp"
 #include "optimizer/InductionVariable.hpp"
 #include "optimizer/LoopCanonicalizer.hpp"
 #include "optimizer/Optimization_inlines.hpp"
 #include "optimizer/Optimizations.hpp"
-#include "optimizer/Optimizer.hpp"                 // for Optimizer
+#include "optimizer/Optimizer.hpp"
 #include "optimizer/SPMDPreCheck.hpp"
 #include "optimizer/Structure.hpp"
-#include "optimizer/UseDefInfo.hpp"                // for TR_UseDefInfo, etc
+#include "optimizer/UseDefInfo.hpp"
 #include "optimizer/ValueNumberInfo.hpp"
-#include "runtime/Runtime.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "ras/DebugCounter.hpp"
 #include "env/annotations/GPUAnnotation.hpp"
 
@@ -400,9 +400,16 @@ bool TR_SPMDKernelParallelizer::visitTreeTopToSIMDize(TR::TreeTop *tt, TR_SPMDKe
                   prevTree->join(dupTree);
                   dupTree->join(currTree);
 
-                  TR::SymbolReference *symRef = dupNode->getSymbolReference();
+                  TR::SymbolReference *symRef = node->getSymbolReference();
                   TR::SymbolReference *vecSymRef = pSPMDInfo->getVectorSymRef(symRef);
-                  TR_ASSERT(vecSymRef != NULL, "Vector PIV SymRef is NULL during SIMD transformation");
+                  if (vecSymRef == NULL)
+                     {
+                     vecSymRef = comp->cg()->allocateLocalTemp(node->getDataType().scalarToVector()); // need to handle alignment?
+                     pSPMDInfo->addVectorSymRef(symRef, vecSymRef);
+
+                     if (trace)
+                         traceMsg(comp, "   created new symRef #%d for #%d\n", vecSymRef->getReferenceNumber(), symRef->getReferenceNumber());
+                     }
 
                   TR::ILOpCode scalarOp = node->getOpCode();
                   TR::ILOpCodes vectorOpCode = TR::ILOpCode::convertScalarToVector(scalarOp.getOpCodeValue());
@@ -492,6 +499,12 @@ bool TR_SPMDKernelParallelizer::visitTreeTopToSIMDize(TR::TreeTop *tt, TR_SPMDKe
                }
             }
 
+         TR::ILOpCode scalarOp = node->getOpCode();
+         TR::ILOpCodes vectorOpCode = TR::ILOpCode::convertScalarToVector(scalarOp.getOpCodeValue());
+
+         if (isCheckMode && vectorOpCode == TR::BadILOp)
+            return false;
+
          if (loop->isExprInvariant(node->getFirstChild()))
             {
             if (isCheckMode)
@@ -520,15 +533,10 @@ bool TR_SPMDKernelParallelizer::visitTreeTopToSIMDize(TR::TreeTop *tt, TR_SPMDKe
             return false;
             }
 
-         TR::ILOpCode scalarOp = node->getOpCode();
-         TR::ILOpCodes vectorOpCode = TR::ILOpCode::convertScalarToVector(scalarOp.getOpCodeValue());
          TR::SymbolReference *symRef = node->getSymbolReference();
          TR::SymbolReference *vecSymRef = pSPMDInfo->getVectorSymRef(symRef);
 
-         if (isCheckMode && vectorOpCode == TR::BadILOp)
-            return false;
-
-         TR_ASSERT(vectorOpCode != TR::BadILOp, "BAD IL Opcode to be assigned during transformation");
+         TR_ASSERT_FATAL(vectorOpCode != TR::BadILOp, "BAD IL Opcode to be assigned during transformation");
 
          if (isCheckMode && !comp->cg()->getSupportsOpCodeForAutoSIMD(vectorOpCode, node->getDataType()))
             return false;
@@ -2699,7 +2707,7 @@ void TR_SPMDKernelParallelizer::insertGPURegionExits(List<TR::Block>* exitBlocks
       {
       TR::TreeTop *insertionPoint = exitBlock->getEntry();
       
-      TR::Node* regionExitGPUNode = TR::Node::create(insertionPoint->getNode(), TR::icall, 5);
+      TR::Node* regionExitGPUNode = TR::Node::create(insertionPoint->getNode(), TR::icall, 4);
       helper = comp()->getSymRefTab()->findOrCreateRuntimeHelper(TR_regionExitGPU, false, false, false);
       helper->getSymbol()->castToMethodSymbol()->setLinkage(_helperLinkage/*@*/);
       regionExitGPUNode->setSymbolReference(helper);
@@ -2713,11 +2721,8 @@ void TR_SPMDKernelParallelizer::insertGPURegionExits(List<TR::Block>* exitBlocks
       // ptxSourceID
       regionExitGPUNode->setAndIncChild(2, TR::Node::create(insertionPoint->getNode(), TR::iconst, 0, gpuPtxCount));
 
-      // flush block number
-      regionExitGPUNode->setAndIncChild(3, TR::Node::create(insertionPoint->getNode(), TR::iconst, 0, 0));
-
       // **liveSymRef
-      regionExitGPUNode->setAndIncChild(4, TR::Node::createWithSymRef(insertionPoint->getNode(), TR::loadaddr, 0, liveSymRef));
+      regionExitGPUNode->setAndIncChild(3, TR::Node::createWithSymRef(insertionPoint->getNode(), TR::loadaddr, 0, liveSymRef));
 
       TR::Node *treetopNode = TR::Node::create(TR::treetop, 1, regionExitGPUNode);
       TR::TreeTop *initTreeTop = TR::TreeTop::create(comp(), treetopNode, 0, 0);
@@ -2772,7 +2777,7 @@ void TR_SPMDKernelParallelizer::insertGPURegionExitInRegionExits(List<TR::Block>
 
       TR::TreeTop *insertionPoint = regionExitGPUBlock->getEntry();
 
-      TR::Node* regionExitGPUNode = TR::Node::create(insertionPoint->getNode(), TR::icall, 5);
+      TR::Node* regionExitGPUNode = TR::Node::create(insertionPoint->getNode(), TR::icall, 4);
       helper = comp()->getSymRefTab()->findOrCreateRuntimeHelper(TR_regionExitGPU, false, false, false);
       helper->getSymbol()->castToMethodSymbol()->setLinkage(_helperLinkage/*@*/);
       regionExitGPUNode->setSymbolReference(helper);
@@ -2786,11 +2791,8 @@ void TR_SPMDKernelParallelizer::insertGPURegionExitInRegionExits(List<TR::Block>
       // ptxSourceID
       regionExitGPUNode->setAndIncChild(2, TR::Node::create(insertionPoint->getNode(), TR::iconst, 0, gpuPtxId));
 
-      // flush block number
-      regionExitGPUNode->setAndIncChild(3, TR::Node::create(insertionPoint->getNode(), TR::iconst, 0, 0));
-
       // **liveSymRef
-      regionExitGPUNode->setAndIncChild(4, TR::Node::createWithSymRef(insertionPoint->getNode(), TR::loadaddr, 0, liveSymRef));
+      regionExitGPUNode->setAndIncChild(3, TR::Node::createWithSymRef(insertionPoint->getNode(), TR::loadaddr, 0, liveSymRef));
 
       TR::Node *treetopNode = TR::Node::create(TR::treetop, 1, regionExitGPUNode);
       TR::TreeTop *initTreeTop = TR::TreeTop::create(comp(), treetopNode, 0, 0);
@@ -3424,7 +3426,13 @@ TR_SPMDKernelParallelizer::perform()
    ListIterator<TR_RegionStructure> sit(&simdLoops);
    for (TR_RegionStructure *loop = sit.getFirst(); loop; loop = sit.getNext())
       {
-      if (loop->getPrimaryInductionVariable())
+      /*
+       * The GPU transformation might make the block we are trying to vectorize unreachable due
+       * to creating and using a new GPU path. We check for this case by checking if the loop's
+       * parent is NULL or not. If it is NULL, vectorization of the unreachable block is not
+       * necessary and can be skipped.
+       */
+      if (loop->getPrimaryInductionVariable() && (NULL != loop->getParent()))
          {
          if (reductionOperationsHashTab->locate(loop, id))
             {

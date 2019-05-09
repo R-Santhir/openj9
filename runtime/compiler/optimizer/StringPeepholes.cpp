@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,62 +22,62 @@
 
 #include "optimizer/StringPeepholes.hpp"
 
-#include <limits.h>                            // for INT_MAX, UINT_MAX, etc
-#include <math.h>                              // for exp
-#include <stddef.h>                            // for size_t
-#include <stdint.h>                            // for int32_t, uint32_t, etc
-#include <stdio.h>                             // for printf, fflush, etc
-#include <stdlib.h>                            // for atoi
-#include <string.h>                            // for NULL, strncmp, strcmp, etc
-#include "codegen/CodeGenerator.hpp"           // for CodeGenerator, etc
-#include "codegen/FrontEnd.hpp"                // for TR_FrontEnd, feGetEnv, etc
-#include "codegen/RecognizedMethods.hpp"       // for RecognizedMethod, etc
-#include "compile/Compilation.hpp"             // for Compilation, comp, etc
-#include "compile/Method.hpp"                  // for TR_Method
-#include "compile/ResolvedMethod.hpp"          // for TR_ResolvedMethod
-#include "compile/SymbolReferenceTable.hpp"    // for SymbolReferenceTable, etc
+#include <limits.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "codegen/CodeGenerator.hpp"
+#include "codegen/FrontEnd.hpp"
+#include "codegen/RecognizedMethods.hpp"
+#include "compile/Compilation.hpp"
+#include "compile/Method.hpp"
+#include "compile/ResolvedMethod.hpp"
+#include "compile/SymbolReferenceTable.hpp"
 #include "control/Options.hpp"
-#include "control/Options_inlines.hpp"         // for TR::Options, etc
+#include "control/Options_inlines.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
 #include "env/CompilerEnv.hpp"
 #include "env/StackMemoryRegion.hpp"
-#include "env/TRMemory.hpp"                    // for SparseBitVector, etc
-#include "env/jittypes.h"                      // for TR_ByteCodeInfo, etc
+#include "env/TRMemory.hpp"
+#include "env/jittypes.h"
 #include "env/VMJ9.h"
-#include "il/Block.hpp"                        // for Block, toBlock, etc
-#include "il/DataTypes.hpp"                    // for TR::DataType, etc
-#include "il/ILOpCodes.hpp"                    // for ILOpCodes::treetop, etc
-#include "il/ILOps.hpp"                        // for ILOpCode, TR::ILOpCode
-#include "il/Node.hpp"                         // for Node, etc
-#include "il/NodePool.hpp"                     // for TR_NodePool
-#include "il/Node_inlines.hpp"                 // for Node::getFirstChild, etc
-#include "il/Symbol.hpp"                       // for Symbol, etc
-#include "il/SymbolReference.hpp"              // for SymbolReference, etc
-#include "il/TreeTop.hpp"                      // for TreeTop
-#include "il/TreeTop_inlines.hpp"              // for TreeTop::getNode, etc
-#include "il/symbol/MethodSymbol.hpp"          // for MethodSymbol, etc
-#include "il/symbol/ResolvedMethodSymbol.hpp"  // for ResolvedMethodSymbol
-#include "il/symbol/StaticSymbol.hpp"          // for StaticSymbol
-#include "infra/Array.hpp"                     // for TR_Array
-#include "infra/Assert.hpp"                    // for TR_ASSERT
-#include "infra/Cfg.hpp"                       // for CFG, etc
+#include "il/Block.hpp"
+#include "il/DataTypes.hpp"
+#include "il/ILOpCodes.hpp"
+#include "il/ILOps.hpp"
+#include "il/Node.hpp"
+#include "il/NodePool.hpp"
+#include "il/Node_inlines.hpp"
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/TreeTop.hpp"
+#include "il/TreeTop_inlines.hpp"
+#include "il/symbol/MethodSymbol.hpp"
+#include "il/symbol/ResolvedMethodSymbol.hpp"
+#include "il/symbol/StaticSymbol.hpp"
+#include "infra/Array.hpp"
+#include "infra/Assert.hpp"
+#include "infra/Cfg.hpp"
 #include "infra/ILWalk.hpp"
-#include "infra/List.hpp"                      // for List, TR_ScratchList, etc
-#include "infra/Stack.hpp"                     // for TR_Stack
-#include "optimizer/Inliner.hpp"               // for TR_InlineCall, etc
-#include "optimizer/Optimization.hpp"          // for Optimization
+#include "infra/List.hpp"
+#include "infra/Stack.hpp"
+#include "optimizer/Inliner.hpp"
+#include "optimizer/Optimization.hpp"
 #include "optimizer/Optimization_inlines.hpp"
-#include "optimizer/OptimizationManager.hpp"   // for OptimizationManager
+#include "optimizer/OptimizationManager.hpp"
 #include "optimizer/Optimizations.hpp"
-#include "optimizer/Optimizer.hpp"             // for Optimizer
-#include "optimizer/TransformUtil.hpp"         // for TransformUtil
-#include "ras/Debug.hpp"                       // for TR_DebugBase
+#include "optimizer/Optimizer.hpp"
+#include "optimizer/TransformUtil.hpp"
+#include "ras/Debug.hpp"
 #include "runtime/J9Profiler.hpp"
 #include "runtime/J9ValueProfiler.hpp"
 
-#include "env/PersistentCHTable.hpp"           // for CLASSHASHTABLE_SIZE, etc
-#include "env/PersistentInfo.hpp"              // for PersistentInfo
+#include "env/PersistentCHTable.hpp"
+#include "env/PersistentInfo.hpp"
 
 static void replaceCallNode(TR::Node *oldCall, TR::Node *newCall, TR::Node *node, vcount_t visitCount)
    {
@@ -211,7 +211,7 @@ TR::SymbolReference* TR_StringPeepholes::MethodEnumToArgsForMethodSymRefFromName
    // TODO: This is a workaround as we switched to using a byte[] backing array in String*. Remove this workaround once obsolete.
    if (m == SPH_String_init_AIIZ)
       {
-      if (!fe()->getMethodFromName(classNames[m], methodNames[m], signatures[m], comp()->getCurrentMethod()->getNonPersistentIdentifier()))
+      if (!fe()->getMethodFromName(classNames[m], methodNames[m], signatures[m]))
          {
          return comp()->getSymRefTab()->methodSymRefFromName(comp()->getMethodSymbol(), classNames[m], methodNames[m], "([CIIZ)V", TR::MethodSymbol::Special);
          }
@@ -229,7 +229,7 @@ int32_t TR_StringPeepholes::perform()
    {
    static char *skipitAtWarm = feGetEnv("TR_noPeepholeAtWarm");
    if (comp()->getOption(TR_DisableStringPeepholes)
-       || !comp()->fej9()->doStringPeepholing()
+       || (!comp()->fej9()->doStringPeepholing() && !comp()->getOption(TR_UseSymbolValidationManager))
        || (skipitAtWarm && comp()->getMethodHotness()==warm))
       return 1;
 
@@ -309,8 +309,6 @@ void TR_StringPeepholes::processBlock(TR::Block *block)
    {
    TR::TreeTop *exit = block->getExit();
 
-   //traceMsg(comp(), "looking at block_%d\n", block->getNumber());
-
    for (TR::TreeTop *tt = block->getEntry();
         tt != exit;
         tt = tt->getNextRealTreeTop())
@@ -330,18 +328,26 @@ void TR_StringPeepholes::processBlock(TR::Block *block)
             if (trace())
                traceMsg(comp(), "--stringbuffer-- in %s\n", comp()->signature());
 
+            TR::TreeTop *prevTree = tt->getPrevTreeTop();
             TR::TreeTop *newTree = detectPattern(block, tt, true);
             if (newTree)
+               {
+               postProcessTreesForOSR(prevTree->getNextTreeTop(), newTree);
                tt = newTree;
+               }
             }
          else if (len == 23 && !strncmp(className, "java/lang/StringBuilder", 23))
             {
             if (trace())
                traceMsg(comp(), "--stringbuilder-- in %s\n", comp()->signature());
 
+            TR::TreeTop *prevTree = tt->getPrevTreeTop();
             TR::TreeTop *newTree = detectPattern(block, tt, false);
             if (newTree)
+               {
+               postProcessTreesForOSR(prevTree->getNextTreeTop(), newTree);
                tt = newTree;
+               }
             }
          }
       else if (comp()->isOutermostMethod() && !optimizer()->isIlGenOpt())
@@ -437,12 +443,19 @@ void TR_StringPeepholes::processBlock(TR::Block *block)
              comp()->isOutermostMethod() &&
              !optimizer()->isIlGenOpt())
             {
+            TR::TreeTop *prevTree = tt->getPrevTreeTop();
             TR::TreeTop *newTree = detectBDPattern(tt, exit, node);
             if (newTree)
+               {
+               postProcessTreesForOSR(prevTree->getNextTreeTop(), newTree);
                tt = newTree;
+               }
             }
 
-         if (comp()->isOutermostMethod() && !optimizer()->isIlGenOpt() && !comp()->getOption(TR_DisableDecimalFormatPeephole))
+         // check that the helper class is available before invoking the matcher
+         TR_OpaqueClassBlock *DFHClass = fe()->getClassFromSignature("com/ibm/jit/DecimalFormatHelper", 31, comp()->getCurrentMethod());
+         if (comp()->isOutermostMethod() && !optimizer()->isIlGenOpt() && !comp()->getOption(TR_DisableDecimalFormatPeephole) &&
+            DFHClass != NULL)
             {
             TR::TreeTop *newTree = detectFormatPattern(tt, exit, callNode);
             if (newTree)
@@ -454,9 +467,13 @@ void TR_StringPeepholes::processBlock(TR::Block *block)
              comp()->isOutermostMethod() &&
              !optimizer()->isIlGenOpt())
             {
+            TR::TreeTop *prevTree = tt->getPrevTreeTop();
             TR::TreeTop *newTree = detectSubMulSetScalePattern(tt, exit, callNode);
             if (newTree)
+               {
+               postProcessTreesForOSR(prevTree->getNextTreeTop(), newTree);
                tt = newTree;
+               }
             }
          }
       }
@@ -817,8 +834,8 @@ TR::TreeTop *TR_StringPeepholes::detectFormatPattern(TR::TreeTop *tt, TR::TreeTo
             if (needsNullCheck && node->getOpCode().isCall())
                {
                TR::Node *arg = node->getChild(node->getFirstArgumentIndex());
-               arg = TR::Node::create(TR::PassThrough, 1, arg);
-               TR::Node * nullChkNode = TR::Node::createWithSymRef(TR::NULLCHK, 1, 1, arg, getSymRefTab()->findOrCreateRuntimeHelper(TR_nullCheck, false, true, true));
+               arg = TR::Node::create(node, TR::PassThrough, 1, arg);
+               TR::Node * nullChkNode = TR::Node::createWithSymRef(node, TR::NULLCHK, 1, arg, getSymRefTab()->findOrCreateRuntimeHelper(TR_nullCheck, false, true, true));
                nullChkTT = TR::TreeTop::create(comp(), nullChkNode);
                prevTree->insertAfter(nullChkTT);
                traceMsg(comp(), "\t%sInserted NULLCHK %p for receiver of original call tree %p\n", optDetailString(), nullChkNode, firstTree->getNode());
@@ -826,6 +843,7 @@ TR::TreeTop *TR_StringPeepholes::detectFormatPattern(TR::TreeTop *tt, TR::TreeTo
 
             if (performTransformation(comp(), "%sAttempting to inline call [%p]\n", optDetailString(), tt->getNode()))
                {
+               nextNode->getByteCodeInfo().setDoNotProfile(true);
                TR_InlineCall newInlineCall(optimizer(), this);
                newInlineCall.setSizeThreshold(800);
                bool inlineOK = newInlineCall.inlineCall(tt, 0, true, 0, 400);
@@ -864,6 +882,7 @@ TR::TreeTop *TR_StringPeepholes::detectFormatPattern(TR::TreeTop *tt, TR::TreeTo
                else
                   {
                   //now that inlining wasn't successful, revert back all the changes done to the IL
+                  nextNode->getByteCodeInfo().setDoNotProfile(false);
                   nextNode->setSymbolReference(origSymRef);
                   nextNode->getSecondChild()->recursivelyDecReferenceCount();
                   nextNode->setChild(1, origSecondChild);
@@ -1127,7 +1146,8 @@ TR::TreeTop *TR_StringPeepholes::detectBDPattern(TR::TreeTop *tt, TR::TreeTop *e
       tt = tt->getNextTreeTop();
       while (tt != exit)
          {
-         if (tt->getNode()->getOpCode().isAnchor())
+         if (tt->getNode()->getOpCode().isAnchor() ||
+             skipNodeUnderOSR(tt->getNode()))
             {
             tt = tt->getNextTreeTop();
             continue;
@@ -1566,7 +1586,7 @@ TR::TreeTop *TR_StringPeepholes::detectBDPattern(TR::TreeTop *tt, TR::TreeTop *e
 
                      if (targetNode->getOpCode().hasSymbolReference() &&
                          targetNode->getSymbolReference() == sourceNode->getSymbolReference() &&
-                        (targetNode->getOpCodeValue() == TR::astorei || targetNode->getOpCodeValue() == TR::wrtbari))
+                        (targetNode->getOpCodeValue() == TR::astorei || targetNode->getOpCodeValue() == TR::awrtbari))
                         {
 
                         int32_t len;
@@ -1881,7 +1901,7 @@ TR::TreeTop *TR_StringPeepholes::detectPattern(TR::Block *block, TR::TreeTop *tt
    //  acall[StringBuffer.toString()]          new
    //    ==>acall                                loadaddr [String]
    //                                        treetop
-   //                                          vcall [StringBuffer.<init>]
+   //                                          vcall [String.<init>]
    //                                            ==>new
    //                                            ==>aload
    //                                            ==>aload
@@ -1936,6 +1956,8 @@ TR::TreeTop *TR_StringPeepholes::detectPattern(TR::Block *block, TR::TreeTop *tt
       }
 
 
+   TR::Node *stringNode = toStringTree->getNode()->getFirstChild();
+
    // if we found append of something other than a string we need to convert
    // them to strings using String.valueOf
    if (!specialCase)
@@ -1945,9 +1967,9 @@ TR::TreeTop *TR_StringPeepholes::detectPattern(TR::Block *block, TR::TreeTop *tt
             // create a new treetop for String.valueOf()
             //                                                      nodeToConvert
             TR::SymbolReference * symRef = getSymRefTab()->findOrCreateMethodSymbol((appendedString[j] && appendedString[j]->getOpCode().hasSymbolReference()) ? appendedString[j]->getSymbolReference()->getOwningMethodIndex() : JITTED_METHOD_INDEX, -1, valueOfSymRef[j]->getSymbol()->getResolvedMethodSymbol()->getResolvedMethod(), TR::MethodSymbol::Static);
-            TR::Node *valueOf = TR::Node::createWithSymRef(TR::acall, 1, 1, appendedString[j], symRef);
+            TR::Node *valueOf = TR::Node::createWithSymRef(stringNode, TR::acall, 1, appendedString[j], symRef);
             TR::TreeTop::create(comp(), appendTree[j],
-                               TR::Node::create(TR::treetop, 1, valueOf));
+                               TR::Node::create(stringNode, TR::treetop, 1, valueOf));
             // modify the content of the appendString[i] so that we take the
             // result from the newly created valueOf node
             appendedString[j] = valueOf;
@@ -1959,7 +1981,6 @@ TR::TreeTop *TR_StringPeepholes::detectPattern(TR::Block *block, TR::TreeTop *tt
    //   new
    //     loadaddr (string class)
    TR::Node::recreate(toStringTree->getNode(), TR::treetop);
-   TR::Node *stringNode = toStringTree->getNode()->getFirstChild();
    stringNode->getFirstChild()->recursivelyDecReferenceCount();
    TR::Node::recreate(stringNode, TR::New);
    stringNode->setNumChildren(1);
@@ -2016,7 +2037,7 @@ TR::TreeTop *TR_StringPeepholes::detectPattern(TR::Block *block, TR::TreeTop *tt
       }
 
    //printf("Before call to create.  initCall = %p",initCall); fflush(stdout);
-   TR::Node *treeTop = TR::Node::create(TR::treetop, 1, initCall);
+   TR::Node *treeTop = TR::Node::create(stringNode, TR::treetop, 1, initCall);
    TR::TreeTop *initCallTree = TR::TreeTop::create(comp(), toStringTree, treeTop);
    genFlush(initCallTree, initCall->getFirstChild());
 
@@ -2034,22 +2055,7 @@ TR::TreeTop *TR_StringPeepholes::detectPattern(TR::Block *block, TR::TreeTop *tt
       initTree->getNode()->setAndIncChild(0,appendedString[0]);
       }
 
-   // Walk region and ensure all possible OSR transition points are marked as cannotAttemptOSR
-   // as they will not be able to reconstruct their stacks without the StringBuilder
-   if (comp()->getOption(TR_EnableOSR))
-      {
-      for (TR::TreeTop *tt = newTree; tt != initCallTree; tt = tt->getNextTreeTop())
-         {
-         TR::Node *osrNode = NULL;
-         if (comp()->isPotentialOSRPoint(tt->getNode(), &osrNode))
-            {
-            if (trace())
-               traceMsg(comp(), "Can no longer OSR at [%p]\n", osrNode);
-            comp()->getMethodSymbol()->setCannotAttemptOSR(osrNode->getByteCodeIndex());
-            }
-         }
-      }
-
+   removeAllocationFenceOfNew(newTree);
    removePendingPushOfResult(newTree);
    TR::TransformUtil::removeTree(comp(), newTree);
 
@@ -2092,9 +2098,27 @@ bool TR_StringPeepholes::checkMethodSignature(TR::SymbolReference *symRef, const
  */
 bool TR_StringPeepholes::skipNodeUnderOSR(TR::Node *node)
    {
-   return comp()->getOption(TR_EnableOSR)
-      && comp()->isOSRTransitionTarget(TR::postExecutionOSR)
-      && comp()->getMethodSymbol()->isOSRRelatedNode(node);
+   bool result = false;
+   if (comp()->getOption(TR_EnableOSR)
+      && comp()->isOSRTransitionTarget(TR::postExecutionOSR))
+      {
+      if (comp()->getMethodSymbol()->isOSRRelatedNode(node))
+         {
+         result = true;
+         }
+      }
+
+   if (!result &&
+       node->getOpCodeValue() == TR::treetop &&
+       node->getFirstChild()->isPotentialOSRPointHelperCall())
+      {
+      result = true;
+      }
+
+   if (result && trace())
+      traceMsg(comp(), "Skipping OSR node [%p] n%dn\n", node, node->getGlobalIndex());
+
+   return result;
    }
 
 /*
@@ -2113,6 +2137,19 @@ void TR_StringPeepholes::removePendingPushOfResult(TR::TreeTop *callTreeTop)
             TR::TransformUtil::removeTree(comp(), cursor);
          cursor = cursor->getNextTreeTop();
          }
+      }
+   }
+
+// If new tree is going to be removed, the allocationfence on the new node
+// has to be removed as well
+void TR_StringPeepholes::removeAllocationFenceOfNew(TR::TreeTop *newTreeTop)
+   {
+   TR::TreeTop *cursor = newTreeTop->getNextTreeTop();
+   if (cursor
+       && cursor->getNode()->getOpCodeValue() == TR::allocationFence
+       && cursor->getNode()->getFirstChild() == newTreeTop->getNode()->getFirstChild())
+      {
+      TR::TransformUtil::removeTree(comp(), cursor);
       }
    }
 
@@ -2304,3 +2341,20 @@ TR::TreeTop *TR_StringPeepholes::searchForToStringCall(TR::TreeTop *tt, TR::Tree
    return tt;
    }
 
+void TR_StringPeepholes::postProcessTreesForOSR(TR::TreeTop *startTree, TR::TreeTop *endTree)
+   {
+   if (comp()->supportsInduceOSR() &&
+       comp()->isOSRTransitionTarget(TR::postExecutionOSR) &&
+       comp()->getOSRMode() == TR::voluntaryOSR)
+      {
+      if (trace())
+         {
+         TR::Node* startNode = startTree->getNode();
+         TR::Node* endNode = endTree->getNode();
+         traceMsg(comp(), "Post process Trees from %p n%dn to %p n%dn for OSR\n", startNode, startNode->getGlobalIndex(), endNode, endNode->getGlobalIndex());
+         }
+
+      TR::TransformUtil::removePotentialOSRPointHelperCalls(comp(), startTree, endTree);
+      TR::TransformUtil::prohibitOSROverRange(comp(), startTree, endTree);
+      }
+   }

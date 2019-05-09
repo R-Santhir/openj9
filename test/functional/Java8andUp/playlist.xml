@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <!--
-  Copyright (c) 2016, 2018 IBM Corp. and others
+  Copyright (c) 2016, 2019 IBM Corp. and others
 
   This program and the accompanying materials are made available under
   the terms of the Eclipse Public License 2.0 which accompanies this
@@ -32,12 +32,22 @@
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+	</test>
+
+	<test>
+		<testCaseName>truncatedReturnTest</testCaseName>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(LIB_DIR)$(D)asm-all.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames truncatedReturn \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -57,12 +67,6 @@
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -82,12 +86,6 @@
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -115,18 +113,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
-		<testCaseName>jsr335_interfacePrivateMethod_mode100</testCaseName>
+		<testCaseName>jsr335_interfacePrivateMethod</testCaseName>
 		<variations>
 			<variation>Mode100</variation>
+			<variation>NoOptions</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(P)$(LIB_DIR)$(D)asm-all.jar$(Q) \
@@ -134,12 +127,6 @@
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -152,7 +139,7 @@
 	<test>
 		<testCaseName>AttachAPISanity_SE80</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames AttachAPISanity \
@@ -166,19 +153,17 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>AttachAPISanity</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Djdk.attach.allowAttachSelf=true \
 	-Dcom.ibm.tools.attach.timeout=15000 \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames AttachAPISanity \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -190,16 +175,15 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestAttachAPI_SE80</testCaseName>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+	$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestAttachAPI \
@@ -212,17 +196,19 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestAttachAPI</testCaseName>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+		$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestAttachAPI \
@@ -235,17 +221,18 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestAttachAPIEnabling_SE80</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestAttachAPIEnabling \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -257,19 +244,17 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestAttachAPIEnabling</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Djdk.attach.allowAttachSelf=true \
 	-Dcom.ibm.tools.attach.timeout=15000 \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestAttachAPIEnabling \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -281,16 +266,14 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestAttachErrorHandling_SE80</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	-cp $(Q)$(RESOURCES_DIR)$(P)$(JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestAttachErrorHandling \
@@ -304,18 +287,16 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestAttachErrorHandling</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestAttachErrorHandling \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -327,16 +308,15 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestSunAttachClasses_SE80</testCaseName>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+	$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestSunAttachClasses \
@@ -349,20 +329,22 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestSunAttachClasses</testCaseName>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+		$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	-Djdk.attach.allowAttachSelf=true \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestSunAttachClasses \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -373,17 +355,18 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestManagementAgent_SE80</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestManagementAgent \
@@ -397,18 +380,16 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestManagementAgent</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=yes \
 	-Dcom.ibm.tools.attach.timeout=15000 \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestManagementAgent \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -420,12 +401,112 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 	<!-- Attach API tests -->
+
+	<test>
+		<testCaseName>TestJps_SE80</testCaseName>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-Dcom.ibm.tools.attach.enable=yes \
+	-Djdk.attach.allowAttachSelf=true \
+	-Dcom.ibm.tools.attach.timeout=15000 \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestJps \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<subsets>
+			<subset>8</subset>
+		</subsets>
+		<impls>
+			<impl>openj9</impl>
+		 </impls>
+	</test>
+
+	<test>
+		<testCaseName>TestJps</testCaseName>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-Dcom.ibm.tools.attach.enable=yes \
+	-Djdk.attach.allowAttachSelf=true \
+	-Dcom.ibm.tools.attach.timeout=15000 \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestJps \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<subsets>
+			<subset>9+</subset>
+		</subsets>
+		<impls>
+			<impl>openj9</impl>
+		 </impls>
+	</test>
+
+	<test>
+		<testCaseName>TestJstack_SE80</testCaseName>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_JDK_HOME)$(D)lib$(D)tools.jar$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-Dcom.ibm.tools.attach.enable=yes \
+	-Djdk.attach.allowAttachSelf=true \
+	-Dcom.ibm.tools.attach.timeout=15000 \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestJstack \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<subsets>
+			<subset>8</subset>
+		</subsets>
+		<impls>
+			<impl>openj9</impl>
+		 </impls>
+	</test>
+
+	<test>
+		<testCaseName>TestJstack</testCaseName>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-Dcom.ibm.tools.attach.enable=yes \
+	-Djdk.attach.allowAttachSelf=true \
+	-Dcom.ibm.tools.attach.timeout=15000 \
+	--add-exports jdk.jcmd/openj9.tools.attach.diagnostics.info=ALL-UNNAMED \
+	--add-exports java.base/openj9.tools.attach.diagnostics.base=ALL-UNNAMED \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestJstack \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<subsets>
+			<subset>9+</subset>
+		</subsets>
+		<impls>
+			<impl>openj9</impl>
+		 </impls>
+	</test>
 
 	<test>
 		<testCaseName>TestFileLocking_SE80</testCaseName>
@@ -443,17 +524,15 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
 	<test>
 		<testCaseName>TestFileLocking</testCaseName>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
-	--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	-Dcom.ibm.tools.attach.enable=no \
-	-Djava.sidecar="--add-exports=java.base/com.ibm.tools.attach.target=ALL-UNNAMED" \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames TestFileLocking \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
@@ -465,9 +544,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
@@ -489,12 +566,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -515,12 +586,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -541,12 +606,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -567,12 +626,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -593,12 +646,53 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+	</test>
+
+	<test>
+		<testCaseName>gcPolicyNogcTest</testCaseName>
+		<variations>
+			<variation>-Xgcpolicy:nogc -Xms128m -Xmx1G -verbose:gc</variation>
+			<variation>-XX:+UseNoGC -Xms128m -Xmx1G</variation>
+		</variations>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames gcPolicyNogcTest \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		 </impls>
+	</test>
+	<test>
+		<testCaseName>gcPolicyNogcOOMTest</testCaseName>
+		<variations>
+			<variation>-Xgcpolicy:nogc -Xms128m -Xmx1G</variation>
+			<variation>-Xgcpolicy:nogc -Xms128m -Xmx1G -Xdump:none:events=systhrow,filter=java/lang/OutOfMemoryError</variation>
+		</variations>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames gcPolicyNogcOOMTest \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		 </impls>
 	</test>
 
 	<test>
@@ -623,8 +717,11 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
@@ -651,10 +748,11 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
@@ -666,12 +764,6 @@
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -686,20 +778,19 @@
 			<variation>NoOptions</variation>
 			<variation>-XX:RecreateClassfileOnload</variation>
 		</variations>
-		<command>$(MKTREE) $(REPORTDIR); \
-	cd $(REPORTDIR); \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
 	-Drowset.provider.classname=org.openj9.resources.classloader.CustomSyncProvider \
 	--add-modules openj9.sharedclasses $(ADD_MODULE_JAVA_SE_EE) \
-	--add-exports java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.vm=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.util=ALL-UNNAMED \
 	--add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED \
 	--add-exports java.base/jdk.internal.misc=ALL-UNNAMED $(ADD_EXPORTS_JDK_INTERNAL_REFLECT) \
 	--add-exports java.base/com.ibm.jit.crypto=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.reflect=ALL-UNNAMED \
+	--add-exports java.base/sun.net.www.protocol.jrt=ALL-UNNAMED \
 	--add-opens=java.base/java.lang=ALL-UNNAMED \
 	--add-opens=java.base/java.security=ALL-UNNAMED \
+	$(ADD_EXPORTS_JDK_INTERNAL_ACCESS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(P)$(TEST_RESROOT)$(D)TestResources.jar$(P)$(LIB_DIR)$(D)asm-all.jar$(JAXB_API_JAR)$(Q) \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
 	-testnames \
@@ -729,9 +820,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
@@ -741,12 +830,9 @@
 			<variation>NoOptions</variation>
 			<variation>-XX:RecreateClassfileOnload</variation>
 		</variations>
-		<command>$(MKTREE) $(REPORTDIR); \
-	cd $(REPORTDIR); \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump:none -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump:none -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
 	-Drowset.provider.classname=org.openj9.resources.classloader.CustomSyncProvider \
 	--add-modules openj9.sharedclasses $(ADD_MODULE_JAVA_SE_EE) \
-	--add-exports java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.vm=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.util=ALL-UNNAMED \
 	--add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED \
@@ -770,9 +856,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
@@ -782,9 +866,7 @@
 			<variation>NoOptions</variation>
 			<variation>-XX:RecreateClassfileOnload</variation>
 		</variations>
-		<command>$(MKTREE) $(REPORTDIR); \
-	cd $(REPORTDIR); \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(P)$(TEST_RESROOT)$(D)TestResources.jar$(P)$(LIB_DIR)$(D)asm-all.jar$(Q) \
 	-Drowset.provider.classname=org.openj9.resources.classloader.CustomSyncProvider \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
@@ -815,7 +897,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
@@ -825,9 +907,7 @@
 			<variation>NoOptions</variation>
 			<variation>-XX:RecreateClassfileOnload</variation>
 		</variations>
-		<command>$(MKTREE) $(REPORTDIR); \
-	cd $(REPORTDIR); \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump:none -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump:none -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(P)$(TEST_RESROOT)$(D)TestResources.jar$(P)$(LIB_DIR)$(D)asm-all.jar$(Q) \
 	-Drowset.provider.classname=org.openj9.resources.classloader.CustomSyncProvider \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
@@ -844,7 +924,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
@@ -872,9 +952,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
@@ -903,7 +981,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 <!--
@@ -915,9 +993,7 @@
 		<variations>
 			<variation>NoOptions</variation>
 		</variations>
-		<command>$(MKTREE) $(REPORTDIR); \
-	cd $(REPORTDIR); \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace \
 	-Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)testacc.policy$(Q) \
 	-Xbootclasspath/a:$(TEST_RESROOT)$(D)TestResources.jar \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(P)$(TEST_RESROOT)$(D)TestResources.jar$(P)$(LIB_DIR)$(D)asm-all.jar$(Q) \
@@ -934,7 +1010,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 
@@ -946,11 +1022,8 @@
 		<variations>
 			<variation>NoOptions</variation>
 		</variations>
-		<command>$(MKTREE) $(REPORTDIR); \
-	cd $(REPORTDIR); \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -verbose:stacktrace \
 	--add-modules openj9.sharedclasses $(ADD_MODULE_JAVA_SE_EE) \
-	--add-exports java.base/com.ibm.tools.attach.target=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.vm=ALL-UNNAMED \
 	--add-exports java.base/com.ibm.oti.util=ALL-UNNAMED \
 	--add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED \
@@ -975,9 +1048,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 
@@ -991,7 +1062,7 @@
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 		<levels>
 			<level>sanity</level>
@@ -999,6 +1070,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+    <variations>
+      <variation>'-Xjit:{*Test_JITHelpers*}(count=0)'</variation>
+    </variations>
 	</test>
 
 	<test>
@@ -1011,10 +1085,31 @@
 	-excludegroups $(DEFAULT_EXCLUDE); \
 	$(TEST_STATUS)</command>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+    <variations>
+      <variation>'-Xjit:{*Test_JITHelpers*}(count=0)'</variation>
+    </variations>
+	</test>
+
+	<test>
+		<testCaseName>JCL_TEST_MathMethods</testCaseName>
+		<variations>
+			<variation>$(SQ)-Xjit:disableAsyncCompilation,{*Test_Math*}(count=1)$(SQ)</variation>
+		</variations>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	-Dcom.ibm.tools.attach.enable=yes \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) -testnames JCL_TEST_MathMethods \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -1038,12 +1133,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1058,7 +1147,7 @@
 			<variation>Mode351 -Xjit:noJitUntilMain,count=0,optlevel=warm</variation>
 			<variation>Mode610 -Xjit:noJitUntilMain,count=0,optlevel=warm</variation>
 		</variations>
-		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) $(JAVA_COMMAND) $(JVM_OPTIONS)\
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) $(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
 	-testnames \
@@ -1073,12 +1162,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1089,7 +1175,7 @@
 			<variation>Mode351</variation>
 			<variation>Mode610</variation>
 		</variations>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS)\
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
 	-testnames \
@@ -1104,12 +1190,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1120,7 +1200,7 @@
 			<variation>Mode351 -Xthr:minimizeUserCPU</variation>
 			<variation>Mode610 -Xthr:minimizeUserCPU</variation>
 		</variations>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS)\
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
 	-testnames \
@@ -1135,12 +1215,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1151,7 +1225,7 @@
 			<variation>Mode351</variation>
 			<variation>Mode610</variation>
 		</variations>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS)\
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
 	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
 	-testnames \
@@ -1166,12 +1240,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1196,12 +1264,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1223,12 +1285,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1247,12 +1306,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1271,12 +1324,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 	
 	<test>
@@ -1295,12 +1342,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1326,12 +1367,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1355,12 +1393,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1383,12 +1418,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1407,12 +1439,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1430,12 +1456,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1453,12 +1473,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1477,12 +1491,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1509,12 +1517,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1538,12 +1540,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1567,12 +1566,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1590,12 +1586,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1613,12 +1603,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1637,12 +1621,9 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
+		<types>
+			<type>native</type>
+		</types>
 	</test>
 
 	<test>
@@ -1662,12 +1643,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1685,12 +1660,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<!--hanoiTM_* tests : This is the same regular hanoi test but we set JAVA_THREAD_MODEL
@@ -1713,12 +1682,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1738,12 +1701,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1763,12 +1720,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 	
 	<!-- This test should fail, so a wrapper is used to wrap the return non-zero code -->
@@ -1781,7 +1732,7 @@
 	-testnames hanoiTest \
 	-groups $(TEST_GROUP) \
 	-excludegroups $(DEFAULT_EXCLUDE); \
-	if [ $$? -ne 0 ] ; then echo "hanoiTestTM_SHOULDFAIL test failed as expected"; else sh triggerAFailure.sh ; fi; \
+	if [ $$? -ne 0 ] ; then echo $(Q)hanoiTestTM_SHOULDFAIL test failed as expected$(Q); else sh triggerAFailure.sh ; fi; \
 	$(TEST_STATUS)</command>
 		<platformRequirements>os.zos</platformRequirements>
 		<levels>
@@ -1790,12 +1741,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1814,12 +1759,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1837,12 +1776,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1864,14 +1797,48 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
-
+	<test>
+		<testCaseName>testStringIndexOfString</testCaseName>
+		<variations>
+			<variation>NoOptions</variation>
+			<variation>$(SQ)-Xjit:disableAsyncCompilation,tryToInline={java/lang/String.indexOf*},limit={org/openj9/test/string/StringIndexOfString.doTest*},{org/openj9/test/string/StringIndexOfString.doTest*}(count=50)$(SQ)</variation>
+		</variations>
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) $(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
+	-testnames testStringIndexOfString \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+	</test>
+	
+	<test>
+		<testCaseName>testStringStreams</testCaseName>
+		<variations>
+			<variation>NoOptions</variation>
+		</variations>
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
+	-cp $(Q)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)GeneralTest.jar$(Q) \
+	org.testng.TestNG -d $(REPORTDIR) $(Q)$(TEST_RESROOT)$(D)testng.xml$(Q) \
+	-testnames testStringStreams \
+	-groups $(TEST_GROUP) \
+	-excludegroups $(DEFAULT_EXCLUDE); \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+	</test>
+	
 	<test>
 		<testCaseName>floatSanityTests</testCaseName>
 		<variations>
@@ -1892,12 +1859,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 
 	<test>
@@ -1915,12 +1876,6 @@
 		<groups>
 			<group>functional</group>
 		</groups>
-		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
-		</subsets>
 	</test>
 	
 	<test>
@@ -1940,9 +1895,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 	
@@ -1962,7 +1915,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 

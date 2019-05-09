@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -46,28 +46,20 @@ Java_sun_misc_Unsafe_defineClass__Ljava_lang_String_2_3BIILjava_lang_ClassLoader
 	JNIEnv *env, jobject receiver, jstring className, jbyteArray classRep, jint offset, jint length, jobject classLoader, jobject protectionDomain)
 {
 	J9VMThread *currentThread = (J9VMThread *)env;
-	J9JavaVM *vm = currentThread->javaVM;
-	jclass result;
 
 	if (NULL == classLoader) {
-		j9object_t classLoaderObject;
+		J9JavaVM *vm = currentThread->javaVM;
 		J9InternalVMFunctions *vmFuncs = vm->internalVMFunctions;
+
 		vmFuncs->internalEnterVMFromJNI(currentThread);
 
-		classLoaderObject = J9CLASSLOADER_CLASSLOADEROBJECT(currentThread, vm->systemClassLoader);
+		j9object_t classLoaderObject = J9CLASSLOADER_CLASSLOADEROBJECT(currentThread, vm->systemClassLoader);
+
 		classLoader = vmFuncs->j9jni_createLocalRef(env, classLoaderObject);
 		vmFuncs->internalExitVMToJNI(currentThread);
 	}
 
-	result = defineClassCommon(env, classLoader, className, classRep, offset, length, protectionDomain, J9_FINDCLASS_FLAG_UNSAFE, NULL);
-
-	if (result != NULL) {
-		vm->internalVMFunctions->internalEnterVMFromJNI(currentThread);
-		vm->internalVMFunctions->fixUnsafeMethods(currentThread, result);
-		vm->internalVMFunctions->internalExitVMToJNI(currentThread);
-	}
-
-	return result;
+	return defineClassCommon(env, classLoader, className, classRep, offset, length, protectionDomain, J9_FINDCLASS_FLAG_UNSAFE, NULL);
 }
 
 jclass JNICALL
@@ -116,10 +108,6 @@ Java_sun_misc_Unsafe_defineAnonymousClass(JNIEnv *env, jobject receiver, jclass 
 		throwNewInternalError(env, NULL);
 		return NULL;
 	}
-
-	vmFuncs->internalEnterVMFromJNI(currentThread);
-	vmFuncs->fixUnsafeMethods(currentThread, anonClass);
-	vmFuncs->internalExitVMToJNI(currentThread);
 
 	return anonClass;
 }
@@ -929,7 +917,7 @@ Java_jdk_internal_misc_Unsafe_registerNatives(JNIEnv *env, jclass clazz)
 
 	Java_sun_misc_Unsafe_registerNatives(env, clazz);
 	registerJdkInternalMiscUnsafeNativesCommon(env, clazz);
-	if (J2SE_SHAPE(currentThread->javaVM) >= J2SE_SHAPE_V10) {
+	if (J2SE_VERSION(currentThread->javaVM) >= J2SE_V11) {
 		registerJdkInternalMiscUnsafeNativesJava10(env, clazz);
 	}
 }
@@ -1049,4 +1037,4 @@ illegal:
 	vmFuncs->internalReleaseVMAccess(currentThread);
 }
 
-}
+} /* extern "C" */

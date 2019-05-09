@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -40,35 +40,34 @@
 #include "compile/CompilationTypes.hpp"
 #include "compile/Method.hpp"
 #include "control/CompilationController.hpp"
+#include "control/CompilationRuntime.hpp"
 #include "control/Options.hpp"
 #include "control/Options_inlines.hpp"
 #include "control/Recompilation.hpp"
-#include "env/IO.hpp"
-#include "env/TRMemory.hpp"
-#include "env/PersistentInfo.hpp"
-#include "env/jittypes.h"
 #include "env/CompilerEnv.hpp"
-#include "ilgen/IlGeneratorMethodDetails_inlines.hpp"
-#include "runtime/CodeCacheManager.hpp"
-#include "runtime/Runtime.hpp"
-#include "runtime/asmprotos.h"
-#include "control/CompilationRuntime.hpp"
+#include "env/IO.hpp"
 #include "env/J2IThunk.hpp"
 #include "env/j9method.h"
+#include "env/jittypes.h"
+#include "env/PersistentInfo.hpp"
+#include "env/TRMemory.hpp"
 #include "env/ut_j9jit.h"
+#include "runtime/asmprotos.h"
+#include "runtime/CodeCacheManager.hpp"
+#include "runtime/J9Runtime.hpp"
+#include "runtime/J9ValueProfiler.hpp"
 #include "runtime/IProfiler.hpp"
+#include "ilgen/IlGeneratorMethodDetails_inlines.hpp"
 
-#if defined(TR_HOST_X86) || defined(TR_HOST_POWER) || defined(TR_HOST_S390) || defined(TR_HOST_ARM)
+#if defined(TR_HOST_X86) || defined(TR_HOST_POWER) || defined(TR_HOST_S390) || defined(TR_HOST_ARM) || defined(TR_HOST_ARM64)
 #include "codegen/PicHelpers.hpp"
 #include "control/Recompilation.hpp"
-#include "runtime/Runtime.hpp"
 #endif
 
 #if defined(TR_HOST_X86)
 #include "x/runtime/X86Runtime.hpp"
 #endif
 
-#include "runtime/J9ValueProfiler.hpp"
 
 #if defined(J9ZOS390)
 static UDATA sliphandle=0;
@@ -643,7 +642,7 @@ void J9FASTCALL _jitProfileStringValue(uintptrj_t value, int32_t charsOffset, in
       {
       readValues = true;
 
-#if defined(J9VM_GC_COMPRESSED_POINTERS)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
       J9JavaVM *jvm = jitConfig->javaVM;
       if (!jvm)
          return;
@@ -845,7 +844,7 @@ void dumpInstanceFieldsForClass(::FILE *fp, J9Class *instanceClass, J9VMThread *
 
             fprintf(fp, "%u, %.*s, %.*s, %08x, ", instanceClass, J9UTF8_LENGTH(sigUTF), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(nameUTF), J9UTF8_DATA(nameUTF), romFieldCursor->modifiers);
 
-            offset = javaVM->internalVMFunctions->instanceFieldOffset(vmThread, superclass, J9UTF8_DATA(nameUTF), J9UTF8_LENGTH(nameUTF), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(sigUTF), NULL, NULL, 0);
+            offset = javaVM->internalVMFunctions->instanceFieldOffset(vmThread, superclass, J9UTF8_DATA(nameUTF), J9UTF8_LENGTH(nameUTF), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(sigUTF), NULL, NULL, J9_LOOK_NO_JAVA);
 
             if (offset >= 0)
                {
@@ -880,7 +879,7 @@ void dumpClassStaticsForClass(::FILE *fp, J9Class *clazz, J9VMThread *vmThread)
 
          fprintf(fp, "%u, %.*s, %.*s, %08x, ", clazz, J9UTF8_LENGTH(sigUTF), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(nameUTF), J9UTF8_DATA(nameUTF), romFieldCursor->modifiers);
 
-         void *address = javaVM->internalVMFunctions->staticFieldAddress(vmThread, clazz, J9UTF8_DATA(nameUTF), J9UTF8_LENGTH(nameUTF), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(sigUTF), NULL, NULL, 0, NULL);
+         void *address = javaVM->internalVMFunctions->staticFieldAddress(vmThread, clazz, J9UTF8_DATA(nameUTF), J9UTF8_LENGTH(nameUTF), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(sigUTF), NULL, NULL, J9_LOOK_NO_JAVA, NULL);
 
          if (address)
             {
@@ -1106,14 +1105,18 @@ extern "C" void _patchJNICallSite(J9Method *method, uint8_t *pc, uint8_t *newAdd
    }
 #endif
 
+#if defined(TR_HOST_X86)
+JIT_HELPER(prepareForOSR);
+#else
 JIT_HELPER(_prepareForOSR);
+#endif
 
 #ifdef TR_HOST_X86
-JIT_HELPER(_countingRecompileMethod);
-JIT_HELPER(_samplingRecompileMethod);
-JIT_HELPER(_countingPatchCallSite);
-JIT_HELPER(_samplingPatchCallSite);
-JIT_HELPER(_induceRecompilation);
+JIT_HELPER(countingRecompileMethod);
+JIT_HELPER(samplingRecompileMethod);
+JIT_HELPER(countingPatchCallSite);
+JIT_HELPER(samplingPatchCallSite);
+JIT_HELPER(induceRecompilation);
 
 #elif defined(TR_HOST_POWER)
 
@@ -1131,6 +1134,9 @@ JIT_HELPER(_samplingRecompileMethod);
 JIT_HELPER(_countingPatchCallSite);
 JIT_HELPER(_countingRecompileMethod);
 JIT_HELPER(_induceRecompilation);
+JIT_HELPER(_revertToInterpreterGlue);
+
+#elif defined(TR_HOST_ARM64)
 JIT_HELPER(_revertToInterpreterGlue);
 
 #elif defined(TR_HOST_S390)
@@ -1197,25 +1203,27 @@ void initializeJitRuntimeHelperTable(char isSMP)
 
 #if defined(J9ZOS390)
    SET_CONST(TR_prepareForOSR,                  (void *)_prepareForOSR);
+#elif defined(TR_HOST_X86)
+   SET(TR_prepareForOSR,                        (void *)prepareForOSR, TR_Helper);
 #else
    SET(TR_prepareForOSR,                        (void *)_prepareForOSR, TR_Helper);
-#endif
+#endif /* TR_HOST_X86 */
 
 #ifdef TR_HOST_X86
 
-#  if defined(TR_HOST_64BIT)
-   SET(TR_AMD64samplingRecompileMethod,         (void *)_samplingRecompileMethod, TR_Helper);
-   SET(TR_AMD64countingRecompileMethod,         (void *)_countingRecompileMethod, TR_Helper);
-   SET(TR_AMD64samplingPatchCallSite,           (void *)_samplingPatchCallSite,   TR_Helper);
-   SET(TR_AMD64countingPatchCallSite,           (void *)_countingPatchCallSite,   TR_Helper);
-   SET(TR_AMD64induceRecompilation,             (void *)_induceRecompilation,     TR_Helper);
-#  else
-   SET(TR_IA32samplingRecompileMethod,          (void *)_samplingRecompileMethod, TR_Helper);
-   SET(TR_IA32countingRecompileMethod,          (void *)_countingRecompileMethod, TR_Helper);
-   SET(TR_IA32samplingPatchCallSite,            (void *)_samplingPatchCallSite,   TR_Helper);
-   SET(TR_IA32countingPatchCallSite,            (void *)_countingPatchCallSite,   TR_Helper);
-   SET(TR_IA32induceRecompilation,              (void *)_induceRecompilation,     TR_Helper);
-#  endif
+#if defined(TR_HOST_64BIT)
+   SET(TR_AMD64samplingRecompileMethod,         (void *)samplingRecompileMethod, TR_Helper);
+   SET(TR_AMD64countingRecompileMethod,         (void *)countingRecompileMethod, TR_Helper);
+   SET(TR_AMD64samplingPatchCallSite,           (void *)samplingPatchCallSite,   TR_Helper);
+   SET(TR_AMD64countingPatchCallSite,           (void *)countingPatchCallSite,   TR_Helper);
+   SET(TR_AMD64induceRecompilation,             (void *)induceRecompilation,     TR_Helper);
+#else /* TR_HOST_64BIT */
+   SET(TR_IA32samplingRecompileMethod,          (void *)samplingRecompileMethod, TR_Helper);
+   SET(TR_IA32countingRecompileMethod,          (void *)countingRecompileMethod, TR_Helper);
+   SET(TR_IA32samplingPatchCallSite,            (void *)samplingPatchCallSite,   TR_Helper);
+   SET(TR_IA32countingPatchCallSite,            (void *)countingPatchCallSite,   TR_Helper);
+   SET(TR_IA32induceRecompilation,              (void *)induceRecompilation,     TR_Helper);
+#endif /* TR_HOST_64BIT */
 
 #elif defined(TR_HOST_POWER)
 
@@ -1233,6 +1241,9 @@ void initializeJitRuntimeHelperTable(char isSMP)
    SET(TR_ARMcountingPatchCallSite,             (void *)_countingPatchCallSite,   TR_Helper);
    SET(TR_ARMinduceRecompilation,               (void *)_induceRecompilation,     TR_Helper);
    SET(TR_ARMrevertToInterpreterGlue,           (void *)_revertToInterpreterGlue, TR_Helper);
+
+#elif defined(TR_HOST_ARM64)
+   SET(TR_ARM64revertToInterpreterGlue,           (void *)_revertToInterpreterGlue, TR_Helper);
 
 #elif defined(TR_HOST_S390)
    SET(TR_S390samplingRecompileMethod,          (void *)_samplingRecompileMethod,   TR_Helper);
@@ -1304,7 +1315,7 @@ void platformUnlock(uint32_t *ptr)
    }
 }
 
-#if defined(TR_HOST_X86) || defined(TR_HOST_POWER) || defined(TR_HOST_S390) || (defined(TR_HOST_ARM))
+#if defined(TR_HOST_X86) || defined(TR_HOST_POWER) || defined(TR_HOST_S390) || defined(TR_HOST_ARM) || defined(TR_HOST_ARM64)
 uint32_t *getLinkageInfo(void *startPC)
    {
    return (uint32_t *)TR_LinkageInfo::get(startPC);
@@ -1589,7 +1600,11 @@ uint8_t *compileMethodHandleThunk(j9object_t methodHandle, j9object_t arg, J9VMT
    return startPC;
    }
 
+#if defined(TR_HOST_X86)
+JIT_HELPER(initialInvokeExactThunkGlue);
+#else
 JIT_HELPER(_initialInvokeExactThunkGlue);
+#endif
 
 void *initialInvokeExactThunk(j9object_t methodHandle, J9VMThread *vmThread)
    {
@@ -1657,14 +1672,21 @@ void *initialInvokeExactThunk(j9object_t methodHandle, J9VMThread *vmThread)
    else
       {
       uintptrj_t fieldOffset = fej9->getInstanceFieldOffset(fej9->getObjectClass(thunkTuple), "invokeExactThunk", "J");
+#if defined(TR_HOST_X86)
+      bool success = fej9->compareAndSwapInt64Field(thunkTuple, "invokeExactThunk", (uint64_t)(uintptrj_t)initialInvokeExactThunkGlue, (uint64_t)(uintptrj_t)addressToDispatch);
+      
+      if (details)
+         TR_VerboseLog::writeLineLocked(TR_Vlog_MHD, "%p   %s updating ThunkTuple %p field %+d from %p to %p",
+            vmThread, success? "Succeeded" : "Failed", thunkTuple, (int)fieldOffset, initialInvokeExactThunkGlue, addressToDispatch);
+#else
       bool success = fej9->compareAndSwapInt64Field(thunkTuple, "invokeExactThunk", (uint64_t)(uintptrj_t)_initialInvokeExactThunkGlue, (uint64_t)(uintptrj_t)addressToDispatch);
       // If the CAS fails, we don't care much.  It just means another thread may already have put a MH thunk pointer in there.
 
       if (details)
          TR_VerboseLog::writeLineLocked(TR_Vlog_MHD, "%p   %s updating ThunkTuple %p field %+d from %p to %p",
             vmThread, success? "Succeeded" : "Failed", thunkTuple, (int)fieldOffset, _initialInvokeExactThunkGlue, addressToDispatch);
+#endif /* TR_HOST_X86 */
       }
-
    return addressToDispatch;
    }
 

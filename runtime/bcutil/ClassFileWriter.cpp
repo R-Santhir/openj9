@@ -310,6 +310,9 @@ ClassFileWriter::analyzeConstantPool()
 		case J9CPTYPE_ANNOTATION_UTF8:
 			addEntry(J9ROMSTRINGREF_UTF8DATA((J9ROMStringRef *) cpItem), i, CFR_CONSTANT_Utf8);
 			break;
+		case J9CPTYPE_CONSTANT_DYNAMIC:
+			addNASEntry(J9ROMCONSTANTDYNAMICREF_NAMEANDSIGNATURE((J9ROMConstantDynamicRef *) cpItem));
+			break;
 		default:
 			Trc_BCU_Assert_ShouldNeverHappen();
 			break;
@@ -593,6 +596,11 @@ ClassFileWriter::writeConstantPool()
 			writeU8(CFR_CONSTANT_Utf8);
 			writeU16(J9UTF8_LENGTH(J9ROMSTRINGREF_UTF8DATA((J9ROMStringRef *) cpItem)));
 			writeData(J9UTF8_LENGTH(J9ROMSTRINGREF_UTF8DATA((J9ROMStringRef *) cpItem)), J9UTF8_DATA(J9ROMSTRINGREF_UTF8DATA((J9ROMStringRef *) cpItem)));
+			break;
+		case J9CPTYPE_CONSTANT_DYNAMIC:
+			writeU8(CFR_CONSTANT_Dynamic);
+			writeU16(U_16((((J9ROMConstantDynamicRef *) cpItem)->bsmIndexAndCpType >> J9DescriptionCpTypeShift) & J9DescriptionCpBsmIndexMask));
+			writeU16(indexForNAS(J9ROMCONSTANTDYNAMICREF_NAMEANDSIGNATURE((J9ROMConstantDynamicRef *) cpItem)));
 			break;
 		default:
 			Trc_BCU_Assert_ShouldNeverHappen();
@@ -972,7 +980,7 @@ ClassFileWriter::writeAttributes()
 		}
 	} else if (NULL != nestHost) {
 		writeAttributeHeader((J9UTF8 *) &NEST_HOST, 2);
-		writeU16(indexForUTF8(nestHost));
+		writeU16(indexForClass(nestHost));
 	}
 #endif /* J9VM_OPT_VALHALLA_NESTMATES */
 
@@ -1236,8 +1244,14 @@ ClassFileWriter::rewriteBytecode(J9ROMMethod * method, U_32 length, U_8 * code)
 		case JBldc2lw: {
 				code[index] = CFR_BC_ldc2_w;
 				U_16 cpIndex = *(U_16 *)(code + index + 1);
-				/* Adjust index of double/long CP entry */
-				cpIndex = cpIndex + (cpIndex - _romClass->ramConstantPoolCount);
+				U_32 * cpShapeDescription = J9ROMCLASS_CPSHAPEDESCRIPTION(_romClass);
+
+				if (J9CPTYPE_CONSTANT_DYNAMIC != J9_CP_TYPE(cpShapeDescription, cpIndex)) {
+					/* Adjust index of double/long CP entry. Not necessary for Constant_Dynamic as
+					 * its already in the RAM CP while double/long are sorted to the end.
+					 */
+					cpIndex = cpIndex + (cpIndex - _romClass->ramConstantPoolCount);
+				}
 				writeU16At(cpIndex, code + index + 1);
 			}
 			break;
@@ -1341,6 +1355,10 @@ readdWide:
 		case JBreturn0: /* Fall-through */
 		case JBreturn1: /* Fall-through */
 		case JBreturn2: /* Fall-through */
+		case JBreturnB: /* Fall-through */
+		case JBreturnC: /* Fall-through */
+		case JBreturnS: /* Fall-through */
+		case JBreturnZ: /* Fall-through */
 		case JBsyncReturn0: /* Fall-through */
 		case JBsyncReturn1: /* Fall-through */
 		case JBsyncReturn2: {

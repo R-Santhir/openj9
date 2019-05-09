@@ -1,6 +1,6 @@
 /*[INCLUDE-IF Sidecar19-SE]*/
 /*******************************************************************************
- * Copyright (c) 2016, 2018 IBM Corp. and others
+ * Copyright (c) 2016, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,11 +22,7 @@
  *******************************************************************************/
 package java.lang.management;
 
-/*[IF Sidecar19-SE-OpenJ9]*/
 import java.lang.ModuleLayer;
-/*[ELSE]
-import java.lang.reflect.Layer;
-/*[ENDIF]*/
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -70,12 +66,7 @@ final class DefaultPlatformMBeanProvider extends sun.management.spi.PlatformMBea
 		/* LoggingMXBeanImpl depends on java.logging. If java.logging is not 
 		 * available exclude this component.
 		 */
-/*[IF Sidecar19-SE-OpenJ9]*/
-		if (ModuleLayer.boot().findModule("java.logging").isPresent()) //$NON-NLS-1$
-/*[ELSE]
-		if (Layer.boot().findModule("java.logging").isPresent()) //$NON-NLS-1$
-/*[ENDIF]*/
-		{
+		if (ModuleLayer.boot().findModule("java.logging").isPresent()) { //$NON-NLS-1$
 			ComponentBuilder.create(LoggingMXBeanImpl.getInstance())
 				.addInterface(java.lang.management.PlatformLoggingMXBean.class)
 				.register(allComponents);

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -117,10 +117,14 @@ allocateVMThread(J9JavaVM * vm, omrthread_t osThread, UDATA privateFlags, void *
 		/* Create the vmThread */
 		void *startOfMemoryBlock = NULL;
 		UDATA vmThreadAllocationSize = J9VMTHREAD_ALIGNMENT + ROUND_TO(sizeof(UDATA), vm->vmThreadSize);
-#if defined(J9VM_INTERP_SMALL_MONITOR_SLOT)
-		startOfMemoryBlock = (void *)j9mem_allocate_memory32(vmThreadAllocationSize, OMRMEM_CATEGORY_THREADS);
+#if defined(OMR_GC_COMPRESSED_POINTERS)
+		if (J9JAVAVM_COMPRESS_OBJECT_REFERENCES(vm)) {
+			startOfMemoryBlock = (void *)j9mem_allocate_memory32(vmThreadAllocationSize, OMRMEM_CATEGORY_THREADS);
+		} else
 #else
-		startOfMemoryBlock = (void *)j9mem_allocate_memory(vmThreadAllocationSize, OMRMEM_CATEGORY_THREADS);
+		{
+			startOfMemoryBlock = (void *)j9mem_allocate_memory(vmThreadAllocationSize, OMRMEM_CATEGORY_THREADS);
+		}
 #endif
 		if (NULL == startOfMemoryBlock) {
 			goto fail;
@@ -209,6 +213,16 @@ allocateVMThread(J9JavaVM * vm, omrthread_t osThread, UDATA privateFlags, void *
 	newThread->mgmtBlockedStart = JNI_FALSE;
 	newThread->mgmtWaitedStart = JNI_FALSE;
 #endif
+
+#ifdef OMR_GC_CONCURRENT_SCAVENGER
+	/* Initialize fields used by Concurrent Scavenger */
+	newThread->readBarrierRangeCheckBase = UDATA_MAX;
+	newThread->readBarrierRangeCheckTop = 0;
+#ifdef OMR_GC_COMPRESSED_POINTERS
+	newThread->readBarrierRangeCheckBaseCompressed = U_32_MAX;
+	newThread->readBarrierRangeCheckTopCompressed = 0;
+#endif /* OMR_GC_COMPRESSED_POINTERS */
+#endif /* OMR_GC_CONCURRENT_SCAVENGER */
 
 	/* Attach the thread to OMR */
 	if (JNI_OK != attachVMThreadToOMR(vm, newThread, osThread)) {
@@ -372,7 +386,7 @@ void threadCleanup(J9VMThread * vmThread, UDATA forkedByVM)
 	enterVMFromJNI(vmThread);
 	/* Inform ThreadGroup about any uncaught exception.  Tiny VMs do not have ThreadGroup, so they just dump the exception. */
 	if (vmThread->currentException) {
-		handleUncaughtException(vmThread, 0, 0, 0, 0);
+		handleUncaughtException(vmThread);
 		/* Safe to call this whether handleUncaughtException clears the exception or not */
 		internalExceptionDescribe(vmThread);
 	}
@@ -403,7 +417,7 @@ void threadCleanup(J9VMThread * vmThread, UDATA forkedByVM)
 	/* Do the java dance to indicate thread death */
 
 	acquireVMAccess(vmThread);
-	cleanUpAttachedThread(vmThread, 0, 0, 0, 0);
+	cleanUpAttachedThread(vmThread);
 	releaseVMAccess(vmThread);
 	
 #if defined(OMR_GC_CONCURRENT_SCAVENGER) && defined(J9VM_ARCH_S390)
@@ -548,7 +562,17 @@ threadParseArguments(J9JavaVM *vm, char *optArg)
 #endif /* defined(OMR_THR_YIELD_ALG) */
 	
 #if defined(LINUX)
-	/* if Completely Fair Scheduler is detected, and sched_compat_yield=0, default to -Xthr:minimizeUserCPU */
+	/* Check the sched_compat_yield setting for the versions of the Completely Fair Scheduler (CFS) which
+	 * have broken the thread_yield behavior. If running in CFS and sched_compat_yield=0, the CPU yielding
+	 * behavior is moderated to act as though CFS is not enabled by increasing the yield count to 270 in
+	 * the three-tier spinlock loops.
+	 *
+	 * sched_compat_yield=1 uses the aggressive CPU yielding behavior of some versions of the O(1)
+	 * scheduler and uses the default yield counts (= 45).
+	 *
+	 * Newer Linux versions no longer support the sched_compat_yield flag since the thread_yield behavior
+	 * is restored to something stable.
+	 */
 	if ('0' == j9util_sched_compat_yield_value(vm)) {
 #if defined(OMR_THR_YIELD_ALG)
 		**(UDATA**)omrthread_global("yieldAlgorithm") = J9THREAD_LIB_YIELD_ALGORITHM_INCREASING_USLEEP;
@@ -1364,7 +1388,7 @@ allocateJavaStack(J9JavaVM * vm, UDATA stackSize, J9JavaStack * previousStack)
 	 */
 
 	mallocSize = J9_STACK_OVERFLOW_AND_HEADER_SIZE + (stackSize + sizeof(UDATA)) + vm->thrStaggerMax;
-#if defined (J9VM_GC_COMPRESSED_POINTERS)
+#if defined (OMR_GC_COMPRESSED_POINTERS)
 	stack = (J9JavaStack*)j9mem_allocate_memory32(mallocSize, OMRMEM_CATEGORY_THREADS_RUNTIME_STACK);
 #else
 	stack = (J9JavaStack*)j9mem_allocate_memory(mallocSize, OMRMEM_CATEGORY_THREADS_RUNTIME_STACK);
@@ -1417,7 +1441,7 @@ freeJavaStack(J9JavaVM * vm, J9JavaStack * stack)
 {
 	PORT_ACCESS_FROM_JAVAVM(vm);
 
-#if defined (J9VM_GC_COMPRESSED_POINTERS)
+#if defined (OMR_GC_COMPRESSED_POINTERS)
 	j9mem_free_memory32(stack);			
 #else
 	j9mem_free_memory(stack);
@@ -1497,6 +1521,9 @@ void printThreadInfo(J9JavaVM *vm, J9VMThread *self, char *toFile, BOOLEAN allTh
 	char fileName[EsMaxPath];
 	J9PortLibrary* privatePortLibrary = vm->portLibrary;
 	int releaseAccess = 0;
+#if defined(J9VM_INTERP_ATOMIC_FREE_JNI)
+	int exitVM = 0;
+#endif /* J9VM_INTERP_ATOMIC_FREE_JNI */
 	BOOLEAN exclusiveRequestedLocally = FALSE;
 
 	if ( !vm->mainThread ) {
@@ -1509,6 +1536,12 @@ void printThreadInfo(J9JavaVM *vm, J9VMThread *self, char *toFile, BOOLEAN allTh
 
 	if(J9_XACCESS_NONE == vm->exclusiveAccessState) {
 		if (NULL != self) {
+#if defined(J9VM_INTERP_ATOMIC_FREE_JNI)
+			if (self->inNative) {
+				internalEnterVMFromJNI(self);
+				exitVM = 1;
+			} else
+#endif /* J9VM_INTERP_ATOMIC_FREE_JNI */
 			if ( 0 == (self->publicFlags & J9_PUBLIC_FLAGS_VM_ACCESS) ) {
 				internalAcquireVMAccess(self);
 				releaseAccess = 1;
@@ -1573,6 +1606,11 @@ void printThreadInfo(J9JavaVM *vm, J9VMThread *self, char *toFile, BOOLEAN allTh
 	if(exclusiveRequestedLocally) {
 		if (self) {
 			releaseExclusiveVMAccess(self);
+#if defined(J9VM_INTERP_ATOMIC_FREE_JNI)
+			if ( exitVM ) {
+				internalExitVMToJNI(self);
+			} else
+#endif /* J9VM_INTERP_ATOMIC_FREE_JNI */
 			if ( releaseAccess ) {
 				internalReleaseVMAccess(self);
 			}
@@ -1753,12 +1791,11 @@ startJavaThread(J9VMThread * currentThread, j9object_t threadObject, UDATA priva
 
 	privateFlags &= ~J9_PRIVATE_FLAGS_NO_EXCEPTION_IN_START_JAVA_THREAD;
 
+#ifndef J9VM_IVE_RAW_BUILD /* J9VM_IVE_RAW_BUILD is not enabled by default */
 	/* Any attempt to start a Thread makes it illegal to attempt to start it again.
 	 * Oracle class libraries don't have the 'started' field */
-	if (J2SE_SHAPE(vm) != J2SE_SHAPE_RAW) {
-		J9VMJAVALANGTHREAD_SET_STARTED(currentThread, threadObject, TRUE);
-	}
-
+	J9VMJAVALANGTHREAD_SET_STARTED(currentThread, threadObject, TRUE);
+#endif /* !J9VM_IVE_RAW_BUILD */
 	
 	/* Save objects on the stack in case we GC */
 
@@ -1873,18 +1910,17 @@ startJavaThreadInternal(J9VMThread * currentThread, UDATA privateFlags, UDATA os
 	}
 
 	/* Create the UTF8 string with the thread name */
-		
 	threadObject = PEEK_OBJECT_IN_SPECIAL_FRAME(currentThread, 3);
-	if (J2SE_SHAPE(vm) == J2SE_SHAPE_RAW) {
+#ifdef J9VM_IVE_RAW_BUILD /* J9VM_IVE_RAW_BUILD is not enabled by default */
+	{
 		j9object_t unicodeChars = J9VMJAVALANGTHREAD_NAME(currentThread, threadObject);
-
 		if (NULL != unicodeChars) {
 			threadName = copyStringToUTF8WithMemAlloc(currentThread, unicodeChars, J9_STR_NULL_TERMINATE_RESULT, "", 0, NULL, 0, NULL);
 		}
-	} else {
-		j9object_t nameObject = J9VMJAVALANGTHREAD_NAME(currentThread, threadObject);
-		threadName = getVMThreadNameFromString(currentThread, nameObject);
 	}
+#else /* J9VM_IVE_RAW_BUILD */
+	threadName = getVMThreadNameFromString(currentThread, J9VMJAVALANGTHREAD_NAME(currentThread, threadObject));
+#endif /* J9VM_IVE_RAW_BUILD */
 	if (threadName == NULL) {
 		Trc_VM_startJavaThread_failedVMThreadAlloc(currentThread);
 		omrthread_cancel(osThread);
@@ -1951,10 +1987,10 @@ setFailedToForkThreadException(J9VMThread *currentThread, IDATA retVal, omrthrea
 	PORT_ACCESS_FROM_VMC(currentThread);
 
 	errorMessage = j9nls_lookup_message(J9NLS_DO_NOT_PRINT_MESSAGE_TAG | J9NLS_DO_NOT_APPEND_NEWLINE,
-			J9NLS_VM_THREAD_CREATE_FAILED_WITH_ERRNO2, NULL);
+			J9NLS_VM_THREAD_CREATE_FAILED_WITH_32BIT_ERRNO2, NULL);
 
 	if (errorMessage) {
-		bufLen = j9str_printf(PORTLIB, NULL, 0, errorMessage, retVal, os_errno, os_errno, os_errno2, os_errno2);
+		bufLen = j9str_printf(PORTLIB, NULL, 0, errorMessage, retVal, os_errno, os_errno, (U_32)(UDATA)os_errno2);
 		if (bufLen > 0) {
 			buf = j9mem_allocate_memory(bufLen, OMRMEM_CATEGORY_VM);
 			if (buf) {
@@ -2045,7 +2081,7 @@ javaProtectedThreadProc(J9PortLibrary* portLibrary, void * entryarg)
 
 		{
 			/* Start running the thread */
-			runJavaThread(vmThread, 0, 0, 0, 0);
+			runJavaThread(vmThread);
 		}
 
 #ifdef J9VM_OPT_DEPRECATED_METHODS

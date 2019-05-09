@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017, 2018 IBM Corp. and others
+# Copyright (c) 2017, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -35,11 +35,7 @@ j9jit_files(
 	x/codegen/J9TreeEvaluator.cpp
 	x/codegen/J9UnresolvedDataSnippet.cpp
 	x/codegen/J9X86Instruction.cpp
-	x/codegen/JNIPauseSnippet.cpp
-	x/codegen/PassJNINullSnippet.cpp
 	x/codegen/RecompilationSnippet.cpp
-	x/codegen/StackOverflowCheckSnippet.cpp
-	x/codegen/WriteBarrierSnippet.cpp
 	x/codegen/X86HelperLinkage.cpp
 	x/codegen/X86PrivateLinkage.cpp
 	x/codegen/X86Recompilation.cpp

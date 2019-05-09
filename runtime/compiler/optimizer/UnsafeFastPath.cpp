@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,33 +22,254 @@
 
 #include "optimizer/UnsafeFastPath.hpp"
 
-#include <stddef.h>                            // for size_t
-#include <stdint.h>                            // for int32_t, uint32_t, etc
-#include "codegen/CodeGenerator.hpp"           // for CodeGenerator, etc
-#include "codegen/FrontEnd.hpp"                // for TR_FrontEnd, feGetEnv, etc
-#include "compile/Compilation.hpp"             // for Compilation, comp, etc
-#include "compile/ResolvedMethod.hpp"          // for TR_ResolvedMethod
-#include "compile/SymbolReferenceTable.hpp"    // for SymbolReferenceTable, etc
+#include <stddef.h>
+#include <stdint.h>
+#include "codegen/CodeGenerator.hpp"
+#include "codegen/FrontEnd.hpp"
+#include "compile/Compilation.hpp"
+#include "compile/ResolvedMethod.hpp"
+#include "compile/SymbolReferenceTable.hpp"
 #include "control/Options.hpp"
-#include "control/Options_inlines.hpp"         // for TR::Options, etc
+#include "control/Options_inlines.hpp"
 #include "env/CompilerEnv.hpp"
 #include "env/IO.hpp"
 #include "env/VMJ9.h"
 #include "env/j9method.h"
-#include "il/ILOpCodes.hpp"                    // for ILOpCodes::treetop, etc
-#include "il/ILOps.hpp"                        // for ILOpCode, TR::ILOpCode
-#include "il/Node.hpp"                         // for Node, etc
-#include "il/Node_inlines.hpp"                 // for Node::getFirstChild, etc
-#include "il/Symbol.hpp"                       // for Symbol, etc
-#include "il/SymbolReference.hpp"              // for SymbolReference, etc
-#include "il/TreeTop.hpp"                      // for TreeTop
-#include "il/TreeTop_inlines.hpp"              // for TreeTop::getNode, etc
-#include "il/symbol/MethodSymbol.hpp"          // for MethodSymbol, etc
-#include "il/symbol/ResolvedMethodSymbol.hpp"  // for ResolvedMethodSymbol
-#include "infra/Assert.hpp"                    // for TR_ASSERT
-#include "optimizer/Optimization.hpp"          // for Optimization
-#include "optimizer/Optimization_inlines.hpp"  // for trace()
-#include "optimizer/TransformUtil.hpp"         // for calculateElementAddress
+#include "il/ILOpCodes.hpp"
+#include "il/ILOps.hpp"
+#include "il/Node.hpp"
+#include "il/Node_inlines.hpp"
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/TreeTop.hpp"
+#include "il/TreeTop_inlines.hpp"
+#include "il/symbol/MethodSymbol.hpp"
+#include "il/symbol/ResolvedMethodSymbol.hpp"
+#include "infra/Assert.hpp"
+#include "optimizer/Optimization.hpp"
+#include "optimizer/Optimization_inlines.hpp"
+#include "optimizer/TransformUtil.hpp"
+#include "infra/Checklist.hpp"
+
+
+static TR::RecognizedMethod getVarHandleAccessMethodFromInlinedCallStack(TR::Compilation* comp, TR::Node* node)
+   {
+   int16_t callerIndex = node->getInlinedSiteIndex();
+   while (callerIndex > -1)
+      {
+      TR_ResolvedMethod* caller = comp->getInlinedResolvedMethod(callerIndex);
+      TR::RecognizedMethod callerRm = caller->getRecognizedMethod();
+      if (TR_J9MethodBase::isVarHandleOperationMethod(callerRm))
+         {
+         return callerRm;
+         }
+
+      TR_InlinedCallSite callSite = comp->getInlinedCallSite(callerIndex);
+      callerIndex = callSite._byteCodeInfo.getCallerIndex();
+      }
+
+   TR::RecognizedMethod rm = comp->getJittedMethodSymbol()->getRecognizedMethod();
+   if (TR_J9MethodBase::isVarHandleOperationMethod(rm))
+      return rm;
+
+   return TR::unknownMethod;
+   }
+
+static TR::SymbolReferenceTable::CommonNonhelperSymbol equivalentAtomicIntrinsic(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::sun_misc_Unsafe_getAndSetInt:
+           return TR::SymbolReferenceTable::atomicSwapSymbol;
+      case TR::sun_misc_Unsafe_getAndSetLong:
+           return TR::Compiler->target.is64Bit() ? TR::SymbolReferenceTable::atomicSwapSymbol : TR::SymbolReferenceTable::lastCommonNonhelperSymbol;
+      case TR::sun_misc_Unsafe_getAndAddInt:
+           return TR::SymbolReferenceTable::atomicFetchAndAddSymbol;
+      case TR::sun_misc_Unsafe_getAndAddLong:
+           return TR::Compiler->target.is64Bit() ? TR::SymbolReferenceTable::atomicFetchAndAddSymbol : TR::SymbolReferenceTable::lastCommonNonhelperSymbol;
+      default:
+         break;
+      }
+   return TR::SymbolReferenceTable::lastCommonNonhelperSymbol;
+   }
+
+static bool isTransformableUnsafeAtomic(TR::RecognizedMethod rm)
+   {
+   if (equivalentAtomicIntrinsic(rm) != TR::SymbolReferenceTable::lastCommonNonhelperSymbol)
+      return true;
+
+   return false;
+   }
+
+static bool isVarHandleOperationMethodOnArray(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::java_lang_invoke_ArrayVarHandle_ArrayVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_ByteArrayViewVarHandle_ByteArrayViewVarHandleOperations_OpMethod:
+         return true;
+      default:
+         return false;
+      }
+   return false;
+   }
+
+static bool isVarHandleOperationMethodOnNonStaticField(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::java_lang_invoke_InstanceFieldVarHandle_InstanceFieldVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_ArrayVarHandle_ArrayVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_ByteArrayViewVarHandle_ByteArrayViewVarHandleOperations_OpMethod:
+         return true;
+      default:
+         return false;
+      }
+   return false;
+   }
+
+/**
+ * \brief
+ *    Try transform unsafe atomic method called from VarHandle to codegen intrinsic
+ *
+ * \parm callTree
+ *    Tree containing the call
+ *
+ * \parm callerMethod
+ *    VarHandle concreate operation method
+ *
+ * \parm calleeMethod
+ *    The unsafe method
+ *
+ * \return True if the call is transformed, otherwise false
+ *
+ */
+bool TR_UnsafeFastPath::tryTransformUnsafeAtomicCallInVarHandleAccessMethod(TR::TreeTop* callTree, TR::RecognizedMethod callerMethod, TR::RecognizedMethod calleeMethod)
+   {
+   TR::Node* node = callTree->getNode()->getFirstChild();
+
+   // Give up on arraylet
+   //
+   if (isVarHandleOperationMethodOnArray(callerMethod)
+       && TR::Compiler->om.canGenerateArraylets())
+      {
+      if (trace())
+         {
+         traceMsg(comp(), "Call %p n%dn is accessing an element from an array that might be arraylet, quit\n", node, node->getGlobalIndex());
+         }
+      return false;
+      }
+
+    TR::MethodSymbol *symbol = node->getSymbol()->castToMethodSymbol();
+   // Codegen will inline the call with the flag
+   //
+   if (symbol->getMethod()->isUnsafeCAS(comp()))
+      {
+      // codegen doesn't optimize CAS on a static field
+      //
+      if (isVarHandleOperationMethodOnNonStaticField(callerMethod) &&
+         performTransformation(comp(), "%s transforming Unsafe.CAS [" POINTER_PRINTF_FORMAT "] into codegen inlineable\n", optDetailString(), node))
+         {
+         node->setIsSafeForCGToFastPathUnsafeCall(true);
+         if (!isVarHandleOperationMethodOnArray(callerMethod))
+            {
+            node->setUnsafeGetPutCASCallOnNonArray();
+            }
+
+         if (trace())
+            {
+            traceMsg(comp(), "Found Unsafe CAS node %p n%dn on non-static field, set the flag\n", node, node->getGlobalIndex());
+            }
+
+         return true;
+         }
+
+      // TODO (#3532): Remove special handling for CAS when atomic intrinsic symbol is available for CAS
+      return false;
+      }
+
+   TR::SymbolReferenceTable::CommonNonhelperSymbol helper = equivalentAtomicIntrinsic(calleeMethod);
+   if (!comp()->cg()->supportsNonHelper(helper))
+      {
+      if (trace())
+         {
+         traceMsg(comp(), "Equivalent atomic intrinsic is not supported on current platform, quit\n");
+         }
+      return false;
+      }
+
+   if (!performTransformation(comp(), "%s turning the call [" POINTER_PRINTF_FORMAT "] into atomic intrinsic\n", optDetailString(), node))
+      return false;
+
+   TR::Node* unsafeAddress = NULL;
+   if (callerMethod == TR::java_lang_invoke_StaticFieldVarHandle_StaticFieldVarHandleOperations_OpMethod)
+      {
+      TR::Node *jlClass = node->getChild(1);
+      TR::Node *j9Class = TR::Node::createWithSymRef(node, TR::aloadi, 1, jlClass, comp()->getSymRefTab()->findOrCreateClassFromJavaLangClassSymbolRef());
+      TR::Node *ramStatics = TR::Node::createWithSymRef(node, TR::aloadi, 1, j9Class, comp()->getSymRefTab()->findOrCreateRamStaticsFromClassSymbolRef());
+      TR::Node *offset = node->getChild(2);
+      // The offset for a static field is low taged, mask out the flag bit to get the real offset
+      //
+      offset = TR::Node::create(node, TR::land, 2, offset,
+                                                   TR::Node::lconst(node, ~J9_SUN_FIELD_OFFSET_MASK));
+      unsafeAddress = TR::Compiler->target.is32Bit() ? TR::Node::create(node, TR::aiadd, 2, ramStatics, TR::Node::create(node, TR::l2i, 1, offset)) :
+                                                       TR::Node::create(node, TR::aladd, 2, ramStatics, offset);
+      }
+   else
+      {
+      TR::Node* object = node->getChild(1);
+      TR::Node* offset = node->getChild(2);
+      unsafeAddress = TR::Compiler->target.is32Bit() ? TR::Node::create(node, TR::aiadd, 2, object, TR::Node::create(node, TR::l2i, 1, offset)) :
+                                                       TR::Node::create(node, TR::aladd, 2, object, offset);
+      unsafeAddress->setIsInternalPointer(true);
+      }
+
+
+   if (callTree->getNode()->getOpCode().isNullCheck())
+      {
+      TR::Node* nullChkNode = callTree->getNode();
+      TR::Node *passthrough = TR::Node::create(nullChkNode, TR::PassThrough, 1);
+      passthrough->setAndIncChild(0, node->getFirstChild());
+      TR::Node * checkNode = TR::Node::createWithSymRef(nullChkNode, TR::NULLCHK, 1, passthrough, nullChkNode->getSymbolReference());
+      callTree->insertBefore(TR::TreeTop::create(comp(), checkNode));
+      TR::Node::recreate(nullChkNode, TR::treetop);
+
+      if (trace())
+         {
+         traceMsg(comp(), "Created node %p n%dn to preserve null check on call %p n%dn\n", checkNode, checkNode->getGlobalIndex(), node, node->getGlobalIndex());
+         }
+      }
+
+   // Transform the symbol on the call to equivalent atomic method symbols
+   TR::Node* unsafeObject = node->getChild(0);
+   node->setAndIncChild(0, unsafeAddress);
+   unsafeObject->recursivelyDecReferenceCount();
+   node->removeChild(2); // Remove offset child
+   node->removeChild(1); // Remove object child
+   node->setSymbolReference(comp()->getSymRefTab()->findOrCreateCodeGenInlinedHelper(helper));
+
+   if (trace())
+      {
+      traceMsg(comp(), "Transformed the call %p n%dn to codegen inlineable intrinsic\n", node, node->getGlobalIndex());
+      }
+
+   return true;
+   }
+
+
+static bool needUnsignedConversion(TR::RecognizedMethod methodToReduce)
+   {
+   switch (methodToReduce)
+      {
+      case TR::com_ibm_jit_JITHelpers_getCharFromArray:
+      case TR::com_ibm_jit_JITHelpers_getCharFromArrayByIndex:
+      case TR::com_ibm_jit_JITHelpers_getCharFromArrayVolatile:
+      case TR::java_lang_StringUTF16_getChar:
+         return true;
+      }
+
+   return false;
+   }
 
 /**
  * This replaces recognized unsafe calls to direct memory operations
@@ -58,14 +279,33 @@ int32_t TR_UnsafeFastPath::perform()
    if (comp()->getOption(TR_DisableUnsafe))
       return 0;
 
+   TR::NodeChecklist transformed(comp());
+
    TR::ResolvedMethodSymbol *methodSymbol = comp()->getMethodSymbol();
    for (TR::TreeTop * tt = methodSymbol->getFirstTreeTop(); tt != NULL; tt = tt->getNextTreeTop())
       {
-      TR::Node *node = tt->getNode()->getChild(0); // Get the first child of the tree
-      if (node && node->getOpCode().isCall())
+      TR::Node *ttNode = tt->getNode();
+      TR::Node *node = ttNode->getNumChildren() > 0 ? ttNode->getFirstChild() : NULL; // Get the first child of the tree
+      if (node && node->getOpCode().isCall() && !node->getSymbol()->castToMethodSymbol()->isHelper())
          {
          TR::SymbolReference *symRef = node->getSymbolReference();
          TR::MethodSymbol *symbol = node->getSymbol()->castToMethodSymbol();
+
+         if (!transformed.contains(node))
+            {
+            TR::RecognizedMethod caller = getVarHandleAccessMethodFromInlinedCallStack(comp(), node);
+            TR::RecognizedMethod callee = symbol->getRecognizedMethod();
+            if (TR_J9MethodBase::isVarHandleOperationMethod(caller) &&
+                (isTransformableUnsafeAtomic(callee) ||
+                 symbol->getMethod()->isUnsafeCAS(comp())))
+               {
+               if (tryTransformUnsafeAtomicCallInVarHandleAccessMethod(tt, caller, callee))
+                  {
+                  transformed.add(node);
+                  continue;
+                  }
+               }
+            }
 
          // Unsafe for TR::java_math_BigDecimal_storeTwoCharsFromInt
          if (!symRef->isUnresolved() &&
@@ -531,19 +771,19 @@ int32_t TR_UnsafeFastPath::perform()
                if (value)
                   {
                   // This is a store
-                  if (type == TR::Address && (comp()->getOptions()->getGcMode() != TR_WrtbarNone))
+                  if (!isStatic && type == TR::Address && (TR::Compiler->om.writeBarrierType() != gc_modron_wrtbar_none))
                      {
-                     node = TR::Node::recreateWithoutProperties(node, TR::wrtbari, 3, addrCalc, value, object, unsafeSymRef);
+                     node = TR::Node::recreateWithoutProperties(node, TR::awrtbari, 3, addrCalc, value, object, unsafeSymRef);
                      spineCHK->setAndIncChild(0, addrCalc);
                      }
                   else
                      {
-                     if (isByIndex && value->getDataType() != type)
+                     if (value->getDataType() != type)
                         {
-                        TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(value->getDataType(), type, true);
+                        TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(value->getDataType(), type, needUnsignedConversion(symbol->getRecognizedMethod()));
 
                         // Sanity check for future modifications
-                        TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion for a JITHelpers byIndex operation.\n");
+                        TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion on the value node %p n%dn for call %p n%dn.\n", value, value->getGlobalIndex(), node, node->getGlobalIndex());
 
                         value = TR::Node::create(conversionOpCode, 1, value);
                         }
@@ -560,12 +800,12 @@ int32_t TR_UnsafeFastPath::perform()
                else
                   {
                   //This is a load
-                  if (isByIndex && node->getDataType() != type)
+                  if (node->getDataType() != type)
                      {
-                     TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(type, node->getDataType(), true);
+                     TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(type, node->getDataType(), needUnsignedConversion(symbol->getRecognizedMethod()));
 
                      // Sanity check for future modifications
-                     TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion for a JITHelpers byIndex operation.\n");
+                     TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion on the result of call %p n%dn.\n", node, node->getGlobalIndex());
 
                      TR::Node *load = TR::Node::createWithSymRef(node, comp()->il.opCodeForIndirectArrayLoad(type), 1, unsafeSymRef);
 
@@ -594,12 +834,12 @@ int32_t TR_UnsafeFastPath::perform()
 
                // Anchor the store or load with compressedrefs if needed
                // wrtbari needs to be under a treetop node if not anchored by compressedrefs
-               if (comp()->useCompressedPointers() && (type == TR::Address))
+               if (comp()->useCompressedPointers() && TR::TransformUtil::fieldShouldBeCompressed(node, comp()))
                   {
                   node = TR::Node::createCompressedRefsAnchor(node);
                   newTree = newTree->insertAfter(TR::TreeTop::create(comp(), node));
                   }
-               else if (node->getOpCodeValue() == TR::wrtbari)
+               else if (node->getOpCodeValue() == TR::awrtbari)
                   {
                   node = TR::Node::create(TR::treetop, 1, node);
                   newTree = newTree->insertAfter(TR::TreeTop::create(comp(), node));
@@ -623,16 +863,16 @@ int32_t TR_UnsafeFastPath::perform()
                if (value)
                   {
                   // This is a store
-                  if (type == TR::Address && (comp()->getOptions()->getGcMode() != TR_WrtbarNone))
-                     node = TR::Node::recreateWithoutProperties(node, TR::wrtbari, 3, addrCalc, value, object, unsafeSymRef);
+                  if (!isStatic && type == TR::Address && (TR::Compiler->om.writeBarrierType() != gc_modron_wrtbar_none))
+                     node = TR::Node::recreateWithoutProperties(node, TR::awrtbari, 3, addrCalc, value, object, unsafeSymRef);
                   else
                      {
-                     if (isByIndex && value->getDataType() != type)
+                     if (value->getDataType() != type)
                         {
-                        TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(value->getDataType(), type, true);
+                        TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(value->getDataType(), type, needUnsignedConversion(symbol->getRecognizedMethod()));
 
                         // Sanity check for future modifications
-                        TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion for a JITHelpers byIndex operation.\n");
+                        TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion on the value node %p n%dn for call %p n%dn.\n", value, value->getGlobalIndex(), node, node->getGlobalIndex());
 
                         value = TR::Node::create(conversionOpCode, 1, value);
                         }
@@ -645,7 +885,7 @@ int32_t TR_UnsafeFastPath::perform()
                   if (trace())
                      traceMsg(comp(), "Created node [" POINTER_PRINTF_FORMAT "] to store the value [" POINTER_PRINTF_FORMAT "] to target location [" POINTER_PRINTF_FORMAT "]\n", node, value, addrCalc);
 
-                  if (comp()->useCompressedPointers() && type == TR::Address)
+                  if (comp()->useCompressedPointers() && TR::TransformUtil::fieldShouldBeCompressed(node, comp()))
                      node = TR::Node::createCompressedRefsAnchor(node);
                   }
                else
@@ -653,12 +893,12 @@ int32_t TR_UnsafeFastPath::perform()
                   TR::ILOpCodes opCodeForIndirectLoad = isArrayOperation ? comp()->il.opCodeForIndirectArrayLoad(type) : comp()->il.opCodeForIndirectLoad(type);
 
                   // This is a load
-                  if (isByIndex && node->getDataType() != type)
+                  if (node->getDataType() != type)
                      {
-                     TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(type, node->getDataType(), true);
+                     TR::ILOpCodes conversionOpCode = TR::ILOpCode::getProperConversion(type, node->getDataType(), needUnsignedConversion(symbol->getRecognizedMethod()));
 
                      // Sanity check for future modifications
-                     TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion for a JITHelpers byIndex operation.\n");
+                     TR_ASSERT(conversionOpCode != TR::BadILOp, "Could not get proper conversion on the result of call %p n%dn.\n", node, node->getGlobalIndex());
 
                      TR::Node *load = TR::Node::createWithSymRef(node, opCodeForIndirectLoad, 1, unsafeSymRef);
 
@@ -674,7 +914,7 @@ int32_t TR_UnsafeFastPath::perform()
                   if (trace())
                      traceMsg(comp(), "Created node [" POINTER_PRINTF_FORMAT "] to load from location [" POINTER_PRINTF_FORMAT "]\n", node, addrCalc);
 
-                  if (comp()->useCompressedPointers() && (type == TR::Address))
+                  if (comp()->useCompressedPointers() && TR::TransformUtil::fieldShouldBeCompressed(node, comp()))
                      node = TR::Node::createCompressedRefsAnchor(node);
                   }
 

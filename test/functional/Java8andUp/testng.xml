@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <!--
-  Copyright (c) 2016, 2018 IBM Corp. and others
+  Copyright (c) 2016, 2019 IBM Corp. and others
 
   This program and the accompanying materials are made available under
   the terms of the Eclipse Public License 2.0 which accompanies this
@@ -30,6 +30,11 @@
 	<test name="generalTest">
 		<classes>
 			<class name="org.openj9.test.gpu.SortTest" />
+		</classes>
+	</test>
+	<test name="truncatedReturn">
+		<classes>
+			<class name="org.openj9.test.truncatedReturn.TestTruncatedReturn" />
 		</classes>
 	</test>
 	<test name="regression">
@@ -80,6 +85,17 @@
 			<class name="org.openj9.test.attachAPI.TestManagementAgent"/>
 		</classes>
 	</test>
+	<test name="TestJps">
+		<classes>
+			<class name="org.openj9.test.attachAPI.TestJps"/>
+		</classes>
+	</test>
+	<test name="TestJstack">
+		<classes>
+			<class name="org.openj9.test.attachAPI.TestJstack"/>
+		</classes>
+	</test>
+	
 	<test name="TestFileLocking">
 		<classes>
 			<class name="org.openj9.test.fileLock.TestFileLocking"/>
@@ -90,6 +106,16 @@
 			<class name="org.openj9.test.management.GarbageCollectionNotificationTest"/>
 		</classes>
 	</test>
+	<test name="gcPolicyNogcTest">
+		<classes>
+			<class name="org.openj9.test.nogc.TestGCPolicyNogc"/>
+		</classes>
+	</test>
+	<test name="gcPolicyNogcOOMTest">
+		<classes>
+			<class name="org.openj9.test.nogc.TestNogcDieWithOOM"/>
+		</classes>
+	</test>	
 	<test name="ContendedFieldsTests">
 		<classes>
 			<class name="org.openj9.test.contendedfields.ContendedFieldsTests"/>
@@ -141,6 +167,7 @@
 			<class name="org.openj9.test.java.lang.Test_Compiler"/>
 			<class name="org.openj9.test.java.lang.Test_InstantiationError"/>
 			<class name="org.openj9.test.java.lang.Test_InstantiationException"/>
+			<class name="org.openj9.test.java.lang.Test_Math"/>
 			<class name="org.openj9.test.java.lang.Test_Object"/>
 			<class name="org.openj9.test.java.lang.Test_RuntimePermission"/>
 			<class name="org.openj9.test.java.lang.Test_String"/>
@@ -199,6 +226,10 @@
 		<classes>
 			<class name="org.openj9.test.java.security.Test_AccessController"/>
 			<class name="org.openj9.test.java.security.Test_AccessControlContext"/>
+			<class name="org.openj9.test.java.security.Test_MHLoaderConstraints"/>
+			<class name="org.openj9.test.java.security.DigestLoop"/>
+			<class name="org.openj9.test.java.security.OpenSSLInvalidCBCKeySizeTest"/>
+			<class name="org.openj9.test.java.security.OpenSSLInvalidGCMKeySizeTest"/>
 		</classes>
 	</test>
 	<test name="JCL_TEST_IBM-VM">
@@ -210,6 +241,11 @@
 	<test name="JCL_TEST_JITHelpers">
 		<classes>
 			<class name="org.openj9.test.com.ibm.jit.Test_JITHelpers"/>
+		</classes>
+	</test>
+	<test name="JCL_TEST_MathMethods">
+		<classes>
+			<class name="org.openj9.test.java.lang.Test_Math"/>
 		</classes>
 	</test>
 	<test name="JCL_TEST_Test-UnsafeFence">
@@ -392,6 +428,16 @@
 	<test name="testStringInterning">
 		<classes>
 			<class name="org.openj9.test.string.StringInterning" />
+		</classes>
+	</test>
+	<test name="testStringIndexOfString">
+		<classes>
+			<class name="org.openj9.test.string.StringIndexOfString" />
+		</classes>
+	</test>
+	<test name="testStringStreams">
+		<classes>
+			<class name="org.openj9.test.string.StringStreams" />
 		</classes>
 	</test>
 	<test name="floatSanityTests">

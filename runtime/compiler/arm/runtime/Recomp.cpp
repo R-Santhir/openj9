@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -27,7 +27,8 @@
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
 #include "env/jittypes.h"
-#include "runtime/Runtime.hpp"
+#include "runtime/CodeCacheManager.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "env/VMJ9.h"
 
 extern "C" int32_t _compareAndSwap(int32_t * addr, uint32_t oldInsn, uint32_t newInsn);
@@ -230,25 +231,23 @@ void J9::Recompilation::methodHasBeenRecompiled(void *oldStartPC, void *newStart
          printf("\tsampling recomp, releasing code memory oldStartPC = 0x%x, bytesToSaveAtStart = 0x%x\n",oldStartPC, bytesToSaveAtStart);
          fflush(stdout);
          }
-      fe->releaseCodeMemory(oldStartPC, bytesToSaveAtStart);
+      TR_J9VMBase *fej9 = (TR_J9VMBase *)fe;
+      fej9->releaseCodeMemory(oldStartPC, bytesToSaveAtStart);
       }
    }
 
 uint32_t encodeRuntimeHelperBranchAndLink(TR_RuntimeHelper helper, uint8_t *cursor, TR_FrontEnd *fe)
    {
-   int32_t  distance;
-   uint32_t target;
+   intptrj_t target = (intptrj_t)runtimeHelperValue(helper);
 
-   target = (uintptr_t)runtimeHelperValue(helper);
-   distance = target - (uintptr_t) cursor;
-   if (distance > BRANCH_FORWARD_LIMIT || distance < BRANCH_BACKWARD_LIMIT)
+   if (!TR::Compiler->target.cpu.isTargetWithinBranchImmediateRange(target, (intptrj_t)cursor))
       {
-      target = fe->indexedTrampolineLookup(helper, (void *)cursor);
-      TR_ASSERT(((int32_t)target - (int32_t)cursor) <= BRANCH_FORWARD_LIMIT &&
-             ((int32_t)target - (int32_t)cursor) >=  BRANCH_BACKWARD_LIMIT,
-             "CodeCache is more than 32MB.\n");
+      target = TR::CodeCacheManager::instance()->findHelperTrampoline(helper, (void *)cursor);
+
+      TR_ASSERT(TR::Compiler->target.cpu.isTargetWithinBranchImmediateRange(target, (intptrj_t)cursor),
+                "Helper target address is out of range");
       }
-   return 0xEB000000 | encodeBranchDistance((uintptr_t) cursor, target);
+   return 0xEB000000 | encodeBranchDistance((uintptr_t) cursor, (uint32_t)target);
    }
 
 void J9::Recompilation::methodCannotBeRecompiled(void *oldStartPC, TR_FrontEnd *fe)

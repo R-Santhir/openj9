@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -34,9 +34,9 @@ namespace J9 { typedef J9::SymbolReferenceTable SymbolReferenceTableConnector; }
 
 #include "compile/OMRSymbolReferenceTable.hpp"
 
-#include <stddef.h>         // for size_t
-#include <stdint.h>         // for int32_t, uint32_t
-#include "env/jittypes.h"   // for intptrj_t, uintptrj_t
+#include <stddef.h>
+#include <stdint.h>
+#include "env/jittypes.h"
 
 class TR_BitVector;
 class TR_PersistentClassInfo;
@@ -83,6 +83,7 @@ class SymbolReferenceTable : public OMR::SymbolReferenceTableConnector
 
    TR::SymbolReference * findOrCreateWriteBarrierStoreSymbolRef(TR::ResolvedMethodSymbol * owningMethodSymbol = 0);
    TR::SymbolReference * findOrCreateWriteBarrierStoreGenerationalSymbolRef(TR::ResolvedMethodSymbol *owningMethodSymbol = 0);
+   TR::SymbolReference * findOrCreateConstantPoolAddressSymbolRef(TR::ResolvedMethodSymbol * owningMethodSymbol);
 
    // FE
    TR::SymbolReference * findOrCreateFloatSymbol(TR::ResolvedMethodSymbol * owningMethodSymbol, int32_t cpIndex);
@@ -135,6 +136,28 @@ class SymbolReferenceTable : public OMR::SymbolReferenceTableConnector
    TR::SymbolReference * findOrCreatePerCodeCacheHelperSymbolRef(TR_CCPreLoadedCode helper, uintptrj_t helperAddr);
    TR::SymbolReference * findOrCreateANewArraySymbolRef(TR::ResolvedMethodSymbol * owningMethodSymbol);
    TR::SymbolReference * findOrCreateStringSymbol(TR::ResolvedMethodSymbol * owningMethodSymbol, int32_t cpIndex);
+   /** \brief
+    *     Finds or creates a constant dynamic static symbol reference.
+    *
+    *  \param owningMethodSymbol
+    *     The owning resolved method symbol.
+    *
+    *  \param cpIndex
+    *     The constant pool index of the constant dynamic.
+    *
+    *  \param symbolTypeSig
+    *     The underlying class type signature string of the constant dynamic. For primitive this is the signature of the corresponding autobox class.
+    *
+    *  \param symbolTypeSigLength
+    *     Length of the underlying class type signature string.
+    *
+    *  \param isCondyPrimitive
+    *     Determines whether the constant dynamic is of primitive type.
+    *
+    *  \return
+    *     The static symbol reference of the constant dynamic.
+    */
+   TR::SymbolReference * findOrCreateConstantDynamicSymbol(TR::ResolvedMethodSymbol * owningMethodSymbol, int32_t cpIndex, char* symbolTypeSig, int32_t symbolTypeSigLength, bool isCondyPrimitive);
    TR::SymbolReference * findContiguousArraySizeSymbolRef() { return element(contiguousArraySizeSymbol); }
    TR::SymbolReference * findOrCreateMethodMonitorEntrySymbolRef(TR::ResolvedMethodSymbol * owningMethodSymbol);
    TR::SymbolReference * findOrCreateMethodMonitorExitSymbolRef(TR::ResolvedMethodSymbol * owningMethodSymbol);
@@ -239,6 +262,9 @@ class SymbolReferenceTable : public OMR::SymbolReferenceTableConnector
 
    List<TR::SymbolReference> *dynamicMethodSymrefsByCallSiteIndex(int32_t index);
    bool isFieldClassObject(TR::SymbolReference *symRef);
+   bool isFieldTypeBool(TR::SymbolReference *symRef);
+   bool isStaticTypeBool(TR::SymbolReference *symRef);
+   bool isReturnTypeBool(TR::SymbolReference *symRef);
    void addParameters(TR::ResolvedMethodSymbol * owningMethodSymbol);
 
    // NO LONGER NEEDED?  Disabled since inception (2009)
@@ -267,6 +293,7 @@ class SymbolReferenceTable : public OMR::SymbolReferenceTableConnector
 
    TR::Symbol                           *_currentThreadDebugEventDataSymbol;
    List<TR::SymbolReference>            _currentThreadDebugEventDataSymbolRefs;
+   List<TR::SymbolReference>            _constantPoolAddressSymbolRefs;
 
    private:
 

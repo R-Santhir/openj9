@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -173,8 +173,6 @@ class OMR_EXTENSIBLE CodeGenerator : public J9::CodeGenerator
    void examineNode(TR::Node *parent, TR::Node *node, TR::Node *&bestNode, int32_t &storeSize, TR::list<TR::Node*> &leftMostNodesList);
    void processNodeList(TR::Node *&bestNode, int32_t &storeSize, TR::list<TR::Node*> &leftMostNodesList);
 
-   TR::Register *evaluateAggregateToGPR(size_t destSize, TR::Node *srcNode, TR_OpaquePseudoRegister *srcReg, TR::MemoryReference *srcMR);
-
    void correctBadSign(TR::Node *node, TR_PseudoRegister *reg, int32_t endByte, TR::MemoryReference *memRef);
 
    int32_t genSignCodeSetting(TR::Node *node, TR_PseudoRegister *targetReg, int32_t endByte, TR::MemoryReference *signCodeMR, int32_t sign, TR_PseudoRegister *srcReg, int32_t digitsToClear, bool numericNibbleIsZero);
@@ -302,6 +300,40 @@ class OMR_EXTENSIBLE CodeGenerator : public J9::CodeGenerator
     *    per node.
     */
    int32_t getMinimumNumberOfNodesBetweenMonitorsForTLE() { return 45; }
+
+   /** \brief
+    *     Sets whether decimal overflow or fixed point overflow checks should be generated for instructions which
+    *     support such by-passes.
+    *
+    *  \note
+    *     This is applicable to z15 hardware accelerated vector packed decimal operations and is typically used to
+    *     control whether the ignore overflow mask (IOM) bit is set in vector packed decimal instructions.
+    */
+   void setIgnoreDecimalOverflowException(bool v)
+      {
+      _ignoreDecimalOverflowException = v;
+      }
+
+   /** \brief
+    *     Gets whether decimal overflow or fixed point overflow checks should be generated for instructions which
+    *     support such by-passes.
+    *
+    *  \note
+    *     This is applicable to z15 hardware accelerated vector packed decimal operations and is typically used to
+    *     control whether the ignore overflow mask (IOM) bit is set in vector packed decimal instructions.
+    */
+   bool getIgnoreDecimalOverflowException()
+      {
+      return _ignoreDecimalOverflowException;
+      }
+
+   private:
+
+   /** \brief
+    *     Determines whether decimal overflow or fixed point overflow checks should be generated for instructions which
+    *     support such by-passes.
+    */
+   bool _ignoreDecimalOverflowException;
    };
 
 }

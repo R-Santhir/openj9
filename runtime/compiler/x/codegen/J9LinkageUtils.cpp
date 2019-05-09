@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -20,6 +20,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
 
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/RealRegister.hpp"
 #include "codegen/Register.hpp"
 #include "codegen/CodeGenerator.hpp"
@@ -97,7 +98,7 @@ void J9LinkageUtils::cleanupReturnValue(
 void J9LinkageUtils::switchToMachineCStack(TR::Node *callNode, TR::CodeGenerator *cg)
    {
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg->fe());
-   TR::RealRegister *espReal = cg->machine()->getX86RealRegister(TR::RealRegister::esp);
+   TR::RealRegister *espReal = cg->machine()->getRealRegister(TR::RealRegister::esp);
    TR::Register *vmThreadReg = cg->getMethodMetaDataRegister();
 
    // Squirrel Java SP away into VM thread.
@@ -120,7 +121,7 @@ void J9LinkageUtils::switchToMachineCStack(TR::Node *callNode, TR::CodeGenerator
 void J9LinkageUtils::switchToJavaStack(TR::Node *callNode, TR::CodeGenerator *cg)
    {
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg->fe());
-   TR::RealRegister *espReal = cg->machine()->getX86RealRegister(TR::RealRegister::esp);
+   TR::RealRegister *espReal = cg->machine()->getRealRegister(TR::RealRegister::esp);
    TR::Register *vmThreadReg = cg->getMethodMetaDataRegister();
 
    //  Load up the java sp so we have the callout frame on top of the java stack.

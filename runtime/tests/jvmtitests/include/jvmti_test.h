@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,7 +24,7 @@
 
 #include "j9comp.h"
 #include "jvmti.h"
-
+#include "j9cfg.h"
 
 /* TODO: remove */
 #define BUFFER_SIZE 65536
@@ -208,7 +208,9 @@ jint JNICALL gctcti001(agentEnv * env, char * args);
 jint JNICALL gtgc001(agentEnv * env, char * args);
 jint JNICALL gtgc002(agentEnv * env, char * args);
 jint JNICALL gomsdi001(agentEnv * env, char * args);
+jint JNICALL gomsdi002(agentEnv * env, char * args);
 jint JNICALL gomi001(agentEnv * env, char * args);
+jint JNICALL gomi002(agentEnv * env, char * args);
 jint JNICALL gts001(agentEnv * env, char * args);
 jint JNICALL ghftm001(agentEnv * env, char * args);
 jint JNICALL rat001(agentEnv * env, char * args);
@@ -241,5 +243,7 @@ jint JNICALL aln001(agentEnv * agent_env, char * args);
 jint JNICALL mt001(agentEnv * agent_env, char * args);
 jint JNICALL nmr001(agentEnv * agent_env, char * args);
 jint JNICALL snmp001(agentEnv * agent_env, char * args);
+jint JNICALL soae001(agentEnv * agent_env, char * args);
+jint JNICALL gsp001(agentEnv *agent_env, char *args);
 
 #endif /*JVMTI_TEST_H_*/

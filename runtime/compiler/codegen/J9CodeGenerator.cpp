@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,13 +24,13 @@
 #pragma csect(STATIC,"TRJ9CGBase#S")
 #pragma csect(TEST,"TRJ9CGBase#T")
 
-#include <algorithm>                            // for std::find
+#include <algorithm>
 #include "codegen/AheadOfTimeCompile.hpp"
 #include "codegen/CodeGenerator.hpp"
 #include "codegen/CodeGenerator_inlines.hpp"
 #include "codegen/PicHelpers.hpp"
 #include "codegen/Relocation.hpp"
-#include "codegen/Instruction.hpp"              // for Instruction
+#include "codegen/Instruction.hpp"
 #include "codegen/MonitorState.hpp"
 #include "compile/AOTClassInfo.hpp"
 #include "compile/Compilation.hpp"
@@ -39,23 +39,29 @@
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
 #include "env/CompilerEnv.hpp"
+#include "env/VMAccessCriticalSection.hpp"
 #include "env/VMJ9.h"
 #include "env/jittypes.h"
 #include "il/Block.hpp"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
-#include "il/NodePool.hpp"                // for NodePool
-#include "il/Symbol.hpp"                  // for Symbol
-#include "il/symbol/ParameterSymbol.hpp"       // for ParameterSymbol
-#include "il/symbol/AutomaticSymbol.hpp"  // for AutomaticSymbol
-#include "il/symbol/StaticSymbol.hpp"     // for StaticSymbol
-#include "il/symbol/LabelSymbol.hpp"      // for LabelSymbol
-#include "infra/BitVector.hpp"                      // for TR_BitVector, etc
+#include "il/NodePool.hpp"
+#include "il/Symbol.hpp"
+#include "il/symbol/ParameterSymbol.hpp"
+#include "il/symbol/AutomaticSymbol.hpp"
+#include "il/symbol/StaticSymbol.hpp"
+#include "il/symbol/LabelSymbol.hpp"
+#include "infra/Assert.hpp"
+#include "infra/BitVector.hpp"
+#include "infra/ILWalk.hpp"
 #include "infra/List.hpp"
 #include "optimizer/Structure.hpp"
 #include "optimizer/TransformUtil.hpp"
-#include "ras/Delimiter.hpp"                   // for Delimiter
+#include "ras/Delimiter.hpp"
 #include "ras/DebugCounter.hpp"
+#include "runtime/CodeCache.hpp"
+#include "runtime/CodeCacheExceptions.hpp"
+#include "runtime/CodeCacheManager.hpp"
 #include "env/CHTable.hpp"
 #include "env/PersistentCHTable.hpp"
 
@@ -343,15 +349,17 @@ J9::CodeGenerator::lowerCompressedRefs(
 
    if (loadOrStoreNode->getOpCode().isLoadIndirect() && shouldBeCompressed)
       {
-      if (TR::Compiler->om.shouldGenerateReadBarriersForFieldLoads())
+      if (TR::Compiler->target.cpu.isZ() && TR::Compiler->om.readBarrierType() != gc_modron_readbar_none)
          {
-         dumpOptDetails(self()->comp(), "compression sequence %p is not required for loads under concurrent scavenge\n", node);
+         dumpOptDetails(self()->comp(), "converting to ardbari %p under concurrent scavenge on Z.\n", node);
+         self()->createReferenceReadBarrier(treeTop, loadOrStoreNode);
          return;
          }
 
       // base object
       address = loadOrStoreNode->getFirstChild();
-      loadOrStoreOp = self()->comp()->il.opCodeForIndirectLoad(TR::Int32);
+      loadOrStoreOp = TR::Compiler->om.readBarrierType() != gc_modron_readbar_none || loadOrStoreNode->getOpCode().isReadBar() ? self()->comp()->il.opCodeForIndirectReadBarrier(TR::Int32) :
+                                                                                                                                 self()->comp()->il.opCodeForIndirectLoad(TR::Int32);
       }
    else if ((loadOrStoreNode->getOpCode().isStoreIndirect() ||
               loadOrStoreNode->getOpCodeValue() == TR::arrayset) &&
@@ -666,7 +674,10 @@ J9::CodeGenerator::lowerTreesPreChildrenVisit(TR::Node *parent, TR::TreeTop *tre
       {
       // J9
       //
-      if (self()->comp()->useCompressedPointers())
+      // Hiding compressedref logic from CodeGen doesn't seem a good practise, the evaluator always need the uncompressedref node for write barrier,
+      // therefore, this part is deprecated. It'll be removed once P and Z update their corresponding evaluators.
+      static bool UseOldCompareAndSwapObject = (bool)feGetEnv("TR_UseOldCompareAndSwapObject");
+      if (self()->comp()->useCompressedPointers() && (UseOldCompareAndSwapObject || !TR::Compiler->target.cpu.isX86()))
          {
          TR::MethodSymbol *methodSymbol = parent->getSymbol()->castToMethodSymbol();
          // In Java9 Unsafe could be the jdk.internal JNI method or the sun.misc ordinary method wrapper,
@@ -714,11 +725,14 @@ J9::CodeGenerator::lowerTreesPreChildrenVisit(TR::Node *parent, TR::TreeTop *tre
 
    // J9
    //
-   TR::ILOpCodes parentOpCodeValue = parent->getOpCodeValue();
    if (self()->comp()->useCompressedPointers())
       {
-      if (parentOpCodeValue == TR::compressedRefs)
+      if (parent->getOpCodeValue() == TR::compressedRefs)
          self()->lowerCompressedRefs(treeTop, parent, visitCount, NULL);
+      }
+   else if (TR::Compiler->om.readBarrierType() != gc_modron_readbar_none)
+      {
+      self()->createReferenceReadBarrier(treeTop, parent);
       }
 
    // J9
@@ -732,6 +746,47 @@ J9::CodeGenerator::lowerTreesPreChildrenVisit(TR::Node *parent, TR::TreeTop *tre
 
    }
 
+void
+J9::CodeGenerator::createReferenceReadBarrier(TR::TreeTop* treeTop, TR::Node* parent)
+   {
+   if (parent->getOpCodeValue() != TR::aloadi)
+      return;
+
+   TR::Symbol* symbol = parent->getSymbolReference()->getSymbol();
+   // isCollectedReference() responds false to generic int shadows because their type
+   // is int. However, address type generic int shadows refer to collected slots.
+
+   if (symbol == TR::comp()->getSymRefTab()->findGenericIntShadowSymbol() || symbol->isCollectedReference())
+      {
+      TR::Node::recreate(parent, TR::ardbari);
+      if (treeTop->getNode()->getOpCodeValue() == TR::NULLCHK                  &&
+          treeTop->getNode()->getChild(0)->getOpCodeValue() != TR::PassThrough &&
+          treeTop->getNode()->getChild(0)->getChild(0) == parent)
+         {
+         treeTop->insertBefore(TR::TreeTop::create(self()->comp(),
+                                                   TR::Node::createWithSymRef(TR::NULLCHK, 1, 1,
+                                                                              TR::Node::create(TR::PassThrough, 1, parent),
+                                                                              treeTop->getNode()->getSymbolReference())));
+         treeTop->getNode()->setSymbolReference(NULL);
+         TR::Node::recreate(treeTop->getNode(), TR::treetop);
+         }
+      else if (treeTop->getNode()->getOpCodeValue() == TR::NULLCHK &&
+               treeTop->getNode()->getChild(0) == parent)
+         {
+         treeTop->insertBefore(TR::TreeTop::create(self()->comp(),
+                                                   TR::Node::createWithSymRef(TR::NULLCHK, 1, 1,
+                                                                              TR::Node::create(TR::PassThrough, 1, parent->getChild(0)),
+                                                                              treeTop->getNode()->getSymbolReference())));
+         treeTop->getNode()->setSymbolReference(NULL);
+         TR::Node::recreate(treeTop->getNode(), TR::treetop);
+         }
+      else
+         {
+         treeTop->insertBefore(TR::TreeTop::create(self()->comp(), TR::Node::create(parent, TR::treetop, 1, parent)));
+         }
+      }
+
+   }
 
 void
 J9::CodeGenerator::lowerTreeIfNeeded(
@@ -1129,7 +1184,7 @@ J9::CodeGenerator::lowerTreeIfNeeded(
          {
          if (!((methodSymbol && methodSymbol->getResolvedMethodSymbol() &&
                methodSymbol->getResolvedMethodSymbol()->getResolvedMethod() &&
-               methodSymbol->getResolvedMethodSymbol()->getResolvedMethod()->isInterpreted()) ||
+               methodSymbol->getResolvedMethodSymbol()->getResolvedMethod()->isInterpretedForHeuristics()) ||
                methodSymbol->isVMInternalNative()      ||
                methodSymbol->isHelper()                ||
                methodSymbol->isNative()                ||
@@ -1292,6 +1347,112 @@ J9::CodeGenerator::moveUpArrayLengthStores(TR::TreeTop *insertionPoint)
             insertionPoint = tt;
             }
          }
+      }
+   }
+
+
+void
+J9::CodeGenerator::zeroOutAutoOnEdge(
+      TR::SymbolReference *liveAutoSymRef,
+      TR::Block *block,
+      TR::Block *succBlock,
+      TR::list<TR::Block*> *newBlocks,
+      TR_ScratchList<TR::Node> *fsdStores)
+   {
+   TR::Block *storeBlock = NULL;
+   if ((succBlock->getPredecessors().size() == 1))
+      storeBlock = succBlock;
+   else
+      {
+      for (auto blocksIt = newBlocks->begin(); blocksIt != newBlocks->end(); ++blocksIt)
+         {
+         if ((*blocksIt)->getSuccessors().front()->getTo()->asBlock() == succBlock)
+            {
+            storeBlock = *blocksIt;
+            break;
+            }
+         }
+      }
+
+   if (!storeBlock)
+      {
+      TR::TreeTop * startTT = succBlock->getEntry();
+      TR::Node * startNode = startTT->getNode();
+      TR::Node * glRegDeps = NULL;
+      if (startNode->getNumChildren() > 0)
+         glRegDeps = startNode->getFirstChild();
+
+      TR::Block * newBlock = block->splitEdge(block, succBlock, self()->comp(), NULL, false);
+
+      if (debug("traceFSDSplit"))
+         diagnostic("\nSplitting edge, create new intermediate block_%d", newBlock->getNumber());
+
+      if (glRegDeps)
+         {
+         TR::Node *duplicateGlRegDeps = glRegDeps->duplicateTree();
+         TR::Node *origDuplicateGlRegDeps = duplicateGlRegDeps;
+         duplicateGlRegDeps = TR::Node::copy(duplicateGlRegDeps);
+         newBlock->getEntry()->getNode()->setNumChildren(1);
+         newBlock->getEntry()->getNode()->setAndIncChild(0, origDuplicateGlRegDeps);
+         for (int32_t i = origDuplicateGlRegDeps->getNumChildren() - 1; i >= 0; --i)
+            {
+            TR::Node * dep = origDuplicateGlRegDeps->getChild(i);
+            if(self()->comp()->getOption(TR_MimicInterpreterFrameShape) || self()->comp()->getOption(TR_PoisonDeadSlots))
+               dep->setRegister(NULL); // basically need to do prepareNodeForInstructionSelection
+            duplicateGlRegDeps->setAndIncChild(i, dep);
+            }
+         if(self()->comp()->getOption(TR_MimicInterpreterFrameShape) || self()->comp()->getOption(TR_PoisonDeadSlots))
+            {
+            TR::Node *glRegDepsParent;
+            if (  (newBlock->getSuccessors().size() == 1)
+               && newBlock->getSuccessors().front()->getTo()->asBlock()->getEntry() == newBlock->getExit()->getNextTreeTop())
+               {
+               glRegDepsParent = newBlock->getExit()->getNode();
+               }
+            else
+               {
+               glRegDepsParent = newBlock->getExit()->getPrevTreeTop()->getNode();
+               TR_ASSERT(glRegDepsParent->getOpCodeValue() == TR::Goto, "Expected block to fall through or end in goto; it ends with %s %s\n",
+                  self()->getDebug()->getName(glRegDepsParent->getOpCodeValue()), self()->getDebug()->getName(glRegDepsParent));
+               }
+            if (self()->comp()->getOption(TR_TraceCG))
+               traceMsg(self()->comp(), "zeroOutAutoOnEdge: glRegDepsParent is %s\n", self()->getDebug()->getName(glRegDepsParent));
+            glRegDepsParent->setNumChildren(1);
+            glRegDepsParent->setAndIncChild(0, duplicateGlRegDeps);
+            }
+         else           //original path
+            {
+            newBlock->getExit()->getNode()->setNumChildren(1);
+            newBlock->getExit()->getNode()->setAndIncChild(0, duplicateGlRegDeps);
+            }
+         }
+
+      newBlock->setLiveLocals(new (self()->trHeapMemory()) TR_BitVector(*succBlock->getLiveLocals()));
+      newBlock->getEntry()->getNode()->setLabel(generateLabelSymbol(self()));
+
+
+      if (self()->comp()->getOption(TR_PoisonDeadSlots))
+         {
+         if (self()->comp()->getOption(TR_TraceCG))
+            traceMsg(self()->comp(), "POISON DEAD SLOTS --- New Block Created %d\n", newBlock->getNumber());
+         newBlock->setIsCreatedAtCodeGen();
+         }
+
+      newBlocks->push_front(newBlock);
+      storeBlock = newBlock;
+      }
+   TR::Node *storeNode;
+
+   if (self()->comp()->getOption(TR_PoisonDeadSlots))
+      storeNode = self()->generatePoisonNode(block, liveAutoSymRef);
+   else
+      storeNode = TR::Node::createStore(liveAutoSymRef, TR::Node::aconst(block->getEntry()->getNode(), 0));
+
+   if (storeNode)
+      {
+      TR::TreeTop *storeTree = TR::TreeTop::create(self()->comp(), storeNode);
+      storeBlock->prepend(storeTree);
+      fsdStores->add(storeNode);
       }
    }
 
@@ -1765,7 +1926,7 @@ J9::CodeGenerator::doInstructionSelection()
                                  {
                                  TR::Node *storeNode;
                                  if (self()->comp()->getOption(TR_PoisonDeadSlots))
-                                    storeNode = generatePoisonNode(self()->comp(), block, liveAutoSymRef);
+                                    storeNode = self()->generatePoisonNode(block, liveAutoSymRef);
                                  else
                                     storeNode = TR::Node::createStore(liveAutoSymRef, TR::Node::aconst(block->getEntry()->getNode(), 0));
                                  if (storeNode)
@@ -1860,7 +2021,7 @@ J9::CodeGenerator::doInstructionSelection()
                      if (self()->comp()->getOption(TR_TraceCG) && self()->comp()->getOption(TR_PoisonDeadSlots))
                         traceMsg(self()->comp(), "POISON DEAD SLOTS --- MonExit Block Number: %d\n", self()->getCurrentEvaluationBlock()->getNumber());
 
-                     storeNode = generatePoisonNode(self()->comp(), self()->getCurrentEvaluationBlock(), symRef);
+                     storeNode = self()->generatePoisonNode(self()->getCurrentEvaluationBlock(), symRef);
                      if (storeNode)
                         {
                         TR::TreeTop *storeTree = TR::TreeTop::create(self()->comp(), storeNode);
@@ -2512,6 +2673,10 @@ J9::CodeGenerator::processRelocations()
                type = TR_InlinedInterfaceMethod;
                break;
 
+            case TR_AbstractGuard:
+               type = TR_InlinedAbstractMethodWithNopGuard;
+               break;
+
             case TR_HCRGuard:
                // devinmp: TODO/FIXME this should arrange to create an AOT
                // relocation which, when loaded, creates a
@@ -2568,6 +2733,7 @@ J9::CodeGenerator::processRelocations()
             case TR_InlinedSpecialMethodWithNopGuard:
             case TR_InlinedVirtualMethodWithNopGuard:
             case TR_InlinedInterfaceMethodWithNopGuard:
+            case TR_InlinedAbstractMethodWithNopGuard:
             case TR_InlinedHCRMethod:
             case TR_ProfiledClassGuardRelocation:
             case TR_ProfiledMethodGuardRelocation:
@@ -2688,6 +2854,24 @@ J9::CodeGenerator::processRelocations()
                }
             }
          }
+
+      TR::SymbolValidationManager::SymbolValidationRecordList &validationRecords = self()->comp()->getSymbolValidationManager()->getValidationRecordList();
+      if (self()->comp()->getOption(TR_UseSymbolValidationManager))
+         {
+         // Add the flags in TR_AOTMethodHeader on the compile run
+         J9JITDataCacheHeader *aotMethodHeader = (J9JITDataCacheHeader *)self()->comp()->getAotMethodDataStart();
+         TR_AOTMethodHeader *aotMethodHeaderEntry = (TR_AOTMethodHeader *)(aotMethodHeader + 1);
+         aotMethodHeaderEntry->flags |= TR_AOTMethodHeader_UsesSymbolValidationManager;
+
+         for (auto it = validationRecords.begin(); it != validationRecords.end(); it++)
+            {
+            self()->addExternalRelocation(new (self()->trHeapMemory()) TR::ExternalRelocation(NULL,
+                                                                             (uint8_t *)(*it),
+                                                                             (*it)->_kind, self()),
+                                                                             __FILE__, __LINE__, NULL);
+            }
+         }
+
 //#endif
       // Now call the platform specific processing of relocations
       self()->getAheadOfTimeCompile()->processRelocations();
@@ -2755,13 +2939,19 @@ J9::CodeGenerator::compressedReferenceRematerialization()
 
    static bool disableRematforCP = feGetEnv("TR_DisableWrtBarOpt") != NULL;
 
-   if (TR::Compiler->om.shouldGenerateReadBarriersForFieldLoads())
+   // The compressedrefs remat opt removes decompression/compression sequences from
+   // loads/stores where there doesn't exist a gc point between the load and the store,
+   // and the load doesn't need to be dereferenced.
+   // The opt needs to be disabled for the following cases:
+   // 1. In Guarded Storage, we can't not do a guarded load because the object that is loaded may
+   // not be in the root set, and as a consequence, may get moved.
+   // 2. For read barriers in field watch, the vmhelpers are GC points and therefore the object might be moved
+   if (TR::Compiler->om.readBarrierType() != gc_modron_readbar_none || self()->comp()->getOption(TR_EnableFieldWatch))
       {
-      // We need this restriction because the compressedrefs remat opt
-      // removes decompression/compression sequences from loads/stores where there doesn't exist
-      // a gc point between the load and the store, and the load doesn't need to be dereferenced.
-      // In Guarded Storage, we can't not do a guarded load because the object that is loaded may
-      // not be in the root set, and as a consequence, may get moved.
+      if (TR::Compiler->om.readBarrierType() != gc_modron_readbar_none)
+         traceMsg(self()->comp(), "The compressedrefs remat opt is disabled because Concurrent Scavenger is enabled\n");
+      if (self()->comp()->getOption(TR_EnableFieldWatch))
+         traceMsg(self()->comp(), "The compressedrefs remat opt is disabled because field watch is enabled\n");
       disableRematforCP = true;
       }
 
@@ -3734,6 +3924,132 @@ J9::CodeGenerator::collectSymRefs(
    return true;
    }
 
+  /** \brief
+    *       Following codegen phase walks the blocks in the CFG and checks for the virtual guard performing TR_MethodTest
+    *       and guarding an inlined interface call.
+    *
+    * \details
+    *       Virtual Guard performing TR_MethodTest would look like following.
+    *       n1n BBStart <block_X>
+    *       ...
+    *       n2n ifacmpne goto -> nXXn
+    *       n3n    aloadi <offset of inlined method in VTable>
+    *       n4n       aload <vft>
+    *       n5n    aconst <J9Method of inlined method>
+    *       n6n BBEnd <block_X>
+    *       For virtual dispatch sequence, we know that this is the safe check but in case of interface call, classes implementing
+    *       that interface would have different size of VTable. This makes executing above check unsafe when VTable of the class of
+    *       the receiver object is smaller, effectively making reference in n3n to pointing to a garbage location which might lead
+    *       to a segmentation fault if the reference in not memory mapped or if bychance it contains J9Method  pointer of same inlined
+    *       method then it will execute a code which should not be executed.
+    *       For this kind of Virtual guards which are not nop'd we need to add a range check to make sure the address we are going to
+    *       access is pointing to a valid location in VTable. There are mainly two ways we can add this range check test. First one is
+    *       during the conception of the virtual guard. There are many downsides of doing so especially when other optimizations which
+    *       can moved guards around (for example loop versioner, virtualguard head merger, etc) needs to make sure to move range check
+    *       test around as well. Other way is to scan for this type of guards after optimization is finished like here in CodeGen Phase
+    *       and add a range check test here.
+    *       At the end of this function, we would have following code around them method test.
+    *       BBStart <block_X>
+    *       ...
+    *       ifacmple goto nXXn
+    *          aloadi <offset of VTableHeader.size from J9Class*>
+    *             aload <vft>
+    *          aconst <Index of the inlined method in VTable of class of inlined method>
+    *       BBEnd <block_X>
+    *
+    *       BBStart <block_Y>
+    *       ifacmpne goto -> nXXn
+    *          aloadi <offset of inlined method in VTable>
+    *             aload <vft>
+    *          aconst <J9Method of inlined method>
+    *       BBEnd <block_Y>
+    */
+void
+J9::CodeGenerator::fixUpProfiledInterfaceGuardTest()
+   {
+   TR::Compilation *comp = self()->comp();
+   TR::CFG * cfg = comp->getFlowGraph();
+   TR::NodeChecklist checklist(comp);
+   for (TR::AllBlockIterator iter(cfg, comp); iter.currentBlock() != NULL; ++iter)
+      {
+      TR::Block *block = iter.currentBlock();
+      TR::TreeTop *treeTop = block->getLastRealTreeTop();
+      TR::Node *node = treeTop->getNode();
+      if (node->getOpCode().isIf() && node->isTheVirtualGuardForAGuardedInlinedCall() && !checklist.contains(node))
+         {
+         TR_VirtualGuard *vg = comp->findVirtualGuardInfo(node);
+         // Mainly we need to make sure that virtual guard which performs the TR_MethodTest and can be NOP'd are needed the range check.
+         if (vg && vg->getTestType() == TR_MethodTest &&
+            !(comp->performVirtualGuardNOPing() && (node->isNopableInlineGuard() || comp->isVirtualGuardNOPingRequired(vg))))
+            {
+            TR::SymbolReference *callSymRef = vg->getSymbolReference();
+            TR_ASSERT_FATAL(callSymRef != NULL, "Guard n%dn for the inlined call should have stored symbol reference for the call", node->getGlobalIndex());
+            if (callSymRef->getSymbol()->castToMethodSymbol()->isInterface())
+               {
+               TR::DebugCounter::incStaticDebugCounter(comp, TR::DebugCounter::debugCounterName(comp, "profiledInterfaceTest/({%s}{%s})", comp->signature(), comp->getHotnessName(comp->getMethodHotness())));
+               dumpOptDetails(comp, "Need to add a rangecheck before n%dn in block_%d\n",node->getGlobalIndex(), block->getNumber());
+
+               // We need a VFT Load of the receiver object to get the VTableHeader.size to check the range. As this operation is happening during codegen phase, only
+               // known concrete way we can have this information is through aloadi child of the guard that has single child which is vft load of receiver object.
+               // Now instead of accessing VFT load from the child of the aloadi, we could have treetop's the aloadi during inlining where we generate the virtual guard
+               // to access information from the treetop. Because of the same reasons lined up behind adding range check test during codegen phase in the description of this function,
+               // we would need to make changes in all optimizations moving Virtual Guard around to keep that treetop together before guard which will be very difficult to enforce.
+               // Also as children of virtual guard is very self contained and atm it is very unlikely that other optimizations are going to find opportunity of manipulating them and
+               // Because of the fact that it is very unlikely that we will have another aloadi node with same VTable offset of same receiver object, this child would not be commoned out
+               // and have only single reference in this virtual guard therefore splitting of block will not store it to temp slot.
+               // In rare case child of the virtual guard is manipulated then illegal memory reference load would hace occured before the Virtual Guard which
+               // is already a bug as mentioned in the description of this function and it would be safer to fail compilation.
+               TR::Node *vTableLoad = node->getFirstChild();
+               if (!(vTableLoad->getOpCodeValue() == TR::aloadi && comp->getSymRefTab()->isVtableEntrySymbolRef(vTableLoad->getSymbolReference())))
+                  comp->failCompilation<TR::CompilationException>("Abort compilation as Virtual Guard has generated illegal memory reference");
+               TR::Node *vTableSizeOfReceiver = NULL;
+               TR::Node *rangeCheckTest = NULL;
+               if (TR::Compiler->target.is64Bit())
+                  {
+                  vTableSizeOfReceiver = TR::Node::createWithSymRef(TR::lloadi, 1, 1, vTableLoad->getFirstChild(),
+                                                                           comp->getSymRefTab()->findOrCreateVtableEntrySymbolRef(comp->getMethodSymbol(),
+                                                                                                                                    sizeof(J9Class)+ offsetof(J9VTableHeader, size)));
+                  rangeCheckTest = TR::Node::createif(TR::iflcmple, vTableSizeOfReceiver,
+                                                                  TR::Node::lconst(node,  (vTableLoad->getSymbolReference()->getOffset() - sizeof(J9Class) - sizeof(J9VTableHeader)) / sizeof(UDATA)) ,
+                                                                  node->getBranchDestination());
+                  }
+               else
+                  {
+                  vTableSizeOfReceiver = TR::Node::createWithSymRef(TR::iloadi, 1, 1, vTableLoad->getFirstChild(),
+                                                                           comp->getSymRefTab()->findOrCreateVtableEntrySymbolRef(comp->getMethodSymbol(),
+                                                                                                                                    sizeof(J9Class)+ offsetof(J9VTableHeader, size)));
+                  rangeCheckTest = TR::Node::createif(TR::ificmple, vTableSizeOfReceiver,
+                                                                  TR::Node::iconst(node,  (vTableLoad->getSymbolReference()->getOffset() - sizeof(J9Class) - sizeof(J9VTableHeader)) / sizeof(UDATA)) ,
+                                                                  node->getBranchDestination());
+                  }
+               TR::TreeTop *rangeTestTT = TR::TreeTop::create(comp, treeTop->getPrevTreeTop(), rangeCheckTest);
+               TR::Block *newBlock = block->split(treeTop, cfg, false, false);
+               cfg->addEdge(block, node->getBranchDestination()->getEnclosingBlock());
+               newBlock->setIsExtensionOfPreviousBlock();
+               if (node->getNumChildren() == 3)
+                  {
+                  TR::Node *currentBlockGlRegDeps = node->getChild(2);
+                  TR::Node *exitGlRegDeps = TR::Node::create(TR::GlRegDeps, currentBlockGlRegDeps->getNumChildren());
+                  for (int i = 0; i < currentBlockGlRegDeps->getNumChildren(); i++)
+                     {
+                     TR::Node *child = currentBlockGlRegDeps->getChild(i);
+                     exitGlRegDeps->setAndIncChild(i, child);
+                     }
+                  rangeCheckTest->addChildren(&exitGlRegDeps, 1);
+                  }
+               // While walking all blocks in CFG, when we find the location to add the range check, it will split the original block and
+               // We will have actual Virtual Guard in new block. As Block Iterator guarantees to visit all block in the CFG,
+               // While going over the blocks, we will encounter same virtual guard in newly created block after split.
+               // We need to make sure we are not examining already visited guard.
+               // Add checked virtual guard node to NodeChecklist to make sure we check all the nodes only once.
+               checklist.add(node);
+               }
+            }
+         }
+      }
+   }
+
+
 
 void
 J9::CodeGenerator::allocateLinkageRegisters()
@@ -3857,37 +4173,6 @@ J9::CodeGenerator::allocateLinkageRegisters()
       }
    }
 
-#define OPT_DETAILS_CLEAN "O^O CLEAN FOLDING: "
-// Having the pdstore also do a clean results in better code as the sign cleaning instruction (on z at least) also moves data.
-// It is done late at > noOpt so a side-effect (the cleaning) is not added to the the store operation.
-// Having a side-effect like this means several optimizations, such as local and global copy propagation and value numbering,
-// need to handle this cleaning side-effect.
-// Cannot do this during lowerTrees because the pass in lowerTrees that adds skipCopyOnStore/skipCopyOnLoad flags is sensitive
-// to referenceCounts and foldSignCleaningIntoStore is changing the number of node references
-//
-void
-J9::CodeGenerator::foldSignCleaningIntoStore()
-   {
-   LexicalTimer foldTimer("foldSignCleaning", self()->comp()->phaseTimer());
-   for(TR::TreeTop * tt = self()->comp()->getStartTree(); tt; tt = tt->getNextTreeTop())
-      {
-      TR::Node *node = tt->getNode();
-      if (node->getOpCode().isPackedStore() &&
-          node->getValueChild()->getOpCode().isSimpleBCDClean() &&
-          node->getValueChild()->getDecimalPrecision() >= node->getValueChild()->getFirstChild()->getDecimalPrecision() && // don't lose truncation side effect
-          node->getDecimalPrecision() <= TR::DataType::getMaxPackedDecimalPrecision() &&
-          performTransformation(self()->comp(), "%sFold %s [%s] into store by setting CleanSignInPDStoreEvaluator flag on %s [%s]\n",
-            OPT_DETAILS_CLEAN,node->getValueChild()->getOpCode().getName(),node->getValueChild()->getName(self()->comp()->getDebug()),node->getOpCode().getName(),node->getName(self()->comp()->getDebug())))
-         {
-         node->setCleanSignInPDStoreEvaluator(true);
-         TR::Node *valueChild = node->getValueChild();
-         valueChild->getFirstChild()->incReferenceCount();
-         valueChild->recursivelyDecReferenceCount();
-         valueChild = node->setValueChild(valueChild->getFirstChild());
-         self()->swapChildrenIfNeeded(node, OPT_DETAILS_CLEAN);
-         }
-      }
-   }
 
 void
 J9::CodeGenerator::swapChildrenIfNeeded(TR::Node *store, char *optDetails)
@@ -4365,8 +4650,17 @@ J9::CodeGenerator::generateCatchBlockBBStartPrologue(
       TR::Node *node,
       TR::Instruction *fenceInstruction)
    {
+   if (self()->comp()->getOptions()->getReportByteCodeInfoAtCatchBlock())
+      {
+      // Note we should not use `fenceInstruction` here because it is not the first instruction in this BB. The first
+      // instruction is a label that incoming branches will target. We will use this label (first instruction in the
+      // block) in `createMethodMetaData` to populate a list of non-mergable GC maps so as to ensure the GC map at the
+      // catch block entry is always present if requested.
+      node->getBlock()->getFirstInstruction()->setNeedsGCMap();
+      }
+
    VMgenerateCatchBlockBBStartPrologue(node, fenceInstruction, self());
-}
+   }
 
 void
 J9::CodeGenerator::registerAssumptions()
@@ -4478,3 +4772,123 @@ J9::CodeGenerator::isMethodInAtomicLongGroup(TR::RecognizedMethod rm)
       }
    }
 
+
+void
+J9::CodeGenerator::trimCodeMemoryToActualSize()
+   {
+   uint8_t *bufferStart = self()->getBinaryBufferStart();
+   size_t actualCodeLengthInBytes = self()->getCodeEnd() - bufferStart;
+
+   TR::VMAccessCriticalSection trimCodeMemoryAllocation(self()->comp());
+   self()->getCodeCache()->trimCodeMemoryAllocation(bufferStart, actualCodeLengthInBytes);
+   }
+
+
+void
+J9::CodeGenerator::reserveCodeCache()
+   {
+   self()->setCodeCache(self()->fej9()->getDesignatedCodeCache(self()->comp()));
+   if (!self()->getCodeCache()) // Cannot reserve a cache; all are used
+      {
+      // We may reach this point if all code caches have been used up
+      // If some code caches have some space but cannot be used because they are reserved
+      // we will throw an exception in the call to getDesignatedCodeCache
+
+      if (self()->comp()->compileRelocatableCode())
+         {
+         self()->comp()->failCompilation<TR::RecoverableCodeCacheError>("Cannot reserve code cache");
+         }
+
+      self()->comp()->failCompilation<TR::CodeCacheError>("Cannot reserve code cache");
+      }
+   }
+
+
+uint8_t *
+J9::CodeGenerator::allocateCodeMemoryInner(
+      uint32_t warmCodeSizeInBytes,
+      uint32_t coldCodeSizeInBytes,
+      uint8_t **coldCode,
+      bool isMethodHeaderNeeded)
+   {
+   TR::Compilation *comp = self()->comp();
+
+   TR::CodeCache * codeCache = self()->getCodeCache();
+   if (!codeCache)
+      {
+      if (comp->compileRelocatableCode())
+         {
+         comp->failCompilation<TR::RecoverableCodeCacheError>("Failed to get current code cache");
+         }
+
+      comp->failCompilation<TR::CodeCacheError>("Failed to get current code cache");
+      }
+
+   TR_ASSERT(codeCache->isReserved(), "Code cache should have been reserved.");
+
+   bool hadClassUnloadMonitor;
+   bool hadVMAccess = self()->fej9()->releaseClassUnloadMonitorAndAcquireVMaccessIfNeeded(comp, &hadClassUnloadMonitor);
+
+   uint8_t *warmCode = TR::CodeCacheManager::instance()->allocateCodeMemory(
+         warmCodeSizeInBytes,
+         coldCodeSizeInBytes,
+         &codeCache,
+         coldCode,
+         comp->compileRelocatableCode(),
+         isMethodHeaderNeeded);
+
+   self()->fej9()->acquireClassUnloadMonitorAndReleaseVMAccessIfNeeded(comp, hadVMAccess, hadClassUnloadMonitor);
+
+   if (codeCache != self()->getCodeCache())
+      {
+      TR_ASSERT(!codeCache || codeCache->isReserved(), "Substitute code cache isn't marked as reserved");
+      comp->setRelocatableMethodCodeStart(warmCode);
+      self()->switchCodeCacheTo(codeCache);
+      }
+
+   if (!warmCode)
+      {
+      if (jitConfig->runtimeFlags & J9JIT_CODE_CACHE_FULL)
+         {
+         comp->failCompilation<TR::CodeCacheError>("Failed to allocate code memory");
+         }
+
+      comp->failCompilation<TR::RecoverableCodeCacheError>("Failed to allocate code memory");
+      }
+
+   TR_ASSERT_FATAL( !((warmCodeSizeInBytes && !warmCode) || (coldCodeSizeInBytes && !coldCode)), "Allocation failed but didn't throw an exception");
+
+   return warmCode;
+   }
+
+
+TR::Node *
+J9::CodeGenerator::generatePoisonNode(TR::Block *currentBlock, TR::SymbolReference *liveAutoSymRef)
+   {
+   bool poisoned = true;
+   TR::Node *storeNode = NULL;
+
+   if (liveAutoSymRef->getSymbol()->getType().isAddress())
+      storeNode = TR::Node::createStore(liveAutoSymRef, TR::Node::aconst(currentBlock->getEntry()->getNode(), 0x0));
+   else if (liveAutoSymRef->getSymbol()->getType().isInt64())
+      storeNode = TR::Node::createStore(liveAutoSymRef, TR::Node::lconst(currentBlock->getEntry()->getNode(), 0xc1aed1e5));
+   else if (liveAutoSymRef->getSymbol()->getType().isInt32())
+      storeNode = TR::Node::createStore(liveAutoSymRef, TR::Node::iconst(currentBlock->getEntry()->getNode(), 0xc1aed1e5));
+   else
+      poisoned = false;
+
+   TR::Compilation *comp = self()->comp();
+   if (comp->getOption(TR_TraceCG) && comp->getOption(TR_PoisonDeadSlots))
+      {
+      if (poisoned)
+         {
+         traceMsg(comp, "POISON DEAD SLOTS --- Live local %d  from parent block %d going dead .... poisoning slot with node 0x%x .\n", liveAutoSymRef->getReferenceNumber() , currentBlock->getNumber(), storeNode);
+         }
+      else
+         {
+         traceMsg(comp, "POISON DEAD SLOTS --- Live local %d of unsupported type from parent block %d going dead .... poisoning skipped.\n", liveAutoSymRef->getReferenceNumber() , currentBlock->getNumber());
+         }
+      }
+
+   return storeNode;
+   }

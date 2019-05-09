@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -1452,20 +1451,22 @@ gcParseCommandLineAndInitializeWithValues(J9JavaVM *vm, IDATA *memoryParameters)
 		goto _error;
 	}
 
-#if defined(J9VM_GC_COMPRESSED_POINTERS)	/* This should be J9VM_INTERP_COMPRESSED_OBJECT_HEADER */
-	if (-1 != index) {
-		extensions->suballocatorInitialSize = optionValue;
-	}
-	if(0 == extensions->suballocatorInitialSize) {
-		j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTIONS_VALUE_MUST_BE_ABOVE, OPT_XMCRS, (UDATA)0);
+#if defined(OMR_GC_COMPRESSED_POINTERS)
+	if (J9JAVAVM_COMPRESS_OBJECT_REFERENCES(vm)) {
+		if (-1 != index) {
+			extensions->suballocatorInitialSize = optionValue;
+		}
+		if(0 == extensions->suballocatorInitialSize) {
+			j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTIONS_VALUE_MUST_BE_ABOVE, OPT_XMCRS, (UDATA)0);
 			return JNI_EINVAL;
-	}
+		}
 #define FOUR_GB ((UDATA)4 * 1024 * 1024 * 1024)
-	if(extensions->suballocatorInitialSize >= FOUR_GB) {
-		j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTIONS_VALUE_OVERFLOWED, OPT_XMCRS);
+		if(extensions->suballocatorInitialSize >= FOUR_GB) {
+			j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTIONS_VALUE_OVERFLOWED, OPT_XMCRS);
 			return JNI_EINVAL;
+		}
 	}
-#endif /* defined(J9VM_GC_COMPRESSED_POINTERS) */
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) */
 
 	memoryParameters[opt_Xmcrs] = index;
 

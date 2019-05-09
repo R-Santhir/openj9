@@ -4,7 +4,7 @@ define(`ZZ',`**')
 define(`ZZ',`##')
 ')dnl
 
-ZZ Copyright (c) 2000, 2017 IBM Corp. and others
+ZZ Copyright (c) 2000, 2019 IBM Corp. and others
 ZZ
 ZZ This program and the accompanying materials are made 
 ZZ available under the terms of the Eclipse Public License 2.0 
@@ -145,6 +145,9 @@ SETVAL(eq_codeRA_inVUCallSnippet,8)
 SETVAL(eq_cp_inVUCallSnippet,16)
 SETVAL(eq_cpindex_inVUCallSnippet,24)
 SETVAL(eq_patchVftInstr_inVUCallSnippet,32)
+SETVAL(eq_privMethod_inVUCallSnippet,40)
+SETVAL(eq_j2i_thunk_inVUCallSnippet,48)
+SETVAL(eq_privateRA_inVUCallSnippet,56)
 
 ZZ These two should really be in codert/jilconsts.inc
 SETVAL(J9TR_MethodConstantPool,8)
@@ -185,6 +188,9 @@ SETVAL(eq_codeRA_inVUCallSnippet,4)
 SETVAL(eq_cp_inVUCallSnippet,8)
 SETVAL(eq_cpindex_inVUCallSnippet,12)
 SETVAL(eq_patchVftInstr_inVUCallSnippet,16)
+SETVAL(eq_privMethod_inVUCallSnippet,20)
+SETVAL(eq_j2i_thunk_inVUCallSnippet,24)
+SETVAL(eq_privateRA_inVUCallSnippet,28)
 
 ZZ Unresolved Data Snippet Layout (31 bit mode)
 SETVAL(eq_methodaddr_inDataSnippet,0)
@@ -1175,7 +1181,7 @@ LOAD_ADDR_FROM_TOC(rEP,TR_S390jitResolveStaticField)
     LR_GPR  r0,r14
     BASR    r14,rEP                      # Call jitResolvedStaticField
 
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     LHI     r1,2                                 # shift for addr
 ],[dnl
     LHI     r1,3                                 # shift for addr
@@ -1186,7 +1192,7 @@ ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
     JZ      LMTStaticAddressLoadNoneIsolated
 
     MTComputeStaticAddress(AddressLoad,Obj)
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     LLGF    r3,0(,r2)                        # load comprssed val
     SLLG    r3,r3,0(r1)                       # decompress
     STG     r3,(2*PTR_SIZE)(,r5)             # store val into r2
@@ -1344,7 +1350,7 @@ LOAD_ADDR_FROM_TOC(rEP,TR_S390jitResolveStaticFieldSetter)
     LG      r1,28(,r14)               # load CP word
     LG      r7,(PTR_SIZE)(,r5)        # load JIT r1, obj to store
 
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     SLLG    r2,r2,2                   # col offset, data size
     SLLG    r6,r6,2                   # row offset, compressed
     LLGF    r3,8(r6,r3)               # tenantData[row]
@@ -1625,7 +1631,14 @@ LABEL(LDataOOLExit)
 
 ZZ ===================================================================
 ZZ  PICBuider routine - _virtualUnresolvedHelper
+ZZ  Handles unresolved virtual and unresolved nestmate private methods
 ZZ
+ZZ  For unresolved virtual call targets, this routine calls VM helper
+ZZ  to resolve and patches the JIT'ed code with its VFT offset. This
+ZZ  function runs only once in this case.
+ZZ
+ZZ  For unresolved nestmate private methods, this routine does
+ZZ  not do any patching.
 ZZ ===================================================================
     START_FUNC(_virtualUnresolvedHelper,virUH)
 
@@ -1643,8 +1656,11 @@ LABEL(_virtualUnresolvedHelper_CONST)
     CONST_4BYTE(FFFF8000) # Max patchable offset
 
 LABEL(_virtualUnresolvedHelper_BODY)
-
-ZZ  # Load address of [idx:CP] pair
+ZZ  Check if it's a resolved private
+    L_GPR   r2,eq_privMethod_inVUCallSnippet(r14)
+    CHI_GPR r2,0
+    JNE     L_privateMethodRemoveTag
+ZZ  # Load address of [idx:CP] pair and RA
     LA      r1,eq_cp_inVUCallSnippet(,r14)
     L_GPR   r2,eq_codeRA_inVUCallSnippet(,r14) # Load code cache RA
     LR_GPR  r0,r14
@@ -1656,6 +1672,10 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitResolveVirtualMethod)
     BASR    r14,r14     # Call to resolution
 
     LR_GPR  r14,r0
+ZZ  Check if it's a private method
+    LR      r1,r2
+    NILL    r1,J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG
+    JNZ     L_privateMethod
 ZZ  Skip patching if vft offset is smaller than -32768
     C       r2,4(rEP)
     JL      L_endPatch
@@ -1689,6 +1709,68 @@ LABEL(L_patchBRASL)
     AHI_GPR r3,-6    # Get the address in main code cache for patching
     LHI     r1,4
     STC     r1,1(,r3) #this will turn BRASL into a NOP BRCL
+    J       L_endPatch
+
+ZZ  -------------------------------------------------------------
+ZZ  Private virtual method handling
+ZZ
+ZZ  Private methods don't get patched
+ZZ  They are invoked either directly or via J2I. After they are done,
+ZZ  return to mainline execution where the private RA points to.
+LABEL(L_privateMethod)
+    ST_GPR  r2,eq_privMethod_inVUCallSnippet(r14)
+LABEL(L_privateMethodRemoveTag)
+
+ZZ  Load bitwise NOT of the direct method flag
+ifdef([J9ZOS390],[dnl
+ZZ zOS
+    LHI_GPR r0,J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG
+    LCR_GPR r0,r0
+    AHI_GPR r0,-1
+],[dnl
+ZZ zLinux
+    LHI_GPR r0,~J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG
+])dnl
+
+    LR_GPR  r1,r2
+    NR_GPR  r1,r0          # Remove low-tag of J9Metod ptr
+    LR_GPR  r3,r14         # free up r14 for RA
+    L_GPR   r14,eq_privateRA_inVUCallSnippet(r14) #load RA
+    TM      eq_methodCompiledFlagOffset(r1),J9TR_MethodNotCompiledBit
+    JZ      L_jitted_private
+    LR_GPR  r0,r2         # low-tagged J9Method ptr in R0
+    L_GPR   rEP,eq_j2i_thunk_inVUCallSnippet(r3) # load J2I thunk
+    J       L_callPrivate_inVU
+
+ZZ  r1 contains J9Method pointer here.
+ZZ  Load jitted code entry
+LABEL(L_jitted_private)
+    L_GPR   r1,J9TR_MethodPCStartOffset(r1)
+
+ifdef([TR_HOST_64BIT],[dnl
+    LGF     r2,-4(r1)     # Load reservedWord
+],[dnl
+    LR_GPR  r2,r1         # Copy PCStart
+    AHI_GPR r2,-4         # Move up to the reservedWord
+    L       r2,0(r2)      # Load reservedWord
+])dnl
+
+ZZ The first half of the reserved word is jit-to-jit offset,
+ZZ so we need to shift it to lower half
+ZZ see use of getReservedWord() in getJitEntryOffset()
+    SRL     r2,16
+    AR_GPR  r1,r2        # Add offset to PCStart
+    LR_GPR  rEP,r1
+
+LABEL(L_callPrivate_inVU)
+    L_GPR   r1,(2*PTR_SIZE)(,J9SP)       # Restore R1
+    L_GPR   r2,PTR_SIZE(,J9SP)           # Restore R2
+    L_GPR   r3,0(,J9SP)                  # Restore R3
+    AHI_GPR J9SP,(3*PTR_SIZE)            # Restore JSP
+    BR      rEP       # call private target. Does not return to here
+ZZ
+ZZ            end of private direct dispatch
+ZZ  ---------------------------------------------------------------
 
 LABEL(L_endPatch)
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)       # Restore argument registers
@@ -1702,6 +1784,52 @@ LABEL(L_virtualDispatchExit)
 
     END_FUNC(_virtualUnresolvedHelper,virUH,7)
 
+ZZ ================================================
+ZZ  PICBuilderRoutine : _jitResolveConstantDynamic
+ZZ ================================================
+    START_FUNC(_jitResolveConstantDynamic,jRCD)
+
+LABEL(_jitResolveConstantDynamicBody)
+ZZ Store all the Regsiter on Java Stack and adjust J9SP.
+ZZ VM Helper old_slow_jitResolveConstantDynamic allocates
+ZZ Data resolve frame for unresolved field and these frame
+ZZ assumes all registers are stored off to the Java Stack
+ZZ upon entry and adjusts stack frames accordingly during
+ZZ stack walk.
+   SaveRegs
+ZZ Loading arguments for JIT helper
+ZZ R1 - Address of Constant Pool
+ZZ R2 - CPIndex
+ZZ R3 - JIT'd code Return Address
+    L_GPR r1,eq_cp_inDataSnippet(,r14)
+    LGF_GPR r2,eq_cpindex_inDataSnippet(,r14)
+    L_GPR r3,eq_codeRA_inDataSnippet(,r14)
+
+ZZ Following snippet prepares JIT helper call sequence
+ZZ which needs r14 to be free which holds address of
+ZZ Snippet from where this is called. 
+ZZ As jitResolveConstantDynamic is called via 
+ZZ SLOW_PATH_ONLY_HELPER glue, it is guranteed that
+ZZ all the registers (volatile and non-volatile) are preserved.
+ZZ This allows us to use R0 to preserve R14 
+LOAD_ADDR_FROM_TOC(rEP,TR_S390jitResolveConstantDynamic)
+    LR_GPR r0,r14
+    BASR r14,rEP
+    LR_GPR r14,r0
+
+ZZ Load the address of literal pool
+ZZ Store the return value of helper call which
+ZZ is address of resolved constant dynamic 
+ZZ into the Literal Pool 
+    L_GPR   r1,eq_literalPoolAddr_inDataSnippet(r14)
+    ST_GPR  r2,0(,r1)
+    RestoreRegs
+    L_GPR r14,eq_codeRA_inDataSnippet(,r14) # Get mainline RA
+
+ZZ Branch instruction in mainline will be patched here with NOP
+    MVIY -5(r14),HEX(04)
+    BR r14 # Return
+    END_FUNC(_jitResolveConstantDynamic,jRCD,6)
 
 ZZ ===================================================================
 ZZ  PICBuider routine - _interfaceCallHelper
@@ -1716,6 +1844,17 @@ LABEL(_interfaceCallHelper_BODY)
     ST_GPR  r2,PTR_SIZE(J9SP)
     ST_GPR  r1,(2*PTR_SIZE)(J9SP)
     LR_GPR  r0,r14
+
+
+ZZ  Check if it's a previously resolved private target
+    L_GPR   r1,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    NILL    r1,J9TR_J9_ITABLE_OFFSET_DIRECT
+    JZ      ifCH0callResolve
+    L_GPR   r1,eq_intfAddr_inInterfaceSnippet(r14)
+    CHI_GPR r1,0
+    JNZ     ifCHMLTypeCheckIFCPrivate
+
+LABEL(ifCH0callResolve)
     TM      eq_flag_inInterfaceSnippet(r14),1 # method is resolved?
     JNZ     LcontinueLookup
 
@@ -1731,6 +1870,12 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitResolveInterfaceMethod)
 ZZ                                # interface class and index in TLS
     MVI     eq_flag_inInterfaceSnippet(r14),1
 
+ZZ  resolve helper fills the class slot and method slot
+ZZ  Check PIC slot to see if the target is private interface method
+    L_GPR   r1,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    NILL    r1,J9TR_J9_ITABLE_OFFSET_DIRECT
+    JNZ     ifCHMLTypeCheckIFCPrivate
+
 LABEL(LcontinueLookup)
 
     L_GPR   r3,eq_codeRA_inInterfaceSnippet(,r14) #Load code cache RA
@@ -1738,7 +1883,7 @@ LABEL(LcontinueLookup)
 ZZ  # Load address of interface table & slot number
     LA      r2,eq_intfAddr_inInterfaceSnippet(,r14)
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)  # Load this
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r1,J9TR_J9Object_class(,r1)
 ZZ # Load lookup class offset
     LLGFR   r1,r1
@@ -1755,7 +1900,7 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitLookupInterfaceMethod)
     LR_GPR  r14,r0
 ZZ                                  # return interpVtable offset in r2
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)  # Load this
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r3,J9TR_J9Object_class(,r1)
 ZZ # Load offset of the lookup class
     LLGFR   r3,r3
@@ -1773,7 +1918,7 @@ LABEL(LcommonJitDispatch)         # interpVtable offset in r2
     LNR_GPR r2,r2                 # negative the interpVtable offset
     AHI_GPR r2,J9TR_InterpVTableOffset
     LR_GPR  r0,r2                 # J9 requires the offset in R0
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r3,J9TR_J9Object_class(,r1)
 ZZ # Load offset of the lookup class
     LLGFR   r3,r3
@@ -1804,6 +1949,16 @@ LABEL(_interfaceCallHelperSingleDynamicSlot_BODY)
     ST_GPR  r3,0(J9SP)
     LR_GPR  r0,r14
 
+
+ZZ  Check if it's a previously resolved private target
+    L_GPR   r1,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    NILL    r1,J9TR_J9_ITABLE_OFFSET_DIRECT
+    JZ      ifCH1LcallResolve
+    L_GPR   r1,eq_intfAddr_inInterfaceSnippet(r14)
+    CHI_GPR r1,0
+    JNZ     ifCHMLTypeCheckIFCPrivate
+
+LABEL(ifCH1LcallResolve)
 ZZ  check if the method is resolved?
     TM      eq_flag_inInterfaceSnippetSingleDynamicSlot(r14),1
     JNZ     ifCH1LcontinueLookup
@@ -1820,6 +1975,12 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitResolveInterfaceMethod)
 ZZ                              # interface class and index in TLS
     MVI     eq_flag_inInterfaceSnippetSingleDynamicSlot(r14),1
 
+ZZ  resolve helper fills the class slot and method slot
+ZZ  Check PIC slot to see if the target is private interface method
+    L_GPR   r1,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    NILL    r1,J9TR_J9_ITABLE_OFFSET_DIRECT
+    JNZ     ifCHMLTypeCheckIFCPrivate
+
 LABEL(ifCH1LcontinueLookup)
 
     L_GPR   r3,eq_codeRA_inInterfaceSnippet(,r14) #Load code cache RA
@@ -1827,7 +1988,7 @@ LABEL(ifCH1LcontinueLookup)
 ZZ  # Load address of interface table & slot number
     LA      r2,eq_intfAddr_inInterfaceSnippet(,r14)
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)       # Load this
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r1,J9TR_J9Object_class(,r1)
 ZZ # Load lookup class offset
     LLGFR   r1,r1
@@ -1844,7 +2005,7 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitLookupInterfaceMethod)
 
 ZZ                                # return interpVtable offset in r2
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)       # Load this
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r3,J9TR_J9Object_class(,r1)
 ZZ # Load offset of the lookup class
     LLGFR   r3,r3
@@ -1857,7 +2018,7 @@ ZZ # Load the addr of the lookup class
     TM   eq_methodCompiledFlagOffset(r3),J9TR_MethodNotCompiledBit
     JNZ     ifCH1LcommonJitDispatch
 
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r2,J9TR_J9Object_class(,r1)
 ZZ # Read class offset
     LLGFR   r2,r2
@@ -1907,7 +2068,7 @@ ZZ For zos rEP(r15) is not clobbered, hense not saved
 
     L       CARG2,J9TR_J9Class_classLoader(r2)
 
-ZZ  for J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+ZZ  for OMR_GC_COMPRESSED_POINTERS
 ZZ  may need to convert r2 to J9Class
 
     L       CARG1,eq_intfAddr_inInterfaceSnippet(,r14)
@@ -2001,7 +2162,7 @@ LABEL(ifCH1LcommonJitDispatch)      # interpVtable offset in rEP
     AHI_GPR rEP,J9TR_InterpVTableOffset
     LR_GPR  r0,rEP                  # J9 requires the offset in R0
     L_GPR   r1,(2*PTR_SIZE)(J9SP)   # Restore "this"
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r3,J9TR_J9Object_class(,r1)
 ZZ # Load offset of lookup class
     LLGFR   r3,r3
@@ -2033,6 +2194,15 @@ LABEL(_interfaceCallHelperMultiSlots_BODY)
     ST_GPR  r3,0(J9SP)
     LR_GPR  r0,r14
 
+ZZ  Check if it's a previously resolved private target
+    L_GPR   r1,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    NILL    r1,J9TR_J9_ITABLE_OFFSET_DIRECT
+    JZ      ifCMHLcallResolve
+    L_GPR   r1,eq_intfAddr_inInterfaceSnippet(r14)
+    CHI_GPR r1,0
+    JNZ     ifCHMLTypeCheckIFCPrivate
+
+LABEL(ifCMHLcallResolve)
     TM      eq_flag_inInterfaceSnippet(r14),1 # method is resolved?
     JNZ     ifCHMLcontinueLookup
 
@@ -2048,6 +2218,12 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitResolveInterfaceMethod)
 ZZ                           # interface class and index in TLS
     MVI     eq_flag_inInterfaceSnippet(r14),1
 
+ZZ  resolve helper fills the class slot and method slot
+ZZ  Check PIC slot to see if the target is private interface method
+    L_GPR   r1,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    NILL    r1,J9TR_J9_ITABLE_OFFSET_DIRECT
+    JNZ     ifCHMLTypeCheckIFCPrivate
+
 LABEL(ifCHMLcontinueLookup)
 
     L_GPR   r3,eq_codeRA_inInterfaceSnippet(,r14) #Load code cache RA
@@ -2055,7 +2231,7 @@ LABEL(ifCHMLcontinueLookup)
 ZZ  # Load address of interface table & slot number
     LA      r2,eq_intfAddr_inInterfaceSnippet(,r14)
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)       # Load this
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r1,J9TR_J9Object_class(,r1)
 ZZ # Load offset of lookup class
     LLGFR   r1,r1
@@ -2072,7 +2248,7 @@ LOAD_ADDR_FROM_TOC(r14,TR_S390jitLookupInterfaceMethod)
 
 ZZ                          # returned interpVtable offset in r2
     L_GPR   r1,(2*PTR_SIZE)(,J9SP)       # Load this
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r3,J9TR_J9Object_class(,r1)
 ZZ # Load offset of the lookup class
     LLGFR   r3,r3
@@ -2087,7 +2263,7 @@ ZZ # Load the address of the lookup class
     JNZ     ifCHMLcommonJitDispatch
 
 ZZ  #Load reciving object classPtr in R2
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r2,J9TR_J9Object_class(,r1)
 ZZ # Read class offset
     LLGFR   r2,r2
@@ -2151,7 +2327,7 @@ LABEL(ifCHMLoopTillUpdate)
 
 ZZ  current slot is now updated,
 ZZ  Lets see if it has same classPtr as we are trying to store
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r0,J9TR_J9Object_class(,r1)
 ZZ # Read class offset
     LLGFR   r0,r0
@@ -2173,7 +2349,7 @@ ZZ slot we contended for last time
 LABEL(ifCHMUpdateCacheSlot)
 ZZ store class pointer and method EP in the current empty slot
     ST_GPR  r3,PTR_SIZE(,r1)
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     ST  r2,0(,r1)
 ],[dnl
     ST_GPR  r2,0(,r1)
@@ -2187,7 +2363,7 @@ ZZ  Load pic address as second address
     L_GPR   r0,J9TR_J9Class_classLoader(CARG1)
 
 ZZ  Load class pointer as first argument
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       CARG1,0(CARG2)   # May need to convert offset to J9Class
     LLGFR   CARG1,CARG1
 ],[dnl
@@ -2271,7 +2447,7 @@ LABEL(ifCHMLcommonJitDispatch)    # interpVtable offset in rEP
     AHI_GPR rEP,J9TR_InterpVTableOffset
     LR_GPR  r0,rEP                # J9 requires the offset in R0
     L_GPR   r1,(2*PTR_SIZE)(J9SP) # Restore "this"
-ifdef([J9VM_INTERP_COMPRESSED_OBJECT_HEADER],[dnl
+ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     L       r3,J9TR_J9Object_class(,r1)
 ZZ # Load offset of the lookup class
     LLGFR   r3,r3
@@ -2285,6 +2461,100 @@ ZZ # Load address of the lookup class
     L_GPR   r3,0(J9SP)
     AHI_GPR J9SP,(3*PTR_SIZE)
     BR      rEP                   # Call: does not return here
+
+ZZ ------------------------------------------------------------
+ZZ      private interface method handling
+ZZ
+ZZ  1. do type check by calling fast_jitInstanceOf
+ZZ  2. if the type check passes, remove low tag from method
+ZZ     extract entry and perform direct dispatch.
+ZZ     Otherwise, call lookup helper so that it throws
+ZZ     an error.
+ZZ
+ZZ  Note that this is sharing the JIT direct dispatch with
+ZZ  virtual private method, which does not return to this routine
+
+ZZ  use a shorter name for this offset
+SETVAL(eq_vmThrSSP,J9TR_VMThread_systemStackPointer)
+
+LABEL(ifCHMLTypeCheckIFCPrivate)
+
+ZZ  Call fast_jitInstanceOf
+ZZ  with three args: VMthread, object, and castClass.
+ZZ
+ZZ  The call to this helper follows J9S390CHelperLinakge except
+ZZ  that all volatiles are saved here.
+ZZ  instance of result is indicated in return reg
+ZZ
+ZZ  NOTE: fast_jitInstanceOf has different parameter orders on
+ZZ        different platforms
+ZZ
+ZZ  R1-3 have been saved. just need to save r0, r4-15 here.
+    LR_GPR  r0,r14
+    LR_GPR  CARG1,r13                                  # vmThr
+    L_GPR   CARG2,(2*PTR_SIZE)(J9SP)                   # obj
+    L_GPR   CARG3,eq_intfAddr_inInterfaceSnippet(r14)  # class
+
+    AHI_GPR J9SP,-(13*PTR_SIZE)    # save r0, and r4-r15
+    ST_GPR  r0,0(J9SP)
+    STM_GPR r4,r15,PTR_SIZE(J9SP)
+
+ZZ  Now start to call fast_jitInstanceOf as a C function
+    ST_GPR  J9SP,J9TR_VMThread_sp(r13)
+ifdef([J9ZOS390],[dnl
+    L_GPR   rSSP,eq_vmThrSSP(r13)
+    XC      eq_vmThrSSP(PTR_SIZE,r13),eq_vmThrSSP(r13)
+ifdef([TR_HOST_64BIT],[dnl
+ZZ 64 bit zOS. Do nothing.
+],[dnl
+ZZ 31 bit zOS. See definition of J9TR_CAA_SAVE_OFFSET
+    L_GPR  r12,2080(rSSP)
+])dnl
+
+])dnl
+
+LOAD_ADDR_FROM_TOC(r14,TR_instanceOf)
+
+    BASR    r14,r14        # call instanceOf
+
+ifdef([J9ZOS390],[dnl
+    ST_GPR   rSSP,eq_vmThrSSP(r13)
+])dnl
+
+    L_GPR   J9SP,J9TR_VMThread_sp(r13)
+
+ZZ  restore all regs
+    L_GPR   r0,0(J9SP)
+    LM_GPR  r4,r15,PTR_SIZE(J9SP)
+    AHI_GPR J9SP,(13*PTR_SIZE)
+    LR_GPR  r14,r0
+
+    CHI_GPR CRINT,1
+    JNE     ifCHMLcontinueLookup
+
+LABEL(ifCHMLInovkeIFCPrivate)
+ZZ  remove low tag and call
+    L_GPR   r0,eq_intfMethodIndex_inInterfaceSnippet(r14)
+    LR_GPR  r3,r14         # free r14 for RA
+    LR_GPR  r1,r0          # keep low-tagged in r0
+
+ZZ  bitwise NOT the flag
+ifdef([J9ZOS390],[dnl
+ZZ zOS
+    LHI_GPR r2,J9TR_J9_ITABLE_OFFSET_DIRECT
+    LCR_GPR r2,r2
+    AHI_GPR r2,-1
+],[dnl
+ZZ zLinux
+    LHI_GPR r2,~J9TR_J9_ITABLE_OFFSET_DIRECT
+])dnl
+
+    NR_GPR  r1,r2         # Remove low-tag of J9Metod ptr
+    L_GPR   r14,eq_codeRA_inInterfaceSnippet(r14)    #load RA
+    TM      eq_methodCompiledFlagOffset(r1),J9TR_MethodNotCompiledBit
+    JZ      L_jitted_private
+    L_GPR   rEP,eq_thunk_inInterfaceSnippet(r3)      # load J2I thunk
+    J       L_callPrivate_inVU
 
     END_FUNC(_interfaceCallHelperMultiSlots,ifCHM,7)
 

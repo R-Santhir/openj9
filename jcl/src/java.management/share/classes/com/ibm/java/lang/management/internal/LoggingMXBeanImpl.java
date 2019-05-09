@@ -1,6 +1,6 @@
 /*[INCLUDE-IF Sidecar17]*/
 /*******************************************************************************
- * Copyright (c) 2005, 2018 IBM Corp. and others
+ * Copyright (c) 2005, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,13 +24,8 @@ package com.ibm.java.lang.management.internal;
 
 import java.lang.management.PlatformLoggingMXBean;
 /*[IF Sidecar19-SE]*/
-/*[IF Sidecar19-SE-OpenJ9]*/
 import java.lang.Module;
 import java.lang.ModuleLayer;
-/*[ELSE]
-import java.lang.reflect.Module;
-import java.lang.reflect.Layer;
-/*[ENDIF]*/
 /*[ENDIF]*/
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -81,11 +76,7 @@ public final class LoggingMXBeanImpl
 /*[IF Sidecar19-SE]*/
 		try {
 
-/*[IF Sidecar19-SE-OpenJ9]*/
 			Module java_logging = ModuleLayer.boot().findModule("java.logging").get(); //$NON-NLS-1$
-/*[ELSE]
-			Module java_logging = Layer.boot().findModule("java.logging").get(); //$NON-NLS-1$
-/*[ENDIF]*/
 			Class<?>[] logClasses = AccessController.doPrivileged((PrivilegedAction<Class<?>[]>)
 				() -> new Class[] {
 					Class.forName(java_logging, "java.util.logging.LogManager"), //$NON-NLS-1$

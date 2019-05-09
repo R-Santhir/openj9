@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -41,7 +41,7 @@ extern "C" {
 #else /* J9VM_ENV_LITTLE_ENDIAN */
 #define JIT_HELPER(x) extern "C" void * x
 #endif /* J9VM_ENV_LITTLE_ENDIAN */
-#elif defined(MVS) || defined(LINUX) || defined(J9ZOS390) || defined (J9HAMMER) || defined (WINDOWS)
+#elif defined(MVS) || defined(LINUX) || defined(J9ZOS390) || defined (J9HAMMER) || defined (WINDOWS) || defined (OSX)
 #define JIT_HELPER(x) extern "C" void x()
 #elif defined(NEUTRINO)
 #define JIT_HELPER(x) extern "C" char* x[]
@@ -73,6 +73,7 @@ JIT_HELPER(jitHandleIntegerDivideByZeroTrap);  // asm calling-convention helper
 JIT_HELPER(jitHandleNullPointerExceptionTrap);  // asm calling-convention helper
 JIT_HELPER(jitHandleInternalErrorTrap);  // asm calling-convention helper
 JIT_HELPER(jitInduceOSRAtCurrentPC);  // asm calling-convention helper
+JIT_HELPER(jitInduceOSRAtCurrentPCAndRecompile);  // asm calling-convention helper
 JIT_HELPER(jitInstanceOf);  // asm calling-convention helper
 JIT_HELPER(jitInterpretNewInstanceMethod);  // asm calling-convention helper
 JIT_HELPER(jitLookupInterfaceMethod);  // asm calling-convention helper
@@ -88,6 +89,7 @@ JIT_HELPER(jitNewObject);  // asm calling-convention helper
 JIT_HELPER(jitObjectHashCode);  // asm calling-convention helper
 JIT_HELPER(jitPostJNICallOffloadCheck);  // asm calling-convention helper
 JIT_HELPER(jitPreJNICallOffloadCheck);  // asm calling-convention helper
+JIT_HELPER(jitReferenceArrayCopy);  // asm calling-convention helper
 JIT_HELPER(jitReleaseVMAccess);  // asm calling-convention helper
 JIT_HELPER(jitReportMethodEnter);  // asm calling-convention helper
 JIT_HELPER(jitReportMethodExit);  // asm calling-convention helper
@@ -97,17 +99,21 @@ JIT_HELPER(jitResolveClassFromStaticField);  // asm calling-convention helper
 JIT_HELPER(jitResolvedFieldIsVolatile);  // asm calling-convention helper
 JIT_HELPER(jitResolveField);  // asm calling-convention helper
 JIT_HELPER(jitResolveFieldSetter);  // asm calling-convention helper
+JIT_HELPER(jitResolveFieldDirect);  // asm calling-convention helper
+JIT_HELPER(jitResolveFieldSetterDirect);  // asm calling-convention helper
 JIT_HELPER(jitResolveHandleMethod);  // asm calling-convention helper
 JIT_HELPER(jitResolveInterfaceMethod);  // asm calling-convention helper
 JIT_HELPER(jitResolveInvokeDynamic);  // asm calling-convention helper
-JIT_HELPER(jitResolveConstantDynamic);  // asm calling-convention helper
 JIT_HELPER(jitResolveMethodHandle);  // asm calling-convention helper
 JIT_HELPER(jitResolveMethodType);  // asm calling-convention helper
 JIT_HELPER(jitResolveSpecialMethod);  // asm calling-convention helper
 JIT_HELPER(jitResolveStaticField);  // asm calling-convention helper
 JIT_HELPER(jitResolveStaticFieldSetter);  // asm calling-convention helper
+JIT_HELPER(jitResolveStaticFieldDirect);  // asm calling-convention helper
+JIT_HELPER(jitResolveStaticFieldSetterDirect);  // asm calling-convention helper
 JIT_HELPER(jitResolveStaticMethod);  // asm calling-convention helper
 JIT_HELPER(jitResolveString);  // asm calling-convention helper
+JIT_HELPER(jitResolveConstantDynamic);  // asm calling-convention helper
 JIT_HELPER(jitResolveVirtualMethod);  // asm calling-convention helper
 JIT_HELPER(jitRetranslateCaller);  // asm calling-convention helper
 JIT_HELPER(jitRetranslateCallerWithPreparation);  // asm calling-convention helper
@@ -117,9 +123,9 @@ JIT_HELPER(jitThrowArithmeticException);  // asm calling-convention helper
 JIT_HELPER(jitThrowArrayIndexOutOfBounds);  // asm calling-convention helper
 JIT_HELPER(jitThrowArrayStoreException);  // asm calling-convention helper
 JIT_HELPER(jitThrowArrayStoreExceptionWithIP);  // asm calling-convention helper
+JIT_HELPER(jitThrowClassCastException);  // asm calling-convention helper
 JIT_HELPER(jitThrowCurrentException);  // asm calling-convention helper
 JIT_HELPER(jitThrowException);  // asm calling-convention helper
-JIT_HELPER(jitThrowClassCastException);  // asm calling-convention helper
 JIT_HELPER(jitThrowExceptionInInitializerError);  // asm calling-convention helper
 JIT_HELPER(jitThrowInstantiationException);  // asm calling-convention helper
 JIT_HELPER(jitThrowNullPointerException);  // asm calling-convention helper
@@ -142,7 +148,6 @@ JIT_HELPER(jitWriteBarrierStore);  // asm calling-convention helper
 JIT_HELPER(jitWriteBarrierStoreGenerational);  // asm calling-convention helper
 JIT_HELPER(jitWriteBarrierStoreGenerationalAndConcurrentMark);  // asm calling-convention helper
 JIT_HELPER(jitWriteBarrierStoreMetronome);  // asm calling-convention helper
-JIT_HELPER(traceExecutable);  // asm calling-convention helper
 JIT_HELPER(jitDecompileAfterAllocation);  // asm calling-convention helper
 JIT_HELPER(jitDecompileAfterMonitorEnter);  // asm calling-convention helper
 JIT_HELPER(jitDecompileAtCurrentPC);  // asm calling-convention helper
@@ -158,6 +163,7 @@ JIT_HELPER(jitReportInstanceFieldRead); // asm calling-convention helper
 JIT_HELPER(jitReportInstanceFieldWrite); // asm calling-convention helper
 JIT_HELPER(jitReportStaticFieldRead); // asm calling-convention helper
 JIT_HELPER(jitReportStaticFieldWrite); // asm calling-convention helper
+JIT_HELPER(jitSoftwareReadBarrier);  // asm calling-convention helper
 
 #ifdef __cplusplus
 }

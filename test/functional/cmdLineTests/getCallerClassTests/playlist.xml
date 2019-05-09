@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <!--
-  Copyright (c) 2016, 2018 IBM Corp. and others
+  Copyright (c) 2016, 2019 IBM Corp. and others
 
   This program and the accompanying materials are made available under
   the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,7 +28,7 @@
 		<variations>
 			<variation>NoOptions</variation>
 		</variations>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump -DRESDIR=$(Q)$(JVM_TEST_ROOT)$(D)functional$(D)cmdline_options_testresources$(Q) -DRESJAR=$(CMDLINETESTER_RESJAR) -DEXE='$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump' -jar $(CMDLINETESTER_JAR) -config $(Q)$(TEST_RESROOT)$(D)getCallerClassTests_${JAVA_VERSION}.xml$(Q) -explainExcludes -nonZeroExitWhenError; \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump -DRESDIR=$(Q)$(JVM_TEST_ROOT)$(D)functional$(D)cmdline_options_testresources$(Q) -DRESJAR=$(CMDLINETESTER_RESJAR) -DEXE=$(SQ)$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump$(SQ) -jar $(CMDLINETESTER_JAR) -config $(Q)$(TEST_RESROOT)$(D)getCallerClassTests_${JDK_VERSION}.xml$(Q) -explainExcludes -nonZeroExitWhenError; \
 		$(TEST_STATUS)</command>
 		<platformRequirements>^arch.arm</platformRequirements>
 		<levels>
@@ -38,7 +38,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 		<test>
@@ -46,7 +46,7 @@
 		<variations>
 			<variation>NoOptions</variation>
 		</variations>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump -DRESJAR=$(CMDLINETESTER_RESJAR) -DEXE='$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump --add-exports=java.base/com.ibm.oti.vm=ALL-UNNAMED --add-exports java.base/jdk.internal.reflect=ALL-UNNAMED' -jar $(CMDLINETESTER_JAR) -config $(Q)$(TEST_RESROOT)$(D)getCallerClassTests.xml$(Q) -explainExcludes -nonZeroExitWhenError; \
+		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump -DRESJAR=$(CMDLINETESTER_RESJAR) -DEXE=$(SQ)$(JAVA_COMMAND) $(JVM_OPTIONS) -Xdump --add-exports=java.base/com.ibm.oti.vm=ALL-UNNAMED --add-exports java.base/jdk.internal.reflect=ALL-UNNAMED$(SQ) -jar $(CMDLINETESTER_JAR) -config $(Q)$(TEST_RESROOT)$(D)getCallerClassTests.xml$(Q) -explainExcludes -nonZeroExitWhenError; \
 		$(TEST_STATUS)</command>
 		<platformRequirements>^arch.arm</platformRequirements>
 		<levels>
@@ -56,9 +56,7 @@
 			<group>functional</group>
 		</groups>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9+</subset>
 		</subsets>
 	</test>
 </playlist>

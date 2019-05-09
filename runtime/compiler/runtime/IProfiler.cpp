@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -57,9 +57,9 @@
 #include "infra/Monitor.hpp"
 #include "infra/MonitorTable.hpp"
 #include "infra/SimpleRegex.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "runtime/J9VMAccess.hpp"
 #include "runtime/RelocationRuntime.hpp"
-#include "runtime/Runtime.hpp"
 #include "control/CompilationRuntime.hpp"
 #include "env/J9JitMemory.hpp"
 #include "env/VMJ9.h"
@@ -230,7 +230,7 @@ TR_IProfiler::createBalancedBST(uintptrj_t *pcEntries, int32_t low, int32_t high
                                 TR::Compilation *comp, uintptrj_t cacheStartAddress, uintptrj_t cacheSize)
    {
    if (high < low)
-      return NULL;
+      return 0;
 
    TR_IPBCDataStorageHeader * storage = (TR_IPBCDataStorageHeader *) memChunk;
    int32_t middle = (high+low)/2;
@@ -1576,8 +1576,6 @@ TR_IProfiler::profilingSample (TR_OpaqueMethodBlock *method, uint32_t byteCodeIn
             int32_t persistentCount = getSamplingCount(persistentEntry, comp);
             if(currentCount >= persistentCount)
                {
-               _STATS_IPEntryChoosePersistent++;
-               currentEntry->copyFromEntry(persistentEntry, comp);
                return currentEntry;
                }
             else
@@ -2380,8 +2378,9 @@ TR_IProfiler::createIProfilingValueInfo (TR_ByteCodeInfo &bcInfo, TR::Compilatio
       // profiling information coming from this caller
       if (comp->getOption(TR_IProfilerPerformTimestampCheck) && method && !_compInfo->isCompiled((J9Method *)method))// method is interpreted
          {
-         TR_PersistentClassInfo *currentPersistentClassInfo = _compInfo->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(comp->getCurrentMethod()->containingClass(), comp);
-         TR_PersistentClassInfo *calleePersistentClassInfo = _compInfo->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking((TR_OpaqueClassBlock *)J9_CLASS_FROM_METHOD(((J9Method *)method)), comp);
+         bool allowForAOT = comp->getOption(TR_UseSymbolValidationManager);
+         TR_PersistentClassInfo *currentPersistentClassInfo = _compInfo->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(comp->getCurrentMethod()->containingClass(), comp, allowForAOT);
+         TR_PersistentClassInfo *calleePersistentClassInfo = _compInfo->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking((TR_OpaqueClassBlock *)J9_CLASS_FROM_METHOD(((J9Method *)method)), comp, allowForAOT);
 
          if (!currentPersistentClassInfo || !calleePersistentClassInfo)
             {
@@ -3487,17 +3486,20 @@ void TR_IProfiler::checkMethodHashTable()
       }
    }
 
-void TR_IProfiler::getNumberofCallersAndTotalWeight(TR_OpaqueMethodBlock *calleeMethod, uint32_t *count, uint32_t *weight)
+void
+TR_IProfiler::getFaninInfo(TR_OpaqueMethodBlock *calleeMethod, uint32_t *count, uint32_t *weight, uint32_t *otherBucketWeight)
    {
    uint32_t i = 0;
    uint32_t w = 0;
+   uint32_t other = 0;
 
    // Search for the callee in the hashtable
-   int32_t bucket = methodHash((uintptrj_t)calleeMethod);
-   TR_IPMethodHashTableEntry *entry = searchForMethodSample((TR_OpaqueMethodBlock*)calleeMethod, bucket);
+   int32_t bucket = methodHash((uintptrj_t) calleeMethod);
+   TR_IPMethodHashTableEntry *entry = searchForMethodSample((TR_OpaqueMethodBlock*) calleeMethod, bucket);
    if (entry)
       {
-      w = entry->_otherBucket.getWeight();
+      other = entry->_otherBucket.getWeight();
+      w = other;
       // Iterate through all the callers and add their weight
       for (TR_IPMethodData* it = &entry->_caller; it; it = it->next)
          {
@@ -3507,22 +3509,10 @@ void TR_IProfiler::getNumberofCallersAndTotalWeight(TR_OpaqueMethodBlock *callee
       }
    *weight = w;
    *count = i;
+   if (otherBucketWeight)
+      *otherBucketWeight = other;
+   return;
    }
-
-uint32_t TR_IProfiler::getOtherBucketWeight(TR_OpaqueMethodBlock *calleeMethod)
-   {
-   int32_t bucket = methodHash((uintptrj_t)calleeMethod);
-
-   TR_IPMethodHashTableEntry *entry = searchForMethodSample((TR_OpaqueMethodBlock*)calleeMethod, bucket);
-
-   if(!entry)   // if there are no entries, we have no callers!
-      return 0;
-
-   return entry->_otherBucket.getWeight();
-
-
-   }
-
 
 bool TR_IProfiler::getCallerWeight(TR_OpaqueMethodBlock *calleeMethod,TR_OpaqueMethodBlock *callerMethod, uint32_t *weight, uint32_t pcIndex, TR::Compilation *comp)
 {
@@ -4314,18 +4304,18 @@ TR_IPHashedCallSite::operator new (size_t size) throw()
 inline
 uintptrj_t CallSiteProfileInfo::getClazz(int index)
    {
-#if defined(J9VM_GC_COMPRESSED_POINTERS) //compressed references
+#if defined(OMR_GC_COMPRESSED_POINTERS) //compressed references
    //support for convert code, when it is implemented, "uncompress"
-   return (uintptrj_t)TR::Compiler->cls.convertClassOffsetToClassPtr((TR_OpaqueClassBlock *)_clazz[index]);
+   return (uintptrj_t)TR::Compiler->cls.convertClassOffsetToClassPtr((TR_OpaqueClassBlock *)(uintptrj_t)_clazz[index]);
 #else
    return (uintptrj_t)_clazz[index]; //things are just stored as regular pointers otherwise
-#endif //J9VM_GC_COMPRESSED_POINTERS
+#endif //OMR_GC_COMPRESSED_POINTERS
    }
 
 inline
 void CallSiteProfileInfo::setClazz(int index, uintptrj_t clazzPointer)
    {
-#if defined(J9VM_GC_COMPRESSED_POINTERS) //compressed references
+#if defined(OMR_GC_COMPRESSED_POINTERS) //compressed references
    //support for convert code, when it is implemented, do compression
    TR_OpaqueClassBlock * compressedOffset = J9JitMemory::convertClassPtrToClassOffset((J9Class *)clazzPointer); //compressed 32bit pointer
    //if we end up with something in the top 32bits, our compression is no good...
@@ -4333,7 +4323,7 @@ void CallSiteProfileInfo::setClazz(int index, uintptrj_t clazzPointer)
    _clazz[index] = (uint32_t)((uintptrj_t)compressedOffset); //ditch the top zeros
 #else
    _clazz[index] = (uintptrj_t)clazzPointer;
-#endif //J9VM_GC_COMPRESSED_POINTERS
+#endif //OMR_GC_COMPRESSED_POINTERS
    }
 
 
@@ -4641,7 +4631,7 @@ void TR_IProfiler::dumpIPBCDataCallGraph(J9VMThread* vmThread)
             J9ROMClass * romClass = vmFunctions->findROMClassFromPC(vmThread, (UDATA)pc, &loader);
             if (romClass)
                {
-               //J9ROMMethod * romMethod = vmFunctions->findROMMethodInROMClass(vmThread, romClass, (UDATA)pc, NULL);
+               //J9ROMMethod * romMethod = vmFunctions->findROMMethodInROMClass(vmThread, romClass, (UDATA)pc);
                J9ROMMethod *currentMethod = J9ROMCLASS_ROMMETHODS(romClass);
                J9ROMMethod *desiredMethod = NULL;
                //fprintf(stderr, "Scanning %u romMethods...\n", romClass->romMethodCount);

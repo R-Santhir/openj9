@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017, 2018 IBM Corp. and others
+# Copyright (c) 2017, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -125,38 +125,40 @@ add_library(j9vm SHARED
 	${CMAKE_CURRENT_BINARY_DIR}/ut_j9vm.c
 )
 
-#hacks for M4 stuff
-#TODO we should be detecting m4 properly
-#also we probably need to fix up the path dir separators for windows
+
 if(OMR_ARCH_X86)
-	add_custom_command( OUTPUT xcinterp.s
-		DEPENDS xcinterp.m4 run_constgen
-		COMMAND m4 -I ${CMAKE_CURRENT_SOURCE_DIR}/../oti ${CMAKE_CURRENT_SOURCE_DIR}/xcinterp.m4 > xcinterp.s
-	)
-	add_custom_command(OUTPUT stackswap.s
-		DEPENDS xa64/stackswap.m4 run_constgen
-		COMMAND m4 -I ${CMAKE_CURRENT_SOURCE_DIR}/../oti ${CMAKE_CURRENT_SOURCE_DIR}/xa64/stackswap.m4 > stackswap.s
-	)
-	add_custom_command(OUTPUT unsafeHelper.s
-		DEPENDS xa64/unsafeHelper.m4 run_constgen
-		COMMAND m4 -I ${CMAKE_CURRENT_SOURCE_DIR}/../oti ${CMAKE_CURRENT_SOURCE_DIR}/xa64/unsafeHelper.m4 > unsafeHelper.s
-	)
+	j9vm_gen_asm(xcinterp.m4)
+
+	if(OMR_OS_LINUX AND OMR_ENV_DATA64)
+		j9vm_gen_asm(
+			xa64/stackswap.m4
+			xa64/unsafeHelper.m4
+		)
+		target_sources(j9vm PRIVATE unsafeHelper.s)
+	elseif(OMR_OS_WINDOWS AND OMR_ENV_DATA64)
+		j9vm_gen_asm(wa64/stackswap.m4)
+	else()
+		message(SEND_ERROR "Unsupported platform")
+	endif()
+
 	target_sources(j9vm
 		PRIVATE
-		unsafeHelper.s
-		xcinterp.s
-		stackswap.s
+			xcinterp.s
+			stackswap.s
 	)
 elseif(OMR_ARCH_POWER) #TODO check linux and 64bit
-	add_custom_command( OUTPUT pcinterp.s
-		DEPENDS pcinterp.m4 run_constgen
-		COMMAND m4 -I ${CMAKE_CURRENT_SOURCE_DIR}/../oti ${CMAKE_CURRENT_SOURCE_DIR}/pcinterp.m4 > pcinterp.s
-	)
+	j9vm_gen_asm(pcinterp.m4)
+
+	if(NOT (OMR_ENV_DATA64 AND OMR_ENV_LITTLE_ENDIAN))
+		message(SEND_ERROR "Only PPC64 LE is currently supported")
+	endif()
 	target_sources(j9vm
 		PRIVATE
 			xl64/unsafeHelper.s
 			pcinterp.s
 	)
+else()
+	message(SEND_ERROR "Unsupported platform")
 endif()
 
 target_include_directories(j9vm
@@ -200,7 +202,20 @@ target_link_libraries(j9vm
 		j9thr
 )
 
+omr_add_exports(j9vm
+	J9_CreateJavaVM
+	J9_GetCreatedJavaVMs
+	J9_GetInterface
+)
+
+if(J9VM_INTERP_TRACING)
+	omr_add_exports(j9vm trace)
+endif()
+
+target_enable_ddr(j9vm j9ddr)
+
 install(
 	TARGETS j9vm
 	LIBRARY DESTINATION ${j9vm_SOURCE_DIR}
+	RUNTIME DESTINATION ${j9vm_SOURCE_DIR}
 )

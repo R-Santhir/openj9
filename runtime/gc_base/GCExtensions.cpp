@@ -1,6 +1,6 @@
 
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -33,6 +33,9 @@
 
 #include "EnvironmentBase.hpp"
 #include "Forge.hpp"
+#if defined(J9VM_GC_IDLE_HEAP_MANAGER)
+ #include  "IdleGCManager.hpp"
+#endif /* defined(J9VM_GC_IDLE_HEAP_MANAGER) */
 #include "MemorySubSpace.hpp"
 #include "ObjectModel.hpp"
 #include "ReferenceChainWalkerMarkMap.hpp"
@@ -93,11 +96,6 @@ MM_GCExtensions::initialize(MM_EnvironmentBase *env)
 	/* only ref slots, size in bytes: 2 * minObjectSize - header size) - 1 * sizeof(arraylet pointer) */
 	minArraySizeToSetAsScanned = 2 * (1 << J9VMGC_SIZECLASSES_LOG_SMALLEST) - sizeof(J9IndexableObjectDiscontiguous) - sizeof(fj9object_t*);
 #endif /* J9VM_GC_HYBRID_ARRAYLETS */
-
-	getJavaVM()->gcCycleOn = 0;
-	if (omrthread_monitor_init_with_name(&getJavaVM()->gcCycleOnMonitor, 0, "gcCycleOn")) {
-		goto failed;
-	}
 #endif /* J9VM_GC_REALTIME */
 
 #if defined(J9VM_GC_JNI_ARRAY_CACHE)
@@ -161,13 +159,6 @@ MM_GCExtensions::tearDown(MM_EnvironmentBase *env)
 	vmFuncs->J9UnregisterAsyncEvent(getJavaVM(), _asyncCallbackKey);
 	_asyncCallbackKey = -1;
 
-#if defined(J9VM_GC_REALTIME)
-	if (getJavaVM()->gcCycleOnMonitor) {
-		omrthread_monitor_destroy(getJavaVM()->gcCycleOnMonitor);
-		getJavaVM()->gcCycleOnMonitor = (omrthread_monitor_t) NULL;
-	}
-#endif
-
 #if defined(J9VM_GC_MODRON_TRACE) && !defined(J9VM_GC_REALTIME)
 	tgcTearDownExtensions(getJavaVM());
 #endif /* J9VM_GC_MODRON_TRACE && !defined(J9VM_GC_REALTIME) */
@@ -186,6 +177,13 @@ MM_GCExtensions::tearDown(MM_EnvironmentBase *env)
 		*tmpHookInterface = NULL; /* avoid issues with double teardowns */
 	}
 
+#if defined(J9VM_GC_IDLE_HEAP_MANAGER)
+	if (NULL != idleGCManager) {
+		idleGCManager->kill(env);
+		idleGCManager = NULL;
+	}
+#endif /* defined(J9VM_GC_IDLE_HEAP_MANAGER) */
+
 	MM_GCExtensionsBase::tearDown(env);
 }
 
@@ -195,10 +193,17 @@ MM_GCExtensions::identityHashDataAddRange(MM_EnvironmentBase *env, MM_MemorySubS
 	J9IdentityHashData* hashData = getJavaVM()->identityHashData;
 	if (J9_IDENTITY_HASH_SALT_POLICY_STANDARD == hashData->hashSaltPolicy) {
 		if (MEMORY_TYPE_NEW == (subspace->getTypeFlags() & MEMORY_TYPE_NEW)) {
-			if ((UDATA)lowAddress < hashData->hashData1) {
+			if (hashData->hashData1 == (UDATA)highAddress) {
+				/* Expanding low bound */
 				hashData->hashData1 = (UDATA)lowAddress;
-			}
-			if ((UDATA)highAddress > hashData->hashData2) {
+			} else if (hashData->hashData2 == (UDATA)lowAddress) {
+				/* Expanding high bound */
+				hashData->hashData2 = (UDATA)highAddress;
+			} else {
+				/* First expand */
+				Assert_MM_true(UDATA_MAX == hashData->hashData1);
+				Assert_MM_true(0 == hashData->hashData2);
+				hashData->hashData1 = (UDATA)lowAddress;
 				hashData->hashData2 = (UDATA)highAddress;
 			}
 		}
@@ -211,11 +216,18 @@ MM_GCExtensions::identityHashDataRemoveRange(MM_EnvironmentBase *env, MM_MemoryS
 	J9IdentityHashData* hashData = getJavaVM()->identityHashData;
 	if (J9_IDENTITY_HASH_SALT_POLICY_STANDARD == hashData->hashSaltPolicy) {
 		if (MEMORY_TYPE_NEW == (subspace->getTypeFlags() & MEMORY_TYPE_NEW)) {
-			if ((UDATA)lowAddress > hashData->hashData1) {
-				hashData->hashData1 = (UDATA)lowAddress;
-			}
-			if ((UDATA)highAddress < hashData->hashData2) {
-				hashData->hashData2 = (UDATA)highAddress;
+			if (hashData->hashData1 == (UDATA)lowAddress) {
+				/* Contracting low bound */
+				Assert_MM_true(hashData->hashData1 <= (UDATA)highAddress);
+				Assert_MM_true((UDATA)highAddress <= hashData->hashData2);
+				hashData->hashData1 = (UDATA)highAddress;
+			} else if (hashData->hashData2 == (UDATA)highAddress) {
+				/* Contracting high bound */
+				Assert_MM_true(hashData->hashData1 <= (UDATA)lowAddress);
+				Assert_MM_true((UDATA)lowAddress <= hashData->hashData2);
+				hashData->hashData2 = (UDATA)lowAddress;
+			} else {
+				Assert_MM_unreachable();
 			}
 		}
 	}
@@ -249,7 +261,7 @@ MM_GCExtensions::computeDefaultMaxHeap(MM_EnvironmentBase *env)
 	}
 
 #if defined(OMR_ENV_DATA64)
-	if (J2SE_VERSION((J9JavaVM *)getOmrVM()->_language_vm) >= J2SE_19) {
+	if (J2SE_VERSION((J9JavaVM *)getOmrVM()->_language_vm) >= J2SE_V11) {
 		/* extend java default max memory to 25% of usable RAM */
 		memoryMax = OMR_MAX(memoryMax, usablePhysicalMemory / 4);
 	}

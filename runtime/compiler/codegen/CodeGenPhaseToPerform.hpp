@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,11 +28,11 @@
 
 
     ReserveCodeCachePhase,
+    FixUpProfiledInterfaceGuardTest,
 
 
     InliningReportPhase,
     LateSequentialConstantStoreSimplificationPhase,
-    FoldSignCleaningIntoStorePhase,
 
     PopulateOSRBufferPhase,
     MoveUpArrayLengthStoresPhase,
@@ -55,7 +55,6 @@
 
     RegisterAssigningPhase,
     MapStackPhase,
-    ShrinkWrappingPhase,
     PeepholePhase,
     BinaryEncodingPhase,
     EmitSnippetsPhase,

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,12 +24,14 @@ package org.openj9.test.attachAPI;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -40,12 +42,14 @@ import java.util.Objects;
 import org.openj9.test.util.StringPrintStream;
 import org.testng.log4testng.Logger;
 
-import com.ibm.tools.attach.target.AttachHandler;
+import com.ibm.lang.management.OperatingSystemMXBean;
+import com.ibm.lang.management.RuntimeMXBean;
 import com.sun.tools.attach.VirtualMachineDescriptor;
 import com.sun.tools.attach.spi.AttachProvider;
 
 @SuppressWarnings("nls")
 class TargetManager {
+	static final String COM_IBM_TOOLS_ATTACH_TARGET_ATTACH_HANDLER = "com.ibm.tools.attach.target.AttachHandler";
 	private static Logger logger = Logger.getLogger(TargetManager.class);
 	public static final String PID_PREAMBLE = "pid=";
 	public static final String VMID_PREAMBLE = "vmid=";
@@ -70,7 +74,7 @@ class TargetManager {
 	private static final String DEFAULT_IPC_DIR = ".com_ibm_tools_attach";
 	public TargetStatus targetVmStatus;
 	private boolean active = true;
-
+	
 	public TargetStatus getTargetVmStatus() {
 		return targetVmStatus;
 	}
@@ -103,6 +107,60 @@ class TargetManager {
 		this.proc = launchTarget(cmdName, targetId, null, null, null);
 	}
 
+	/**
+	 * Wait until the JVM's attach API has initialized
+	 * @return success if true, false if attach API is disabled or error, or does not initialize in 100 s.
+	 */
+	public static boolean waitForAttachApiInitialization() {
+		boolean result = false;
+		int tries = 100;
+		RuntimeMXBean bean = (RuntimeMXBean) ManagementFactory.getRuntimeMXBean();
+		while (tries > 0) {
+			logger.debug("Poll attach API status");
+			if (bean.isAttachApiInitialized()) {
+				result = true;
+				logger.debug("attach API initialized");
+				break;
+			} else if (bean.isAttachApiTerminated()) {
+				logger.debug("attach API terminated");
+				result = false;
+				break;
+			} 
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				break;
+			}
+			--tries;
+		}
+		return result;
+	}
+	
+	/**
+	 * Get the process ID of the current process
+	 * @return Process ID or -1 on error
+	 */
+	public static long getProcessId() {
+		long result = -1;
+		try {
+			Class<?> attachHandlerClass = Class.forName(TargetManager.COM_IBM_TOOLS_ATTACH_TARGET_ATTACH_HANDLER);
+			final Method getPid = attachHandlerClass.getMethod("getProcessId");
+			result = (long) getPid.invoke(attachHandlerClass);
+		} catch (ClassNotFoundException | NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+			logger.error("error getting process ID: "+e.getMessage());
+		}
+		return result;
+	}
+	
+	/**
+	 * Get the AttachAPI virtual machine ID of the current process
+	 * @return Process ID or null on error
+	 */
+	public static String getVmId() {
+		RuntimeMXBean bean = (RuntimeMXBean) ManagementFactory.getRuntimeMXBean();
+		return bean.getVmId();
+	}
+	
 	/*
 	 * target must print the PID on one line, other information on following
 	 * line(s) (if any), the initialization status on the final line.
@@ -431,30 +489,36 @@ class TargetManager {
 	 * deleting
 	 */
 	public static void dumpLogs(boolean printLogs) {
-		logger.debug("Dumping attach API logs");
-		File pwd = new File(System.getProperty("user.dir"));
-		File[] logFiles = pwd.listFiles();
-		String myLog = AttachHandler.getVmId() + ".log";
-		for (File f : logFiles) {
-			String logName = f.getName();
-			if (logName.equalsIgnoreCase("smit.log")) {
-				continue; /* AIX system log */
-			}
-			if (logName.endsWith(".log")) {
-				if (printLogs) {
-					try {
-						logger.debug("Log file " + f.getName()+":\n" 
-								+ (new String(Files.readAllBytes(Paths.get(f.toURI())))));
-					} catch (IOException e) {
-						StringPrintStream.logStackTrace(e, logger);
+		try {
+			Class<?> attachHandlerClass = Class.forName(COM_IBM_TOOLS_ATTACH_TARGET_ATTACH_HANDLER);
+			logger.debug("Dumping attach API logs");
+			File pwd = new File(System.getProperty("user.dir"));
+			File[] logFiles = pwd.listFiles();
+			final Method getVmId = attachHandlerClass.getMethod("getVmId");
+			String myLog = getVmId.invoke(attachHandlerClass) + ".log";
+			for (File f : logFiles) {
+				String logName = f.getName();
+				if (logName.equalsIgnoreCase("smit.log")) {
+					continue; /* AIX system log */
+				}
+				if (logName.endsWith(".log")) {
+					if (printLogs) {
+						try {
+							logger.debug("Log file " + f.getName()+":\n" 
+									+ (new String(Files.readAllBytes(Paths.get(f.toURI())))));
+						} catch (IOException e) {
+							StringPrintStream.logStackTrace(e, logger);
+						}
+					}
+					if (!logName.equalsIgnoreCase(myLog)) {
+						if (!f.delete()) {
+							logger.error("could not delete " + f.getName());
+						}
 					}
 				}
-				if (!logName.equalsIgnoreCase(myLog)) {
-					if (!f.delete()) {
-						logger.error("could not delete " + f.getName());
-					}
-				}
 			}
+		} catch (ClassNotFoundException | NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException e1) {
+			logger.error("could not load or use " + COM_IBM_TOOLS_ATTACH_TARGET_ATTACH_HANDLER);
 		}
 	}
 
@@ -468,6 +532,11 @@ class TargetManager {
 			result = proc.waitFor();
 		}
 		return result;
+	}
+
+	public static boolean isProcessRunning(long pid) {
+		OperatingSystemMXBean bean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+		return bean.isProcessRunning(pid);
 	}
 
 }

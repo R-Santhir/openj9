@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,6 +23,8 @@ package org.openj9.test.attachAPI;
 
 import static org.testng.AssertJUnit.assertTrue;
 import static org.openj9.test.util.FileUtilities.deleteRecursive;
+import static org.openj9.test.util.PlatformInfo.isWindows;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -33,14 +35,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
 
+import org.openj9.test.util.PlatformInfo;
 import org.openj9.test.util.StringPrintStream;
 import org.testng.AssertJUnit;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.ibm.tools.attach.target.AttachHandler;
-import com.ibm.tools.attach.target.IPC;
 import com.sun.tools.attach.AgentInitializationException;
 import com.sun.tools.attach.AgentLoadException;
 import com.sun.tools.attach.AttachNotSupportedException;
@@ -60,6 +61,7 @@ public class TestAttachAPI extends AttachApiTest {
 	final String JVMTITSTNAME = "test:gmhc001";
 	private final String DUMP_LOGS = "j9vm.test.attach.dumplogs";
 	private String myProcessId;
+	private String mvVmId;
 	final boolean dumpLogs = Boolean.getBoolean(DUMP_LOGS);
 	private File commonDir;
 	@BeforeMethod
@@ -73,14 +75,13 @@ public class TestAttachAPI extends AttachApiTest {
 		 */
 		testName = testMethod.getName();
 		logger.debug("starting " + testName);
-		IPC.logMessage("Starting test ", testName);
 		if (null == commonDir) { /* lazy initialization */
 			commonDir = new File(System.getProperty("java.io.tmpdir"),
 					".com_ibm_tools_attach");
 		}
-		if (false == AttachHandler.waitForAttachApiInitialization()) {
+		if (false == TargetManager.waitForAttachApiInitialization()) {
 			TargetManager.dumpLogs(true);
-			myProcessId = Long.toString(AttachHandler.getProcessId());
+			myProcessId = Long.toString(TargetManager.getProcessId());
 			File myAdvert = new File(commonDir, myProcessId);
 			if (myAdvert.exists()) {
 				logger.error(myAdvert.getAbsolutePath()
@@ -90,8 +91,8 @@ public class TestAttachAPI extends AttachApiTest {
 					+ myProcessId);
 		}
 		logger.debug("\n------------------------------------------------------------\ntime = "+System.currentTimeMillis());
-		String myId = AttachHandler.getVmId();
-		if ((null == myId) || (myId.length() == 0)) {
+		mvVmId = TargetManager.getVmId();
+		if ((null == mvVmId) || (mvVmId.length() == 0)) {
 			logger.error("attach API failed to initialize");
 			if (!commonDir.exists()) {
 				TargetManager.dumpLogs();
@@ -119,7 +120,7 @@ public class TestAttachAPI extends AttachApiTest {
 	@Test
 	public void test_agntld01() {
 		logger.debug("*****************************\nMy VMID = "
-				+ AttachHandler.getVmId() + "\n*****************************");
+				+ mvVmId + "\n*****************************");
 		logger.debug("starting " + testName);
 		if (isWindows()) {
 			logger.debug("skipping  " + testName + " on Windows");
@@ -159,7 +160,7 @@ public class TestAttachAPI extends AttachApiTest {
 	@Test
 	public void test_agntld02() {
 		logger.debug("*****************************\nMy VMID = "
-				+ AttachHandler.getVmId() + "\n*****************************");
+				+ mvVmId + "\n*****************************");
 		
 		logger.debug("starting " + testName);
 		if (isWindows()) {
@@ -202,14 +203,6 @@ public class TestAttachAPI extends AttachApiTest {
 
 	}
 
-	private boolean isWindows() {
-		String osName = System.getProperty("os.name");
-		if ((null != osName) && osName.startsWith("Windows")) {
-			return true;
-		}
-		return false;
-	}
-
 	@Test
 	public void test_agntld03() {
 		
@@ -221,14 +214,8 @@ public class TestAttachAPI extends AttachApiTest {
 		String lipPath = System.getProperty("java.library.path");
 		String[] libDirs = lipPath.split(File.pathSeparator);
 		char fs = File.separatorChar;
-		String decoration = "lib";
-		String suffix = ".so";
-		String errOutput = "";
-		if (isWindows()) {
-			/* kludgy test if we are on MS Windows */
-			decoration = "";
-			suffix = ".dll";
-		}
+		String decoration = isWindows()? "": "lib";
+		String librarySuffix = PlatformInfo.getLibrarySuffix();
 		int pIndex = 0;
 		String outOutput = null;
 		TargetManager target = launchTarget();
@@ -246,7 +233,7 @@ public class TestAttachAPI extends AttachApiTest {
 		do {
 			try {
 				String libPath = libDirs[pIndex] + fs + decoration + JVMTITST
-						+ suffix;
+						+ librarySuffix;
 				++pIndex;
 				logger.debug("trying to load " + libPath);
 				File lib = new File(libPath);
@@ -274,7 +261,7 @@ public class TestAttachAPI extends AttachApiTest {
 			logExceptionInfoAndFail(e);
 		}
 		target.terminateTarget();
-		errOutput = target.getErrOutput();
+		String errOutput = target.getErrOutput();
 		outOutput = target.getOutOutput();
 		logger.debug(outOutput);
 		assertTrue("missing Agent_OnAttach string",

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2016 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -43,7 +43,7 @@ class PPCCallSnippet : public TR::Snippet
    bool needsGCMap(TR::CodeGenerator *cg, TR::SymbolReference *methodSymRef)
       {
       TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg->fe());
-      if (OMR_UNLIKELY(cg->comp()->compileRelocatableCode()))
+      if (OMR_UNLIKELY(cg->comp()->compileRelocatableCode() && !cg->comp()->getOption(TR_UseSymbolValidationManager)))
          return false;
       TR::MethodSymbol *methodSymbol = methodSymRef->getSymbol()->castToMethodSymbol();
       return !methodSymRef->isUnresolved() &&
@@ -138,12 +138,12 @@ class PPCVirtualUnresolvedSnippet : public TR::PPCVirtualSnippet
    public:
 
    PPCVirtualUnresolvedSnippet(TR::CodeGenerator *cg, TR::Node *c, TR::LabelSymbol *lab, int32_t s, TR::LabelSymbol *retl)
-      : TR::PPCVirtualSnippet(cg, c, lab, s, retl), thunkAddress(NULL)
+      : TR::PPCVirtualSnippet(cg, c, lab, s, retl, true), thunkAddress(NULL)
       {
       }
 
    PPCVirtualUnresolvedSnippet(TR::CodeGenerator *cg, TR::Node *c, TR::LabelSymbol *lab, int32_t s, TR::LabelSymbol *retl, uint8_t *thunkPtr)
-      : TR::PPCVirtualSnippet(cg, c, lab, s, retl), thunkAddress(thunkPtr)
+      : TR::PPCVirtualSnippet(cg, c, lab, s, retl, true), thunkAddress(thunkPtr)
       {
       }
 

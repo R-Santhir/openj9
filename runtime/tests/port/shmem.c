@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -169,8 +169,8 @@ j9shmem_test1(J9PortLibrary *portLibrary)
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -207,8 +207,8 @@ j9shmem_test2(J9PortLibrary* portLibrary)
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -280,8 +280,8 @@ j9shmem_test3(J9PortLibrary *portLibrary) {
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -342,8 +342,8 @@ j9shmem_test4(J9PortLibrary *portLibrary, char* argv0)
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -406,8 +406,8 @@ j9shmem_test4_child(J9PortLibrary *portLibrary)
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -479,8 +479,8 @@ int j9shmem_test5(J9PortLibrary *portLibrary) {
 
 	reportTestEntry(portLibrary, testName);
 
-	rc2 = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc2 == -1) {
+	rc2 = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc2 < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -610,8 +610,8 @@ j9shmem_test6(J9PortLibrary *portLibrary)
 
 	reportTestEntry(PORTLIB, testName);
 
-	rc2 = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc2 == -1) {
+	rc2 = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc2 < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -741,8 +741,8 @@ j9shmem_test7(J9PortLibrary *portLibrary)
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto cleanup;
 	}
@@ -822,8 +822,8 @@ j9shmem_test8(J9PortLibrary *portLibrary) {
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto cleanup;
 	}
@@ -874,8 +874,8 @@ j9shmem_test9 (J9PortLibrary *portLibrary, const char* argv0)
 
 	reportTestEntry(PORTLIB, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -954,8 +954,8 @@ j9shmem_test9_child (J9PortLibrary* portLibrary)
 
 	reportTestEntry(PORTLIB, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -1011,8 +1011,8 @@ j9shmem_test10(J9PortLibrary *portLibrary)
 
 	reportTestEntry(PORTLIB, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -1049,8 +1049,8 @@ j9shmem_test11(J9PortLibrary *portLibrary) {
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -1107,8 +1107,8 @@ j9shmem_test12(J9PortLibrary *portLibrary) {
 	
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -1186,8 +1186,8 @@ j9shmem_test13(J9PortLibrary *portLibrary) {
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -1335,8 +1335,8 @@ j9shmem_test14(J9PortLibrary *portLibrary) {
 	UDATA pageSize;
 	UDATA i;
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -1521,8 +1521,8 @@ j9shmem_test15(J9PortLibrary *portLibrary, char* argv0)
 
 	/*Get the control file name*/
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto cleanup;
 	}
@@ -1894,8 +1894,8 @@ j9shmem_test15_testchild(J9PortLibrary *portLibrary) {
 	outputComment(PORTLIB, "\t\tStarting test \t%s\n", testName);
 #endif
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto cleanup;
 	}
@@ -1951,8 +1951,8 @@ j9shmem_test16(J9PortLibrary* portLibrary)
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto exit;
 	}
@@ -2058,8 +2058,8 @@ j9shmem_test17(J9PortLibrary *portLibrary) {
 
 	reportTestEntry(portLibrary, testName);
 
-	rc = j9shmem_getDir(NULL, TRUE, cacheDir, J9SH_MAXPATH);
-	if (rc == -1) {
+	rc = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, cacheDir, J9SH_MAXPATH);
+	if (rc < 0) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot get a directory");
 		goto cleanup;
 	}
@@ -2113,8 +2113,8 @@ j9shmem_runTests(J9PortLibrary *portLibrary, char* argv0, const char* shmem_chil
 		}
 #endif 
 	}
-	rc2 = j9shmem_getDir(NULL, TRUE, basedir, J9SH_MAXPATH);
-	if (rc2 == -1) {
+	rc2 = j9shmem_getDir(NULL, J9SHMEM_GETDIR_APPEND_BASEDIR, basedir, J9SH_MAXPATH);
+	if (rc2 < 0) {
 		j9tty_printf(PORTLIB, "Cannot get a directory\n");
 		return -1;
 	}

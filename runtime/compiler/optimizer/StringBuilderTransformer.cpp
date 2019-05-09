@@ -81,7 +81,7 @@ static const char* StringBuilderClassName = "java/lang/StringBuilder";
  */
 int32_t TR_StringBuilderTransformer::perform()
    {
-   if (comp()->getOption(TR_DisableStringBuilderTransformer) || comp()->compileRelocatableCode())
+   if (comp()->getOption(TR_DisableStringBuilderTransformer) || (comp()->compileRelocatableCode() && !comp()->getOption(TR_UseSymbolValidationManager)))
       {
       return 0;
       }
@@ -181,17 +181,6 @@ int32_t TR_StringBuilderTransformer::performOnBlock(TR::Block* block)
                         initNode->setChild(0, currentNode);
 
                         initNode->setAndIncChild(1, TR::Node::iconst(capacity));
-                        }
-
-                     // The modified call will not be marked as doNotProfile. This results in OSR infrastructure believing it 
-                     // can transition from within it. Therefore, it must be marked with cannotAttemptOSR.
-                     if (comp()->getOption(TR_EnableOSR))
-                        {
-                        TR_ByteCodeInfo &bci = initNode->getByteCodeInfo();
-                        TR::ResolvedMethodSymbol *targetMethod = bci.getCallerIndex() == -1 ?
-                                                        comp()->getMethodSymbol() :
-                                                        comp()->getInlinedResolvedMethodSymbol(bci.getCallerIndex());
-                        targetMethod->setCannotAttemptOSR(bci.getByteCodeIndex());
                         }
 
                      TR::DebugCounter::incStaticDebugCounter(comp(), TR::DebugCounter::debugCounterName(comp(), "StringBuilderTransformer/Succeeded/%d/%s", capacity, comp()->signature()));
@@ -322,6 +311,17 @@ TR::Node* TR_StringBuilderTransformer::findStringBuilderChainedAppendArguments(T
    while (iter != NULL)
       {
       TR::Node* currentNode = iter.currentNode();
+
+      if (currentNode->getNumChildren() == 1 &&
+          currentNode->getFirstChild()->isPotentialOSRPointHelperCall())
+         {
+         if (trace())
+            {
+            traceMsg(comp(), "Skipping potentialOSRPointHelper call n%dn [0x%p].\n", currentNode->getGlobalIndex(), currentNode);
+            }
+         ++iter;
+         continue;
+         }
 
       if (currentNode->getOpCodeValue() == TR::NULLCHK)
          {

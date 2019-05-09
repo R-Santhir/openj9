@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2017 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -35,59 +35,60 @@
 #include "il/Node_inlines.hpp"
 #include "il/symbol/AutomaticSymbol.hpp"
 
-#include <stddef.h>                                 // for size_t
-#include <stdint.h>                                 // for int32_t, etc
-#include <string.h>                                 // for NULL, strcmp
-#include "codegen/CodeGenerator.hpp"                // for CodeGenerator, etc
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include "codegen/CodeGenerator.hpp"
 #include "codegen/ConstantDataSnippet.hpp"
-#include "codegen/FrontEnd.hpp"                     // for TR_FrontEnd, etc
-#include "codegen/InstOpCode.hpp"                   // for InstOpCode, etc
-#include "codegen/Instruction.hpp"                  // for Instruction, etc
-#include "codegen/Linkage.hpp"                      // for Linkage
+#include "codegen/FrontEnd.hpp"
+#include "codegen/InstOpCode.hpp"
+#include "codegen/Instruction.hpp"
+#include "codegen/Linkage.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/LiveRegister.hpp"
-#include "codegen/Machine.hpp"                      // for MAXDISP, Machine, etc
-#include "codegen/MemoryReference.hpp"              // for MemoryReference, etc
-#include "codegen/RealRegister.hpp"                 // for RealRegister, etc
-#include "codegen/Register.hpp"                     // for Register
+#include "codegen/Machine.hpp"
+#include "codegen/MemoryReference.hpp"
+#include "codegen/RealRegister.hpp"
+#include "codegen/Register.hpp"
 #include "codegen/RegisterConstants.hpp"
-#include "codegen/RegisterPair.hpp"                 // for RegisterPair
+#include "codegen/RegisterPair.hpp"
 #include "codegen/Relocation.hpp"
-#include "codegen/Snippet.hpp"                      // for TR::S390Snippet, etc
+#include "codegen/Snippet.hpp"
 #include "codegen/TreeEvaluator.hpp"
 #include "codegen/UnresolvedDataSnippet.hpp"
-#include "compile/Compilation.hpp"                  // for Compilation
+#include "compile/Compilation.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "compile/SymbolReferenceTable.hpp"
 #include "control/Options.hpp"
 #include "control/Options_inlines.hpp"
 #include "cs2/sparsrbit.h"
 #include "env/CompilerEnv.hpp"
-#include "env/ObjectModel.hpp"                      // for ObjectModel
-#include "env/StackMemoryRegion.hpp"                // for TR::StackMemoryRegion
+#include "env/ObjectModel.hpp"
+#include "env/StackMemoryRegion.hpp"
 #include "env/TRMemory.hpp"
-#include "env/defines.h"                            // for TR_HOST_64BIT
-#include "env/jittypes.h"                           // for intptrj_t, uintptrj_t
-#include "il/Block.hpp"                             // for Block
-#include "il/DataTypes.hpp"                         // for DataTypes, etc
+#include "env/defines.h"
+#include "env/jittypes.h"
+#include "il/Block.hpp"
+#include "il/DataTypes.hpp"
 #include "il/ILOpCodes.hpp"
-#include "il/ILOps.hpp"                             // for ILOpCode
-#include "il/Node.hpp"                              // for Node, etc
+#include "il/ILOps.hpp"
+#include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
-#include "il/Symbol.hpp"                            // for Symbol
-#include "il/SymbolReference.hpp"                   // for SymbolReference, etc
-#include "il/TreeTop.hpp"                           // for TreeTop
-#include "il/TreeTop_inlines.hpp"                   // for TreeTop::getNode
-#include "il/symbol/AutomaticSymbol.hpp"            // for AutomaticSymbol
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/TreeTop.hpp"
+#include "il/TreeTop_inlines.hpp"
+#include "il/symbol/AutomaticSymbol.hpp"
 #include "il/symbol/RegisterMappedSymbol.hpp"
 #include "il/symbol/ResolvedMethodSymbol.hpp"
-#include "il/symbol/StaticSymbol.hpp"               // for StaticSymbol
-#include "infra/Array.hpp"                          // for TR_Array
-#include "infra/Assert.hpp"                         // for TR_ASSERT
-#include "infra/Bit.hpp"                            // for trailingZeroes
-#include "infra/Flags.hpp"                          // for flags32_t
-#include "infra/List.hpp"                           // for List, etc
-#include "ras/Debug.hpp"                            // for TR_DebugBase
-#include "z/codegen/EndianConversion.hpp"           // for boi
+#include "il/symbol/StaticSymbol.hpp"
+#include "infra/Array.hpp"
+#include "infra/Assert.hpp"
+#include "infra/Bit.hpp"
+#include "infra/Flags.hpp"
+#include "infra/List.hpp"
+#include "ras/Debug.hpp"
+#include "z/codegen/EndianConversion.hpp"
 #include "z/codegen/S390Evaluator.hpp"
 #include "z/codegen/S390GenerateInstructions.hpp"
 #include "z/codegen/S390Instruction.hpp"
@@ -158,22 +159,22 @@ J9::Z::MemoryReference::tryForceFolding(TR::Node *& rootLoadOrStore, TR::CodeGen
    if (storageReference)
       {
       bool isImpliedMemoryReference = false;
-      
+
       TR::Compilation *comp = cg->comp();
       TR::Node *storageRefNode = storageReference->getNode();
       bool isIndirect = storageRefNode->getOpCode().isIndirect();
-      
+
       TR_ASSERT(!storageRefNode->getOpCode().isLoadConst(), "storageRefNode %s (%p) const should be BCD or Aggr type\n", storageRefNode->getOpCode().getName(),storageRefNode);
-      
+
       TR_ASSERT(storageRefNode->getOpCode().isLoadVar() || storageRefNode->getOpCode().isStore(), "expecting storageRef node %p to be a loadVar or store\n",storageRefNode);
-      
+
       _symbolReference = storageReference->getSymbolReference();
-      
+
       symRef = _symbolReference;
       _originalSymbolReference = _symbolReference;
-      
+
       symbol = _symbolReference->getSymbol();
-      
+
       if (cg->traceBCDCodeGen())
          traceMsg(comp,"\t\tmr storageRef case: setting rootLoadOrStore from %s (%p) to storageRef->node %s (%p) (ref->nodeRefCount %d, symRef #%d (sym=%p), isIndirect %s, isConst %s)\n",
             rootLoadOrStore?rootLoadOrStore->getOpCode().getName():"NULL",
@@ -185,7 +186,7 @@ J9::Z::MemoryReference::tryForceFolding(TR::Node *& rootLoadOrStore, TR::CodeGen
             symbol,
             isIndirect?"yes":"no",
             "no");
-      
+
       rootLoadOrStore = storageRefNode;
       if (isIndirect)
          {
@@ -226,9 +227,9 @@ J9::Z::MemoryReference::tryForceFolding(TR::Node *& rootLoadOrStore, TR::CodeGen
          // the tree.
          // The flag forceFolding is set in these cases to force populateMemoryReference to attempt folding even when the (now) higher refCounts would usually disallow it.
          TR::Node *addressChild = rootLoadOrStore->getFirstChild();
-         
+
          self()->setForceFoldingIfAdvantageous(cg, addressChild);
-         
+
          if (self()->forceFolding() || self()->forceFirstTimeFolding() || addressChild->getOpCodeValue() == TR::loadaddr)
             {
             if (cg->traceBCDCodeGen())
@@ -291,7 +292,7 @@ J9::Z::MemoryReference::createUnresolvedDataSnippetForiaload(TR::Node * node, TR
       {
       isStore = true;
       }
-   
+
    TR::UnresolvedDataSnippet * uds = self()->createUnresolvedDataSnippet(node, cg, symRef, tempReg, isStore);
    self()->getUnresolvedSnippet()->createUnresolvedData(cg, _baseNode);
    self()->getUnresolvedSnippet()->getUnresolvedData()->setUnresolvedDataSnippet(self()->getUnresolvedSnippet());
@@ -304,17 +305,11 @@ J9::Z::MemoryReference::createUnresolvedSnippetWithNodeRegister(TR::Node * node,
    TR::Register * tempReg = node->getRegister();
    if (tempReg == NULL)
       {
-      if (TR::Compiler->target.is64Bit())
-         tempReg = node->setRegister(cg->allocate64bitRegister());
-      else
-         tempReg = node->setRegister(cg->allocateRegister());
+      tempReg = node->setRegister(cg->allocateRegister());
       }
    else if (tempReg->getKind() == TR_FPR)
       {
-      if (TR::Compiler->target.is64Bit())
-         tempReg = cg->allocate64bitRegister();
-      else
-         tempReg = cg->allocateRegister();
+      tempReg = cg->allocateRegister(TR_FPR);
       }
    else if (tempReg->getKind() == TR_VRF)
       {
@@ -409,7 +404,7 @@ reuseS390MemRefFromStorageRef(TR::MemoryReference *baseMR, int32_t offset, TR::N
       }
    return baseMR;
    }
-   
+
 
 /**
  * When isNewTemp=true then do not transfer any deadBytes from the node/reg as this is a memref for brand new tempStorageRef -- node is still needed

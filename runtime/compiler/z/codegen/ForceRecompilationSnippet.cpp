@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -29,6 +29,8 @@
 #include "env/VMJ9.h"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
+#include "il/symbol/LabelSymbol.hpp"
+#include "runtime/CodeCacheManager.hpp"
 
 uint8_t *
 TR::S390ForceRecompilationSnippet::emitSnippetBody()
@@ -73,14 +75,14 @@ TR::S390ForceRecompilationSnippet::emitSnippetBody()
    intptrj_t destAddr = (intptrj_t)(glueRef->getMethodAddress());
 
 #if defined(TR_TARGET_64BIT)
-#if defined(J9ZOS390) 
+#if defined(J9ZOS390)
    if (comp->getOption(TR_EnableRMODE64))
 #endif
       {
       if (NEEDS_TRAMPOLINE(destAddr, cursor, cg()))
          {
          // Destination is beyond our reachable jump distance, we'll find the trampoline.
-         destAddr = fej9->indexedTrampolineLookup(glueRef->getReferenceNumber(), (void *)cursor);
+         destAddr = TR::CodeCacheManager::instance()->findHelperTrampoline(glueRef->getReferenceNumber(), (void *)cursor);
          this->setUsedTrampoline(true);
          }
       }
@@ -140,7 +142,7 @@ TR_Debug::print(TR::FILE *pOutFile, TR::S390ForceRecompilationSnippet * snippet)
 TR::S390ForceRecompilationDataSnippet::S390ForceRecompilationDataSnippet(TR::CodeGenerator *cg,
                                         TR::Node *node,
                                         TR::LabelSymbol *restartLabel):
-     TR::S390ConstantDataSnippet(cg,node,TR::LabelSymbol::create(cg->trHeapMemory(),cg),0),
+     TR::S390ConstantDataSnippet(cg,node,generateLabelSymbol(cg),0),
      _restartLabel(restartLabel)
    {
    }

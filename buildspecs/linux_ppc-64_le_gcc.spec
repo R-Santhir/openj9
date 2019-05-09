@@ -41,6 +41,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<property name="graph_commands.chroot" value=""/>
 		<property name="graph_commands.unix.remote_host" value=""/>
 		<property name="graph_datamines" value="commands.unix.datamine,site-ottawa.datamine,use.local.datamine"/>
+		<property name="graph_enable_gcc7_cmd" value="source {$buildinfo.fsroot.unixBin$}/platform/linuxppcle/set_gcc7_env &amp;&amp;"/>
 		<property name="graph_label.classlib" value="150"/>
 		<property name="graph_label.java5" value="j9vmxp64le24_gcc"/>
 		<property name="graph_label.java6" value="pxp64le60_gcc"/>
@@ -75,7 +76,6 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<property name="j9dt.make" value="gmake"/>
 		<property name="j9dt.toolsTarget" value="buildtools.mk"/>
 		<property name="javatestPlatform" value="linux_ppc-64_le"/>
-		<property name="jclMaxSecurityPolicyDefine" value=" &quot;-Djava.security.policy=http://jcl1.ottawa.ibm.com/testres/java.policy&quot;"/>
 		<property name="jclMemoryMax" value="-Xmx64m"/>
 		<property name="jclOSStackSizeMax" value=""/>
 		<property name="jgrinderTestingSupported" value="true"/>
@@ -181,7 +181,6 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<flag id="module_algorithm_test" value="true"/>
 		<flag id="module_bcutil" value="true"/>
 		<flag id="module_bcverify" value="true"/>
-		<flag id="module_callconv" value="true"/>
 		<flag id="module_cassume" value="true"/>
 		<flag id="module_cfdumper" value="true"/>
 		<flag id="module_codegen_common" value="true"/>
@@ -193,27 +192,18 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<flag id="module_codert_common" value="true"/>
 		<flag id="module_codert_ppc" value="true"/>
 		<flag id="module_codert_vm" value="true"/>
-		<flag id="module_cpo_common" value="true"/>
-		<flag id="module_cpo_controller" value="true"/>
-		<flag id="module_dbginfoserv" value="true"/>
 		<flag id="module_ddr" value="false"/>
 		<flag id="module_ddr_gdb_plugin" value="true"/>
 		<flag id="module_ddrext" value="true"/>
-		<flag id="module_exe" value="true"/>
-		<flag id="module_exe.j9" value="true"/>
-		<flag id="module_gc_modron_eprof" value="true"/>
 		<flag id="module_gdb" value="true"/>
 		<flag id="module_gdb_plugin" value="true"/>
 		<flag id="module_gptest" value="true"/>
 		<flag id="module_j9vm" value="true"/>
 		<flag id="module_j9vmtest" value="true"/>
-		<flag id="module_jcl.profile_scar" value="true"/>
-		<flag id="module_jcl.scar" value="true"/>
 		<flag id="module_jextractnatives" value="true"/>
 		<flag id="module_jit_common" value="true"/>
 		<flag id="module_jit_ppc" value="true"/>
 		<flag id="module_jit_vm" value="true"/>
-		<flag id="module_jitdebug_common" value="true"/>
 		<flag id="module_jitrt_common" value="true"/>
 		<flag id="module_jitrt_ppc" value="true"/>
 		<flag id="module_jniargtests" value="true"/>
@@ -223,7 +213,6 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<flag id="module_jvmti" value="true"/>
 		<flag id="module_jvmtitst" value="true"/>
 		<flag id="module_lifecycle_tests" value="true"/>
-		<flag id="module_mvmtest" value="true"/>
 		<flag id="module_porttest" value="true"/>
 		<flag id="module_rasdump" value="true"/>
 		<flag id="module_rastrace" value="true"/>
@@ -231,10 +220,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<flag id="module_shared_common" value="true"/>
 		<flag id="module_shared_test" value="true"/>
 		<flag id="module_shared_util" value="true"/>
-		<flag id="module_ute" value="true"/>
-		<flag id="module_utetst" value="true"/>
 		<flag id="module_verbose" value="true"/>
-		<flag id="module_vmall" value="true"/>
 		<flag id="module_zip" value="true"/>
 		<flag id="module_zlib" value="true"/>
 		<flag id="opt_annotations" value="true"/>

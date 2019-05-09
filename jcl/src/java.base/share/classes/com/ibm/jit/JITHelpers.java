@@ -3,7 +3,7 @@
 package com.ibm.jit;
 
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,6 +24,7 @@ package com.ibm.jit;
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
 
+import com.ibm.oti.vm.J9UnmodifiableClass;
 import java.lang.reflect.Field;
 import java.lang.reflect.Array;
 import com.ibm.oti.vm.VM;
@@ -41,13 +42,11 @@ import sun.reflect.CallerSensitive;
  * The <code>JITHelpers</code> class contains methods used by the JIT to optimize certain primitive operations.
  */
 @SuppressWarnings("javadoc")
+@J9UnmodifiableClass
 public final class JITHelpers {
 
 	private static final JITHelpers helpers;
 	private static final Unsafe unsafe;
-	// If JITHelpers class is loaded at startup, so is DecimalFormatHelper. The latter is needed
-	// to optimize DecimalFormat.format(bd.doubleValue()) optimization in jit.
-	private static final DecimalFormatHelper dummyDecFormat = new DecimalFormatHelper();
 
 	private JITHelpers() {
 	}
@@ -568,6 +567,97 @@ public final class JITHelpers {
 		}
 	}
 
+	/**
+	 * Searches in the source character array for the index of the target character array.
+	 * Both arrays must be Latin1 arrays consisting of compressible characters ranging from \u0000 to \u00FF.
+	 * The source and target character arrays have their lengths specified. The search for the array starts
+	 * at the specified offset and moves towards the end of source array.
+	 * 
+	 * @param s1Value
+	 * 		 	the source character array to serach in
+	 * @param s1len
+	 * 		    the length of the source array
+	 * @param s2Value
+	 * 			the target character array to search for
+	 * @param s2len
+	 * 			the length of the target array
+	 * @param start
+	 * 			the starting offset
+	 * 
+	 * @return the index of the target array inside the source array, or -1 if the target array is not found
+	 * */
+	public int intrinsicIndexOfStringLatin1(char[] s1Value, int s1len, char[] s2Value, int s2len, int start) {
+		char firstChar = byteToCharUnsigned(getByteFromArrayByIndex(s2Value, 0));
+
+		while (true) {
+			int i = -1;
+			if (start < s1len) {
+				i = intrinsicIndexOfLatin1(s1Value, (byte)firstChar, start, s1len);
+			}
+						
+			// Handles subCount > count || start >= count
+			if (i == -1 || s2len + i > s1len) {
+				return -1;
+			}
+
+			int o1 = i;
+			int o2 = 0;
+
+			while (++o2 < s2len && getByteFromArrayByIndex(s1Value, ++o1) == getByteFromArrayByIndex(s2Value, o2))
+				;
+
+			if (o2 == s2len) {
+				return i;
+			}
+
+			start = i + 1;
+		}
+	}
+	
+	/**
+	 * Searches in the source character array for the index of the target character array.
+	 * Both arrays consisting of UTF16 characters.
+	 * The source and target character arrays have their lengths specified. The search for the array starts
+	 * at the specified offset and moves towards the end of source array.
+	 * 
+	 * @param s1Value
+	 * 		 	the source character array to serach in
+	 * @param s1len
+	 * 		    the length of the source array
+	 * @param s2Value
+	 * 			the target character array to search for
+	 * @param s2len
+	 * 			the length of the target array
+	 * @param start
+	 * 			the starting offset
+	 * 
+	 * @return the index of the target array inside the source array, or -1 if the target array is not found
+	 * */
+	public int intrinsicIndexOfStringUTF16(char[] s1Value, int s1len, char[] s2Value, int s2len, int start) {
+		char firstChar = s2Value[0];
+
+		while (true) {
+			int i = intrinsicIndexOfUTF16(s1Value, firstChar, start, s1len);
+			
+			// Handles subCount > count || start >= count
+			if ((i == -1) || (s2len + i > s1len)) {
+				return -1;
+			}
+
+			int o1 = i;
+			int o2 = 0;
+
+			while ((++o2 < s2len) && (s1Value[++o1] == s2Value[o2]))
+				;
+
+			if (o2 == s2len) {
+				return i;
+			}
+
+			start = i + 1;
+		}
+	}
+	
 	public int intrinsicIndexOfLatin1(Object array, byte ch, int offset, int length) {
 		for (int i = offset; i < length; i++) {
 			if(getByteFromArrayByIndex(array, i) == ch) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2017 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -68,6 +68,24 @@ class AOTHasInvokeSpecialInInterface : public virtual TR::RecoverableILGenExcept
 class AOTRelocationFailed : public virtual RuntimeFailure
    {
    virtual const char* what() const throw() { return "AOT Relocation Failed"; }
+   };
+
+/**
+ * AOT Symbol Validation Failure exception type.
+ *
+ * Thrown when an AOT validation record that should succeed fails.
+ */
+class AOTSymbolValidationManagerFailure : public virtual TR::CompilationException
+   {
+   virtual const char* what() const throw() { return "AOT Symbol Validation Manager Failure"; }
+   };
+
+/**
+ * Thrown when certain code path doesn't fully support AOT.
+ */
+class AOTNoSupportForAOTFailure : public virtual TR::CompilationException
+   {
+   virtual const char* what() const throw() { return "This code doesn't support AOT"; }
    };
 
 }

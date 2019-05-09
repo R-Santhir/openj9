@@ -20,19 +20,19 @@
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
 
-#include "infra/Cfg.hpp"
-#include "codegen/CodeGenerator.hpp"
-#include "ilgen/J9ByteCodeIlGenerator.hpp"
-#include "ilgen/J9ByteCodeIterator.hpp"
 #include "ilgen/ClassLookahead.hpp"
-#include "env/PersistentCHTable.hpp"
-#include "env/ClassTableCriticalSection.hpp"
+#include "codegen/CodeGenerator.hpp"
 #include "compile/ResolvedMethod.hpp"
+#include "compiler/il/OMRTreeTop_inlines.hpp"
+#include "env/ClassTableCriticalSection.hpp"
+#include "env/IO.hpp"
+#include "env/PersistentCHTable.hpp"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
 #include "il/TreeTop.hpp"
-#include "omr/compiler/il/OMRTreeTop_inlines.hpp"
-#include "env/IO.hpp"
+#include "ilgen/J9ByteCodeIlGenerator.hpp"
+#include "ilgen/J9ByteCodeIterator.hpp"
+#include "infra/Cfg.hpp"
 
 TR_ClassLookahead::TR_ClassLookahead(
    TR_PersistentClassInfo * classInfo, TR_FrontEnd * fe, TR::Compilation * comp,
@@ -62,8 +62,9 @@ TR_ClassLookahead::perform()
 
     bool isClassInitialized = false;
     bool seenFirstInitializerMethod = false;
+    bool allowForAOT = comp()->getOption(TR_UseSymbolValidationManager);
     TR_PersistentClassInfo * classInfo =
-                           comp()->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(_classPointer, comp());
+                           comp()->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(_classPointer, comp(), allowForAOT);
     if (classInfo && classInfo->isInitialized())
        isClassInitialized = true;
 
@@ -770,7 +771,7 @@ TR_ClassLookahead::examineNode(TR::TreeTop *nextTree, TR::Node *grandParent, TR:
                char *sig = getFieldSignature(comp(), sym, storedSymRef, length);
 
                if (rhsOfStoreNode->getOpCode().isCall() &&
-                   !rhsOfStoreNode->getSymbolReference()->isUnresolved())
+                   rhsOfStoreNode->getSymbol()->getResolvedMethodSymbol())
                   {
                   if (rhsOfStoreNode->getSymbol()->getResolvedMethodSymbol()->getRecognizedMethod() == TR::java_math_BigDecimal_valueOf)
                      {
@@ -1015,7 +1016,7 @@ static bool isStoreToSameField(TR::Node *callNode, TR::Node *nextNode, TR::Node 
           nextNode->getOpCode().isNullCheck())
          nextNode = nextNode->getFirstChild();
 
-      if ((nextNode->getOpCodeValue() == TR::wrtbari) ||
+      if ((nextNode->getOpCodeValue() == TR::awrtbari) ||
           (nextNode->getOpCodeValue() == TR::astorei))
         {
         if (nextNode->getSymbolReference() == loadNode->getSymbolReference())
@@ -1031,7 +1032,7 @@ static bool isStoreToSameField(TR::Node *callNode, TR::Node *nextNode, TR::Node 
               }
            }
         }
-      else if ((nextNode->getOpCodeValue() == TR::wrtbar) ||
+      else if ((nextNode->getOpCodeValue() == TR::awrtbar) ||
                (nextNode->getOpCodeValue() == TR::astore))
         {
         if (nextNode->getSymbolReference() == loadNode->getSymbolReference())
@@ -1169,7 +1170,7 @@ void TR_ClassLookahead::invalidateIfEscapingLoad(TR::TreeTop *nextTree, TR::Node
               (!parent->getOpCode().isArrayLength()) &&
               (!parent->getOpCode().isAnchor()) &&
               (parent->getOpCodeValue() != TR::ArrayStoreCHK) &&
-              ((parent->getOpCodeValue() != TR::wrtbari) || (childNum != 2))))
+              ((parent->getOpCodeValue() != TR::awrtbari) || (childNum != 2))))
               {
               if (_traceIt)
                   traceMsg(comp(), "2Invalidating dimension and type info for symbol %x at node %x\n", sym, node);

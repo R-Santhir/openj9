@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -1608,7 +1608,8 @@ checkMethods(J9CfrClassFile* classfile, U_8* segment, U_32 vmVersionShifted, U_3
 				method->accessFlags |= CFR_ACC_STATIC;
 
 			/* Leave this here to find usages of the following check:
-			 * if (J2SE_VERSION(vm) >= J2SE_19) { 
+			 * J2SE_19 has been deprecated and replaced with J2SE_V11
+			 * if (J2SE_VERSION(vm) >= J2SE_V11) { 
 			 */
 			} else if (vmVersionShifted >= BCT_Java9MajorVersionShifted) {
 				if (J9_ARE_NO_BITS_SET(method->accessFlags, CFR_ACC_STATIC)) {
@@ -2017,7 +2018,7 @@ checkAttributes(J9CfrClassFile* classfile, J9CfrAttribute** attributes, U_32 att
 			}
 			enclosing = (J9CfrAttributeEnclosingMethod*)attrib;
 			value = enclosing->classIndex;
-			if((0 == value) || (value > cpCount)) {
+			if ((0 == value) || (value > cpCount)) {
 				errorCode = J9NLS_CFR_ERR_BAD_INDEX__ID;
 				goto _errorFound;
 			}
@@ -2047,14 +2048,50 @@ checkAttributes(J9CfrClassFile* classfile, J9CfrAttribute** attributes, U_32 att
 				}
 				bootstrapMethodAttributeRead = TRUE;
 				for (j = 0; j < bootstrapMethods->numberOfBootstrapMethods; j++) {
-					value = bootstrapMethods->bootstrapMethods[j].bootstrapMethodIndex;
-					if((0 == value) || (value > cpCount)) {
+					U_16 numberOfBootstrapArguments = 0;
+					J9CfrBootstrapMethod *bsm = &bootstrapMethods->bootstrapMethods[j];
+					value = bsm->bootstrapMethodIndex;
+					if ((0 == value) || (value > cpCount)) {
 						errorCode = J9NLS_CFR_ERR_BAD_INDEX__ID;
 						goto _errorFound;
 					}
-					if(cpBase[value].tag != CFR_CONSTANT_MethodHandle) {
+					if (cpBase[value].tag != CFR_CONSTANT_MethodHandle) {
 						errorCode = J9NLS_CFR_ERR_BOOTSTRAP_METHODHANDLE__ID;
 						goto _errorFound;
+					}
+
+					numberOfBootstrapArguments = bsm->numberOfBootstrapArguments;
+					for (k = 0; k < numberOfBootstrapArguments; k++) {
+						U_8 cpValueTag = 0;
+						value = bsm->bootstrapArguments[k];
+
+						if ((0 == value) || (value > cpCount)) {
+							errorCode = J9NLS_CFR_ERR_BAD_INDEX__ID;
+							goto _errorFound;
+						}
+						/* Validate the constant_pool indexes stored in the bootstrap_arguments array.
+						 * Note: The constant_pool entry at that index must be a CONSTANT_String_info,
+						 * CONSTANT_Class_info, CONSTANT_Integer_info, CONSTANT_Long_info, CONSTANT_Float_info,
+						 * CONSTANT_Double_info, CONSTANT_MethodHandle_info, CONSTANT_MethodType_info
+						 * or CFR_CONSTANT_Dynamic structure.
+						 */
+						cpValueTag = cpBase[value].tag;
+						switch(cpValueTag) {
+						case CFR_CONSTANT_String:
+						case CFR_CONSTANT_Class:
+						case CFR_CONSTANT_Integer:
+						case CFR_CONSTANT_Long:
+						case CFR_CONSTANT_Float:
+						case CFR_CONSTANT_Double:
+						case CFR_CONSTANT_MethodHandle:
+						case CFR_CONSTANT_MethodType:
+						case CFR_CONSTANT_Dynamic:
+							break;
+						default:
+							errorCode = J9NLS_CFR_ERR_BAD_BOOTSTRAP_ARGUMENT_ENTRY__ID;
+							buildBootstrapMethodError((J9CfrError *)segment, errorCode, errorType, attrib->romAddress, j, value, cpValueTag);
+							return -1;
+						}
 					}
 				}
 			}
@@ -2111,7 +2148,7 @@ checkAttributes(J9CfrClassFile* classfile, J9CfrAttribute** attributes, U_32 att
 		case CFR_ATTRIBUTE_StrippedInnerClasses:
 		case CFR_ATTRIBUTE_StrippedUnknown:
 		case CFR_ATTRIBUTE_Unknown:
-			break;			
+			break;
 		}
 	}
 
@@ -2120,7 +2157,7 @@ checkAttributes(J9CfrClassFile* classfile, J9CfrAttribute** attributes, U_32 att
 		buildError((J9CfrError *) segment, errorCode, errorType, 0);
 		return -1;
 	}
-			
+
 	return 0;
 
 _errorFound:
@@ -2486,6 +2523,26 @@ j9bcutil_readClassFileBytes(J9PortLibrary *portLib,
 		goto _errorFound;
 	}
 
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+	/*
+	 * TODO This behaviour is based on the LW2 spec http://cr.openjdk.java.net/~fparain/L-world/LW2-JVMS-draft-20181009.pdf.
+	 * In the future the CFR_ACC_VALUE_TYPE class access bit will be replaced by a ValObject subtyping relationship. We will
+	 * likely keep the bit in the romClass class, but it will no longer appear in .class files.
+	 *
+	 * The LW10 prototype will likely still be enabled with a -XX:+EnableValhalla flag so a check and error message similar
+	 * to this will be required.
+	 */
+
+	/* class files with the ACC_VALUE_TYPE can only be loaded if -XX:+EnableValhalla is set */
+	if (J9_ARE_ALL_BITS_SET(classfile->accessFlags, CFR_ACC_VALUE_TYPE)
+		&& J9_ARE_NO_BITS_SET(flags, BCT_ValueTypesEnabled)
+	) {
+		errorCode = J9NLS_CFR_ERR_VALUE_TYPES_IS_NOT_SUPPORTED__ID;
+		offset = index - data - 2;
+		goto _errorFound;
+	}
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+
 	/* mask access flags to remove unused access bits */
 	classfile->accessFlags &= CFR_CLASS_ACCESS_MASK;
 	classfile->j9Flags = 0;
@@ -2611,9 +2668,13 @@ j9bcutil_readClassFileBytes(J9PortLibrary *portLib,
 			return result;
 		}
 	} else {
-		/* special checking to look for jsr's if -noverify - the verifyFunction normally scans and tags 
-			for inlining methods and classes that contain jsr's */
-		hasRET = checkForJsrs(classfile);
+		/* Special checking to look for jsr's if -noverify - the verifyFunction normally scans and tags
+		 * for inlining methods and classes that contain jsr's unless the class file version is 51 or
+		 * greater as jsr / ret are always illegal in that case
+		 */
+		if (classfile->majorVersion < 51) {
+			hasRET = checkForJsrs(classfile);
+		}
 	}
 	VERBOSE_END(ParseClassFileVerifyClass);
 

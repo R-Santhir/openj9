@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -34,7 +34,7 @@
 #include "pcstack.h"
 #include "ut_j9codertvm.h"
 #include "jitregmap.h"
-#include "bcsizes.h"
+#include "pcstack.h"
 #include "VMHelpers.hpp"
 
 extern "C" {
@@ -1000,7 +1000,7 @@ fixStackForNewDecompilation(J9VMThread * currentThread, J9StackWalkState * walkS
 		UDATA resolveFrameType = walkState->resolveFrameFlags & J9_STACK_FLAGS_JIT_FRAME_SUB_TYPE_MASK;
 		switch(resolveFrameType) {
 		case J9_STACK_FLAGS_JIT_STACK_OVERFLOW_RESOLVE_FRAME:
-			if (J9_ARE_ANY_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers, J9_JAVA_SYNC)) {
+			if (J9_ARE_ANY_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers, J9AccSynchronized)) {
 				Trc_Decomp_addDecompilation_beforeSyncMonitorEnter(currentThread);
 				*pcStoreAddress = (U_8 *) J9_BUILDER_SYMBOL(jitDecompileBeforeMethodMonitorEnter);
 				break;
@@ -1017,6 +1017,11 @@ fixStackForNewDecompilation(J9VMThread * currentThread, J9StackWalkState * walkS
 		case J9_STACK_FLAGS_JIT_ALLOCATION_RESOLVE:
 			Trc_Decomp_addDecompilation_atAllocate(currentThread);
 			*pcStoreAddress = (U_8 *) J9_BUILDER_SYMBOL(jitDecompileAfterAllocation);
+			break;
+		case J9_STACK_FLAGS_JIT_EXCEPTION_CATCH_RESOLVE:
+			/* Decompile during jitReportExceptionCatch */
+			Trc_Decomp_addDecompilation_atExceptionCatch(currentThread);
+			*pcStoreAddress = (U_8 *) J9_BUILDER_SYMBOL(jitDecompileAtExceptionCatch);
 			break;
 		default:
 			Trc_Decomp_addDecompilation_atCurrentPC(currentThread);
@@ -1215,19 +1220,19 @@ c_jitDecompileAtExceptionCatch(J9VMThread * currentThread)
 
 	/* Determine in which inlined frame the exception is being caught */
 	UDATA newNumberOfFrames = 1;
+	void *stackMap = NULL;
+	void *inlineMap = NULL;
+	void *inlinedCallSite = NULL;
+	/* Note we need to add 1 to the JIT PC here in order to get the correct map at the exception handler
+	 * because jitGetMapsFromPC is expecting a return address, so it subtracts 1.  The value stored in the
+	 * decomp record is the start address of the compiled exception handler.
+	 */
+	jitGetMapsFromPC(vm, metaData, (UDATA)jitPC + 1, &stackMap, &inlineMap);
+	Assert_CodertVM_false(NULL == inlineMap);
 	if (NULL != getJitInlinedCallInfo(metaData)) {
-		void *stackMap = NULL;
-		void *inlineMap = NULL;
-		/* Note we need to add 1 to the JIT PC here in order to get the correct map at the exception handler
-		 * because jitGetMapsFromPC is expecting a return address, so it subtracts 1.  The value stored in the
-		 * decomp record is the start address of the compiled exception handler.
-		 */
-		jitGetMapsFromPC(vm, metaData, (UDATA)jitPC + 1, &stackMap, &inlineMap);
-		if (NULL != inlineMap) {
-			void *inlinedCallSite = getFirstInlinedCallSite(metaData, inlineMap);
-			if (inlinedCallSite != NULL) {
-				newNumberOfFrames = getJitInlineDepthFromCallSite(metaData, inlinedCallSite) + 1;
-			}
+		inlinedCallSite = getFirstInlinedCallSite(metaData, inlineMap);
+		if (inlinedCallSite != NULL) {
+			newNumberOfFrames = getJitInlineDepthFromCallSite(metaData, inlinedCallSite) + 1;
 		}
 	}
 	Assert_CodertVM_true(numberOfFrames >= newNumberOfFrames);
@@ -1248,7 +1253,7 @@ c_jitDecompileAtExceptionCatch(J9VMThread * currentThread)
 	/* Fix the OSR frame to resume at the catch point with an empty pending stack (the caught exception
 	 * is pushed after decompilation completes).
 	 */
-	osrFrame->bytecodePCOffset = getJitPCOffsetFromExceptionHandler(metaData, jitPC);
+	osrFrame->bytecodePCOffset = getCurrentByteCodeIndexAndIsSameReceiver(metaData, inlineMap, inlinedCallSite, NULL);
 	Trc_Decomp_jitInterpreterPCFromWalkState_Entry(jitPC);
 	Trc_Decomp_jitInterpreterPCFromWalkState_exHandler(osrFrame->bytecodePCOffset);
 	osrFrame->pendingStackHeight = 0;
@@ -1369,7 +1374,13 @@ jitDataBreakpointAdded(J9VMThread * currentThread)
 
 		/* Toss the compilation queue */
 
-		jitConfig->jitClassesRedefined(currentThread, 0, NULL);
+		if (inlineWatches) {
+			jitConfig->jitFlushCompilationQueue(currentThread, J9FlushCompQueueDataBreakpoint);
+			/* Make all future compilations inline the field watch code */
+			jitConfig->inlineFieldWatches = TRUE;
+		} else {
+			jitConfig->jitClassesRedefined(currentThread, 0, NULL);			
+		}
 
 		/* Find every method which has been translated and mark it for retranslation */
 
@@ -1382,11 +1393,6 @@ jitDataBreakpointAdded(J9VMThread * currentThread)
 		/* Mark every JIT method in every stack for decompilation */
 
 		decompileAllMethodsInAllStacks(currentThread, JITDECOMP_DATA_BREAKPOINT);
-
-		if (inlineWatches) {
-			/* Make all future compilations inline the field watch code */
-			jitConfig->inlineFieldWatches = TRUE;
-		}
 	}
 
 	Trc_Decomp_jitDataBreakpointAdded_Exit(currentThread);
@@ -1758,6 +1764,20 @@ UDATA
 osrFrameSize(J9Method *method)
 {
 	J9ROMMethod *romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(method);
+	return osrFrameSizeRomMethod(romMethod);
+}
+
+
+/**
+ * Compute the number of bytes required for a single OSR frame.
+ *
+ * @param[in] *romMethod the J9ROMMethod for which to compute the OSR frame size
+ *
+ * @return byte size of the OSR frame
+ */
+UDATA
+osrFrameSizeRomMethod(J9ROMMethod *romMethod)
+{
 	U_32 numberOfLocals = J9_ARG_COUNT_FROM_ROM_METHOD(romMethod) + J9_TEMP_COUNT_FROM_ROM_METHOD(romMethod);
 	U_32 maxStack = J9_MAX_STACK_FROM_ROM_METHOD(romMethod);
 
@@ -1868,7 +1888,7 @@ performOSR(J9VMThread *currentThread, J9StackWalkState *walkState, J9OSRBuffer *
 	currentThread->osrJittedFrameCopy = osrJittedFrameCopy;
 	currentThread->osrFrameIndex = sizeof(J9OSRBuffer);
 	currentThread->privateFlags |= J9_PRIVATE_FLAGS_OSR_IN_PROGRESS;
-	currentThread->javaVM->internalVMFunctions->jitFillOSRBuffer(currentThread, osrBlock, 0, 0, 0);
+	currentThread->javaVM->internalVMFunctions->jitFillOSRBuffer(currentThread, osrBlock);
 	currentThread->privateFlags &= ~J9_PRIVATE_FLAGS_OSR_IN_PROGRESS;
 	currentThread->osrBuffer = NULL;
 	currentThread->osrJittedFrameCopy = NULL;
@@ -2323,7 +2343,7 @@ c_jitDecompileAfterAllocation(J9VMThread *currentThread)
 	UDATA *sp = currentThread->sp - 1;
 	*(j9object_t*)sp = obj;
 	currentThread->sp = sp;
-	currentThread->pc += (JavaByteCodeRelocation[*currentThread->pc] & 0x7);
+	currentThread->pc += (J9JavaInstructionSizeAndBranchActionTable[*currentThread->pc] & 0x7);
 	dumpStack(currentThread, "after jitDecompileAfterAllocation");
 	currentThread->tempSlot = (UDATA)J9_BUILDER_SYMBOL(executeCurrentBytecodeFromJIT);
 }

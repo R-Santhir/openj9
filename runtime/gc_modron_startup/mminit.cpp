@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -68,9 +67,9 @@
 #if defined(J9VM_GC_VLHGC)
 #include "ConfigurationIncrementalGenerational.hpp"
 #endif /* J9VM_GC_VLHGC */
-#if defined(J9VM_GC_STACCATO)
-#include "ConfigurationStaccato.hpp"
-#endif /* J9VM_GC_STACCATO */
+#if defined(J9VM_GC_REALTIME)
+#include "ConfigurationRealtime.hpp"
+#endif /* J9VM_GC_REALTIME */
 #include "ClassLoaderManager.hpp"
 #include "Debug.hpp"
 #include "Dispatcher.hpp"
@@ -99,9 +98,9 @@
 #include "ObjectHeapIteratorSegregated.hpp"
 #include "SizeClasses.hpp"
 #endif /* J9VM_GC_SEGRGATED_HEAP */
-#if defined(J9VM_GC_STACCATO)
-#include "RememberedSetWorkPackets.hpp"
-#endif /* J9VM_GC_STACCATO */
+#if defined(J9VM_GC_REALTIME)
+#include "RememberedSetSATB.hpp"
+#endif /* J9VM_GC_REALTIME */
 #include "Scavenger.hpp"
 #include "StringTable.hpp"
 #include "Validator.hpp"
@@ -167,7 +166,7 @@ initializeMutatorModelJava(J9VMThread* vmThread)
 		if (extensions->isConcurrentScavengerEnabled()) {
 			/* Ensure that newly created threads invoke VM access using slow path, so that the associated hook is invoked.
 			 * GC will register to the hook to enable local thread resources if a thread happens to be created in a middle of Concurrent Scavenge */
-			setEventFlag(vmThread, J9_PUBLIC_FLAGS_DISABLE_INLINE_VM_ACCESS_ACQUIRE);
+			setEventFlag(vmThread, J9_PUBLIC_FLAGS_DISABLE_INLINE_VM_ACCESS);
 		}
 
 #if defined(J9VM_GC_GENERATIONAL)
@@ -484,9 +483,12 @@ j9gc_initialize_heap(J9JavaVM *vm, IDATA *memoryParameterTable, UDATA heapBytesR
 
 #if defined(J9VM_GC_IDLE_HEAP_MANAGER)
 	if (extensions->gcOnIdle || extensions->compactOnIdle) {
-		extensions->idleGCManager = MM_IdleGCManager::newInstance(&env);
-		if (NULL == extensions->idleGCManager) {
-			goto error_no_memory;
+		/* Enable idle tuning only for gencon policy */
+		if (gc_policy_gencon == extensions->configurationOptions._gcPolicy) {
+			extensions->idleGCManager = MM_IdleGCManager::newInstance(&env);
+			if (NULL == extensions->idleGCManager) {
+				goto error_no_memory;
+			}
 		}
 	}
 #endif
@@ -593,6 +595,105 @@ gcStartupHeapManagement(J9JavaVM *javaVM)
 
 	return result;
 }
+
+void j9gc_jvmPhaseChange(J9VMThread *currentThread, UDATA phase)
+{
+	J9JavaVM *vm = currentThread->javaVM;
+	MM_GCExtensions *extensions = MM_GCExtensions::getExtensions(vm);
+	MM_EnvironmentBase env(currentThread->omrVMThread);
+	if (J9VM_PHASE_NOT_STARTUP == phase) {
+
+		if (NULL != vm->sharedClassConfig) {
+			if (extensions->isStandardGC()) {
+				/* read old values from SC */
+				uintptr_t hintDefaultOld = 0;
+				uintptr_t hintTenureOld = 0;
+				vm->sharedClassConfig->findGCHints(currentThread, &hintDefaultOld, &hintTenureOld);
+				/* Nothing to do if read fails, we'll just assume the old values are 0 */
+
+				/* Get the current heap size values.
+				 * Default/Tenure MemorySubSpace is of type Generic (which is MemoryPool owner, while the parents are of type Flat/SemiSpace).
+				 * For SemiSpace the latter (parent) ones are what we want to deal with (expand), since it's what includes both Allocate And Survivor children.
+				 * For Flat it would probably make no difference if we used parent or child, but let's be consistent and use parent, too.
+				 */
+				MM_MemorySubSpace *defaultMemorySubSpace = extensions->heap->getDefaultMemorySpace()->getDefaultMemorySubSpace()->getParent();
+				MM_MemorySubSpace *tenureMemorySubspace = extensions->heap->getDefaultMemorySpace()->getTenureMemorySubSpace()->getParent();
+
+				uintptr_t hintDefault = defaultMemorySubSpace->getActiveMemorySize();
+				uintptr_t hintTenure = 0;
+
+				/* Standard GCs always have Default MSS (which is equal to Tenure for flat heap configuration).
+				 * So the simplest is always fetch Default, regardless if's generational haep configuration or not.
+				 * We fetch Tenure only if only not equal to Default (which implies it's generational) */
+				if (defaultMemorySubSpace != tenureMemorySubspace) {
+					hintTenure = tenureMemorySubspace->getActiveMemorySize();
+				}
+
+				/* Gradually learn, by averaging new values with old values - it may take a few restarts before hint converge to stable values */
+				hintDefault = (uintptr_t)MM_Math::weightedAverage((float)hintDefaultOld, (float)hintDefault, (1.0f - extensions->heapSizeStartupHintWeightNewValue));
+				hintTenure = (uintptr_t)MM_Math::weightedAverage((float)hintTenureOld, (float)hintTenure, (1.0f - extensions->heapSizeStartupHintWeightNewValue));
+
+				vm->sharedClassConfig->storeGCHints(currentThread, hintDefault, hintTenure, true);
+				/* Nothing to do if store fails, storeGCHints already issues a trace point */
+			}
+		}
+	}
+}
+
+
+void
+gcExpandHeapOnStartup(J9JavaVM *javaVM)
+{
+	J9SharedClassConfig *sharedClassConfig = javaVM->sharedClassConfig;
+	MM_GCExtensions *extensions = MM_GCExtensions::getExtensions(javaVM);
+	J9VMThread *currentThread = javaVM->internalVMFunctions->currentVMThread(javaVM);
+	MM_EnvironmentBase env(currentThread->omrVMThread);
+
+	if (NULL != sharedClassConfig) {
+		if (extensions->isStandardGC()) {
+			uintptr_t hintDefault = 0;
+			uintptr_t hintTenure = 0;
+
+			if (0 == sharedClassConfig->findGCHints(currentThread, &hintDefault, &hintTenure)) {
+
+				/* Default/Tenure MemorySubSpace is of type Generic (which is MemoryPool owner, while the parents are of type Flat/SemiSpace).
+				 * For SemiSpace the latter (parent) ones are what we want to deal with (expand), since it's what includes both Allocate And Survivor children.
+				 * For Flat it would probably make no difference if we used parent or child, but let's be consistent and use parent, too.
+				 */
+				MM_MemorySubSpace *defaultMemorySubSpace = extensions->heap->getDefaultMemorySpace()->getDefaultMemorySubSpace()->getParent();
+				MM_MemorySubSpace *tenureMemorySubspace = extensions->heap->getDefaultMemorySpace()->getTenureMemorySubSpace()->getParent();
+
+
+				/* Standard GCs always have Default MSS (which is equal to Tenure for flat heap configuration).
+				 * So the simplest is always deal with Default, regardless if's generational heap configuration or not.
+				 * We deal with Tenure only if only not equal to Default (which implies it's generational)
+				 * We are a bit conservative and aim for slightly lower values that historically recorded by hints.
+				 */
+				uintptr_t hintDefaultAdjusted = (uintptr_t)(hintDefault * extensions->heapSizeStartupHintConservativeFactor);
+				uintptr_t defaultCurrent = defaultMemorySubSpace->getActiveMemorySize();
+
+				if (hintDefaultAdjusted > defaultCurrent) {
+					extensions->heap->getResizeStats()->setLastExpandReason(HINT_PREVIOUS_RUNS);
+					defaultMemorySubSpace->expand(&env, hintDefaultAdjusted - defaultCurrent);
+				}
+
+				if (defaultMemorySubSpace != tenureMemorySubspace) {
+					uintptr_t hintTenureAdjusted = (uintptr_t)(hintTenure * extensions->heapSizeStartupHintConservativeFactor);
+					uintptr_t tenureCurrent = tenureMemorySubspace->getActiveMemorySize();
+
+					if (hintTenureAdjusted > tenureCurrent) {
+						extensions->heap->getResizeStats()->setLastExpandReason(HINT_PREVIOUS_RUNS);
+						tenureMemorySubspace->expand(&env, hintTenureAdjusted - tenureCurrent);
+					}
+				}
+
+			}
+			/* Nothing to do if findGCHints failed. It already issues a trace point - no need to duplicate it here */
+		}
+		/* todo: Balanced GC */
+	}
+}
+
 
 /**
  * Cleanup Finalizer and Heap components
@@ -754,19 +855,6 @@ gcInitializeCalculatedValues(J9JavaVM *javaVM, IDATA* memoryParameters)
 
 	/* Number of GC threads must be initialized at this point */
 	Assert_MM_true(0 < extensions->gcThreadCount);
-#if defined (J9VM_GC_REALTIME)
-	/*
-	 * The split available lists are populated during sweep by GC threads,
-	 * each slave inserts into its corresponding split list as it finishes sweeping a region,
-	 * which also removes the contention when inserting to a global list.
-	 * So the split count equals the number of gc threads.
-	 * NOTE: The split available list mechanism assumes the slave IDs are in the range of [0, gcThreadCount-1].
-	 * This is currently the case, as _statusTable in ParallelDispacher also replies on slave IDs be in this range
-	 * as it uses the slave ID as index into the status array. If slave IDs ever fall out of the above range,
-	 * split available list would likely loose the performance advantage.
-	 */
-	extensions->splitAvailableListSplitAmount = extensions->gcThreadCount;
-#endif /* J9VM_GC_REALTIME */
 
 	/* initialize packet lock splitting factor */
 	if (0 == extensions->packetListSplit) {
@@ -1012,7 +1100,7 @@ gcInitializeXmxXmdxVerification(J9JavaVM *javaVM, IDATA* memoryParameters, bool 
 	extensions->memoryMax = MM_Math::roundToFloor(extensions->regionSize, extensions->memoryMax);
 	extensions->maxSizeDefaultMemorySpace = MM_Math::roundToFloor(extensions->regionSize, extensions->maxSizeDefaultMemorySpace);
 
-#if defined (J9VM_GC_COMPRESSED_POINTERS)
+#if defined (OMR_GC_COMPRESSED_POINTERS)
 	if (extensions->shouldAllowShiftingCompression) {
 		if (extensions->shouldForceSpecifiedShiftingCompression) {
 			extensions->heapCeiling = NON_SCALING_LOW_MEMORY_HEAP_CEILING << extensions->forcedShiftingCompressionAmount;
@@ -1062,7 +1150,7 @@ gcInitializeXmxXmdxVerification(J9JavaVM *javaVM, IDATA* memoryParameters, bool 
 		j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTION_OVERFLOW, displayXmxOrMaxRAMPercentage(memoryParameters));
 		return JNI_ERR;
 	}
-#endif /* defined (J9VM_GC_COMPRESSED_POINTERS) */
+#endif /* defined (OMR_GC_COMPRESSED_POINTERS) */
 
 	/* Verify Xmx is too small */
 	if (extensions->memoryMax < minimumSizeValue) {
@@ -1450,10 +1538,12 @@ independentMemoryParameterVerification(J9JavaVM *javaVM, IDATA* memoryParameters
 		extensions->allocationIncrement = MM_Math::roundToCeiling(extensions->regionSize, extensions->allocationIncrement);
 	}
 
-#if defined(J9VM_GC_COMPRESSED_POINTERS)
-	/* Align the Xmcrs if necessary */
-	extensions->suballocatorInitialSize = MM_Math::roundToCeiling(SUBALLOCATOR_ALIGNMENT, extensions->suballocatorInitialSize);
-#endif /* defined(J9VM_GC_COMPRESSED_POINTERS) */
+#if defined(OMR_GC_COMPRESSED_POINTERS)
+	if (J9JAVAVM_COMPRESS_OBJECT_REFERENCES(javaVM)) {
+		/* Align the Xmcrs if necessary */
+		extensions->suballocatorInitialSize = MM_Math::roundToCeiling(SUBALLOCATOR_ALIGNMENT, extensions->suballocatorInitialSize);
+	}
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) */
 
 	return JNI_OK;
 
@@ -2645,7 +2735,7 @@ configurateGCWithPolicyAndOptionsStandard(MM_EnvironmentBase *env)
 			 * - select Concurrent Scavenger Page size based at estimated Nursery size: if should be rounded up to next power of 2 but not smaller then 32M
 			 * - select region size as a Concurrent Scavenger Page Section size
 			 */
-			if (extensions->isConcurrentScavengerEnabled()) {
+			if (extensions->isConcurrentScavengerHWSupported()) {
 				OMRPORT_ACCESS_FROM_ENVIRONMENT(env);
 				/* Default maximum Nursery size estimation in case of none of -Xmn* options is specified */
 				uintptr_t nurserySize = extensions->memoryMax / 4;
@@ -2736,7 +2826,7 @@ configurateGCWithPolicyAndOptions(OMR_VM* omrVM)
 	case gc_policy_metronome:
 		extensions->gcModeString = "-Xgcpolicy:metronome";
 		omrVM->gcPolicy = J9_GC_POLICY_METRONOME;
-		result = MM_ConfigurationStaccato::newInstance(&env);
+		result = MM_ConfigurationRealtime::newInstance(&env);
 		break;
 
 	case gc_policy_balanced:
@@ -2850,15 +2940,19 @@ gcInitializeDefaults(J9JavaVM* vm)
 	if (gc_policy_gencon == extensions->configurationOptions._gcPolicy) {
 		/* after we parsed cmd line options, check if we can obey the request to run CS (valid for Gencon only) */
 		if (extensions->concurrentScavengerForced) {
+#if defined(J9VM_ARCH_X86) || defined(J9VM_ARCH_POWER)
+			extensions->softwareRangeCheckReadBarrier = true;
+#endif /* J9VM_ARCH_X86 || J9VM_ARCH_POWER */
 			if (LOADED == (FIND_DLL_TABLE_ENTRY(J9_JIT_DLL_NAME)->loadFlags & LOADED)) {
 				/* If running jitted, it must be on supported h/w */
 				J9ProcessorDesc  processorDesc;
 				j9sysinfo_get_processor_description(&processorDesc);
-				if ((j9sysinfo_processor_has_feature(&processorDesc, J9PORT_S390_FEATURE_GUARDED_STORAGE) &&
-						j9sysinfo_processor_has_feature(&processorDesc, J9PORT_S390_FEATURE_SIDE_EFFECT_ACCESS))
-						|| (extensions->softwareEvacuateReadBarrier)) {
-					extensions->concurrentScavenger = true;
-				}
+				bool hwSupported = j9sysinfo_processor_has_feature(&processorDesc, J9PORT_S390_FEATURE_GUARDED_STORAGE) &&
+						j9sysinfo_processor_has_feature(&processorDesc, J9PORT_S390_FEATURE_SIDE_EFFECT_ACCESS);
+
+				/* Software Barrier request overwrites HW usage */
+				extensions->concurrentScavengerHWSupport = hwSupported && !extensions->softwareRangeCheckReadBarrier;
+				extensions->concurrentScavenger = hwSupported || extensions->softwareRangeCheckReadBarrier;
 			} else {
 				/* running interpreted is ok on any h/w */
 				extensions->concurrentScavenger = true;
@@ -2967,9 +3061,9 @@ hookAcquireVMAccess(J9HookInterface** hook, UDATA eventNum, void* voidEventData,
 jint
 triggerGCInitialized(J9VMThread* vmThread)
 {
-	J9JavaVM* javaVM = vmThread->javaVM;
-	PORT_ACCESS_FROM_JAVAVM(javaVM);
-	MM_GCExtensions *extensions = MM_GCExtensions::getExtensions(javaVM);
+	J9JavaVM* vm = vmThread->javaVM;
+	PORT_ACCESS_FROM_JAVAVM(vm);
+	MM_GCExtensions *extensions = MM_GCExtensions::getExtensions(vm);
 
 	UDATA beatMicro = 0;
 	UDATA timeWindowMicro = 0;
@@ -2991,17 +3085,17 @@ triggerGCInitialized(J9VMThread* vmThread)
 
 	UDATA arrayletLeafSize = 0;
 #if defined(J9VM_GC_ARRAYLETS)
-	arrayletLeafSize = javaVM->arrayletLeafSize;
+	arrayletLeafSize = vm->arrayletLeafSize;
 #endif
 
 	TRIGGER_J9HOOK_MM_OMR_INITIALIZED(
 		extensions->omrHookInterface,
 		vmThread->omrVMThread,
 		j9time_hires_clock(),
-		j9gc_get_gcmodestring(javaVM),
-		extensions->isConcurrentScavengerEnabled(),
-		j9gc_get_maximum_heap_size(javaVM),
-		j9gc_get_initial_heap_size(javaVM),
+		j9gc_get_gcmodestring(vm),
+		0, /* unused */
+		j9gc_get_maximum_heap_size(vm),
+		j9gc_get_initial_heap_size(vm),
 		j9sysinfo_get_physical_memory(),
 		j9sysinfo_get_number_CPUs_by_type(J9PORT_CPU_ONLINE),
 		extensions->gcThreadCount,

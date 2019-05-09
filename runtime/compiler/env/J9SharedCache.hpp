@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -29,7 +29,7 @@
 #include "env/TRMemory.hpp"
 #include "env/jittypes.h"
 #include "il/DataTypes.hpp"
-#include "runtime/Runtime.hpp"
+#include "runtime/J9Runtime.hpp"
 
 class TR_J9VMBase;
 class TR_ResolvedMethod;
@@ -82,7 +82,10 @@ public:
 
    bool isPointerInSharedCache(void *ptr, void * & cacheOffset);
 
-   
+   J9ROMClass *startingROMClassOfClassChain(UDATA *classChain);
+
+   virtual uintptrj_t getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(TR_OpaqueClassBlock *clazz);
+
    enum TR_J9SharedCacheDisabledReason
       {
       UNINITIALIZED,

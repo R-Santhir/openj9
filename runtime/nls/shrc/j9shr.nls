@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2000, 2018 IBM Corp. and others
+# Copyright (c) 2000, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -2955,7 +2955,7 @@ J9NLS_SHRC_CM_PRINTSTATS_CACHE_CREATED_WITH.system_action=
 J9NLS_SHRC_CM_PRINTSTATS_CACHE_CREATED_WITH.user_response=
 # END NON-TRANSLATABLE
 
-J9NLS_SHRC_SHRINIT_FAILURE_COPYING_USERNAME_TOOLONG=The cache name is to long when the user name is included. There are %d bytes left in this buffer, and your user name is %d bytes.
+J9NLS_SHRC_SHRINIT_FAILURE_COPYING_USERNAME_TOOLONG=The cache name is too long when the user name is included. There are %d bytes left in this buffer, and your user name is %d bytes.
 # START NON-TRANSLATABLE
 J9NLS_SHRC_SHRINIT_FAILURE_COPYING_USERNAME_TOOLONG.sample_input_1=23
 J9NLS_SHRC_SHRINIT_FAILURE_COPYING_USERNAME_TOOLONG.sample_input_2=45
@@ -6629,4 +6629,111 @@ J9NLS_SHRC_SHRINIT_HELPTEXT_NOBOOTCLASSPATH_V1=Disable caching of classes loaded
 J9NLS_SHRC_SHRINIT_HELPTEXT_NOBOOTCLASSPATH_V1.explanation=NOTAG
 J9NLS_SHRC_SHRINIT_HELPTEXT_NOBOOTCLASSPATH_V1.system_action=
 J9NLS_SHRC_SHRINIT_HELPTEXT_NOBOOTCLASSPATH_V1.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_SHRINIT_HELPTEXT_BOOTCLASSESONLY=Disable caching of classes loaded by the non-bootstrap class loaders. This option also turns on option "nonfatal".
+# START NON-TRANSLATABLE
+J9NLS_SHRC_SHRINIT_HELPTEXT_BOOTCLASSESONLY.explanation=NOTAG
+J9NLS_SHRC_SHRINIT_HELPTEXT_BOOTCLASSESONLY.system_action=
+J9NLS_SHRC_SHRINIT_HELPTEXT_BOOTCLASSESONLY.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_SHRINIT_HELPTEXT_FATAL=Do not start up the shared cache if an error occurs.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_SHRINIT_HELPTEXT_FATAL.explanation=NOTAG
+J9NLS_SHRC_SHRINIT_HELPTEXT_FATAL.system_action=
+J9NLS_SHRC_SHRINIT_HELPTEXT_FATAL.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY=%1$d: 0x%2$p STARTUP HINTS KEY: %4$.*3$s Address: 0x%5$p Size: %6$d
+# START NON-TRANSLATABLE
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.sample_input_1=1
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.sample_input_2=042F71F8
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.sample_input_3=26
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.sample_input_4=-Xshareclasses:name=Cache1
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.sample_input_5=042FE094
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.sample_input_6=88
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.explanation=NOTAG
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.system_action=
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL=STARTUP HINTS DETAIL Flags: %1$zu DATA1: %2$zu DATA2: %3$zu
+# START NON-TRANSLATABLE
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL.sample_input_1=1
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL.sample_input_2=1024
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL.sample_input_3=1024
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL.explanation=NOTAG
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL.system_action=
+J9NLS_SHRC_CM_PRINTSTATS_STARTUP_HINTS_DISPLAY_DETAIL.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_STARTUPHINT=\t startuphint	Prints only startup hint types in the shared cache. 
+# START NON-TRANSLATABLE
+J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_STARTUPHINT.explanation=NOTAG
+J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_STARTUPHINT.system_action=
+J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_STARTUPHINT.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES=Startup hint bytes                  %*c= %d
+# START NON-TRANSLATABLE
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES.sample_input_1=0
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES.sample_input_2= 
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES.sample_input_3=112
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES.explanation=NOTAG
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES.system_action=
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_STARTUP_HINT_BYTES.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS=# Startup hints                     %*c= %d
+# START NON-TRANSLATABLE
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS.sample_input_1=0
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS.sample_input_2= 
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS.sample_input_3=345876
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS.explanation=NOTAG
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS.system_action=
+J9NLS_SHRC_CM_PRINTSTATS_SUMMARY_NUM_STARTUP_HINTS.user_response=
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_GET_DIR_BUF_OVERFLOW=The shared cache directory path is too long.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_GET_DIR_BUF_OVERFLOW.explanation=The directory path requested is bigger than the internal buffer space
+J9NLS_SHRC_GET_DIR_BUF_OVERFLOW.system_action=The JVM terminates, unless you have specified the nonfatal option with "-Xshareclasses:nonfatal", in which case the JVM continues without using Shared Classes.
+J9NLS_SHRC_GET_DIR_BUF_OVERFLOW.user_response=Please try using a shorter shared cache directory.
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_GET_DIR_FAILED_TO_GET_HOME=Failed to use user's home as the default shared cache directory. Cannot get home directory. Please set another directory via environment variable "HOME" or command line option "cacheDir=", or fix the home directory in the password file entry.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_GET_DIR_FAILED_TO_GET_HOME.explanation=An error occurred getting user's home directory.
+J9NLS_SHRC_GET_DIR_FAILED_TO_GET_HOME.system_action=The JVM terminates, unless you have specified the nonfatal option with "-Xshareclasses:nonfatal", in which case the JVM continues without using Shared Classes.
+J9NLS_SHRC_GET_DIR_FAILED_TO_GET_HOME.user_response=Cannot get home directory. Please set another directory via environment variable "HOME" or command line option "cacheDir=", or fix the home directory in the password file entry.
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_GET_DIR_HOME_BUF_OVERFLOW=Failed to use user's home as the default shared cache directory. The path is too long. Cannot get home directory. Please set another directory via environment variable "HOME" or command line option "cacheDir=", or fix the home directory in the password file entry.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_GET_DIR_HOME_BUF_OVERFLOW.explanation=The length of user's home directory is greater than the internal buffer space.
+J9NLS_SHRC_GET_DIR_HOME_BUF_OVERFLOW.system_action=The JVM terminates, unless you have specified the nonfatal option with "-Xshareclasses:nonfatal", in which case the JVM continues without using Shared Classes.
+J9NLS_SHRC_GET_DIR_HOME_BUF_OVERFLOW.user_response=Cannot get home directory. Please set another directory via environment variable "HOME" or command line option "cacheDir=", or fix the home directory in the password file entry.
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_GET_DIR_HOME_ON_NFS=Failed to use user's home as the default shared cache directory. It is on a Network File System. Cannot get home directory. Please set another directory via environment variable "HOME" or command line option "cacheDir=", or fix the home directory in the password file entry.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_GET_DIR_HOME_ON_NFS.explanation=The shared cache directory cannot be on a Network File System.
+J9NLS_SHRC_GET_DIR_HOME_ON_NFS.system_action=The JVM terminates, unless you have specified the nonfatal option with "-Xshareclasses:nonfatal", in which case the JVM continues without using Shared Classes.
+J9NLS_SHRC_GET_DIR_HOME_ON_NFS.user_response=Cannot get home directory. Please set another directory via environment variable "HOME" or command line option "cacheDir=", or fix the home directory in the password file entry.
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_GET_DIR_CANNOT_STAT_HOME=Failed to use user's home as the default shared cache directory. Error code is %1$d.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_GET_DIR_CANNOT_STAT_HOME.sample_input_1=-1
+J9NLS_SHRC_GET_DIR_CANNOT_STAT_HOME.explanation=An error occurred checking the attributes of the directory.
+J9NLS_SHRC_GET_DIR_CANNOT_STAT_HOME.system_action=The JVM terminates, unless you have specified the nonfatal option with "-Xshareclasses:nonfatal", in which case the JVM continues without using Shared Classes.
+J9NLS_SHRC_GET_DIR_CANNOT_STAT_HOME.user_response=Please fix the setting of home directory according to the error code and retry.
+# END NON-TRANSLATABLE
+
+J9NLS_SHRC_GET_DIR_NO_SPACE=Failed to allocate native memory required to get the shared cache directory.
+# START NON-TRANSLATABLE
+J9NLS_SHRC_GET_DIR_NO_SPACE.explanation=Cannot allocate native memory.
+J9NLS_SHRC_GET_DIR_NO_SPACE.system_action=The JVM terminates, unless you have specified the nonfatal option with "-Xshareclasses:nonfatal", in which case the JVM continues without using Shared Classes.
+J9NLS_SHRC_GET_DIR_NO_SPACE.user_response=Ensure the process has enough native memory to run.
 # END NON-TRANSLATABLE

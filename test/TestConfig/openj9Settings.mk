@@ -1,5 +1,5 @@
 ##############################################################################
-#  Copyright (c) 2016, 2018 IBM Corp. and others
+#  Copyright (c) 2016, 2019 IBM Corp. and others
 #
 #  This program and the accompanying materials are made available under
 #  the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,7 +28,6 @@
 # For 64 bits, if SPEC contains _cmprssptrs, add -Xcompressedrefs.
 # If not, add -Xnocompressedrefs.
 #######################################
-RESERVED_OPTIONS=
 ifneq (,$(findstring bits.64,$(BITS)))
 	ifneq (,$(findstring _cmprssptrs,$(SPEC)))
 		RESERVED_OPTIONS+= -Xcompressedrefs
@@ -66,12 +65,68 @@ else ifneq (,$(findstring linux_x86,$(SPEC)))
 	ARCH_DIR=i386
 endif
 
-ifneq (,$(findstring win,$(SPEC)))
-	JAVA_SHARED_LIBRARIES_DIR:=$(JAVA_BIN)$(D)$(VM_SUBDIR)
-else
-	JAVA_SHARED_LIBRARIES_DIR:=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
+ifndef NATIVE_TEST_LIBS
+	NATIVE_TEST_LIBS=$(TEST_JDK_HOME)$(D)..$(D)native-test-libs$(D)
 endif
-ADD_JVM_LIB_DIR_TO_LIBPATH:=export LIBPATH=$(Q)$(JAVA_LIB_DIR)$(D)$(VM_SUBDIR)$(P)$(JAVA_SHARED_LIBRARIES_DIR)$(P)$(JAVA_BIN)$(D)j9vm$(P)$(LIBPATH)$(Q);
+
+# if JCL_VESION is current check for default locations for native test libs
+# otherwise, native test libs are under NATIVE_TEST_LIBS
+ifneq (, $(findstring current, $(JCL_VERSION)))
+	ifneq (,$(findstring win,$(SPEC)))
+		JAVA_SHARED_LIBRARIES_DIR:=$(JAVA_BIN)$(D)$(VM_SUBDIR)
+		J9VM_PATH=$(JAVA_BIN)$(D)j9vm
+	else
+		JAVA_SHARED_LIBRARIES_DIR:=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
+		J9VM_PATH=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
+	endif
+	ADD_JVM_LIB_DIR_TO_LIBPATH:=export LIBPATH=$(Q)$(LIBPATH)$(P)$(JAVA_LIB_DIR)$(D)$(VM_SUBDIR)$(P)$(JAVA_SHARED_LIBRARIES_DIR)$(P)$(JAVA_BIN)$(D)j9vm$(Q);
+else
+	ifneq (, $(findstring 8, $(JDK_VERSION)))
+		ifneq (,$(findstring win,$(SPEC)))
+			VM_SUBDIR_PATH=$(JAVA_BIN)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(JAVA_BIN)$(D)j9vm
+		else
+			VM_SUBDIR_PATH=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
+		endif
+	else
+		ifneq (,$(findstring win,$(SPEC))) 
+			VM_SUBDIR_PATH=$(JAVA_BIN)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(JAVA_BIN)$(D)j9vm
+		else
+			VM_SUBDIR_PATH=$(JAVA_LIB_DIR)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(JAVA_LIB_DIR)$(D)j9vm
+		endif
+	endif
+
+	PS=:
+	ifneq (,$(findstring win,$(SPEC)))
+		ifeq ($(CYGWIN),1)
+			NATIVE_TEST_LIBS := $(shell cygpath -u $(NATIVE_TEST_LIBS))
+			VM_SUBDIR_PATH := $(shell cygpath -u $(VM_SUBDIR_PATH))
+			J9VM_PATH := $(shell cygpath -u $(J9VM_PATH))
+		else
+			PS=;
+		endif
+	endif
+	
+	TEST_LIB_PATH_VALUE:=$(NATIVE_TEST_LIBS)$(PS)$(VM_SUBDIR_PATH)$(PS)$(J9VM_PATH)
+		
+	ifneq (,$(findstring win,$(SPEC)))
+		TEST_LIB_PATH:=PATH=$(Q)$(TEST_LIB_PATH_VALUE)$(PS)$(PATH)$(Q)
+	else ifneq (,$(findstring aix,$(SPEC)))
+		TEST_LIB_PATH:=LIBPATH=$(Q)$(LIBPATH)$(PS)$(TEST_LIB_PATH_VALUE)$(Q)
+	else ifneq (,$(findstring zos,$(SPEC)))
+		TEST_LIB_PATH:=LIBPATH=$(Q)$(LIBPATH)$(PS)$(TEST_LIB_PATH_VALUE)$(Q)
+	else ifneq (,$(findstring osx,$(SPEC)))
+		TEST_LIB_PATH:=DYLD_LIBRARY_PATH=$(Q)$(TEST_LIB_PATH_VALUE)$(PS)$(DYLD_LIBRARY_PATH)$(Q)
+	else
+		TEST_LIB_PATH:=LD_LIBRARY_PATH=$(Q)$(TEST_LIB_PATH_VALUE)$(PS)$(LD_LIBRARY_PATH)$(Q)
+	endif
+	
+	JAVA_SHARED_LIBRARIES_DIR:=$(NATIVE_TEST_LIBS)
+	ADD_JVM_LIB_DIR_TO_LIBPATH:=export $(TEST_LIB_PATH);
+endif
 
 ifneq ($(DEBUG),)
 $(info JAVA_SHARED_LIBRARIES_DIR is set to $(JAVA_SHARED_LIBRARIES_DIR))
@@ -94,7 +149,7 @@ ifndef JAVATEST_ROOT
 $(error JAVATEST_ROOT is needed for uploading files to result store)
 endif
 AXXONRESULTSSERVER=vmfarm.ottawa.ibm.com:31
-TEST_STATUS=if [ $$? -eq 0 ] ; then $(ECHO) $(Q)$(Q); $(ECHO) $(Q)$@$(Q)$(Q)_PASSED$(Q); $(ECHO) $(Q)$(Q); else perl $(Q)-I$(JAVATEST_ROOT)$(D)lib$(D)perl$(Q) -mResultStore::Uploader -e $(Q)ResultStore::Uploader::upload('.',$(BUILD_ID),$(JOB_ID),'$(AXXONRESULTSSERVER)','results-$(JOB_ID)')$(Q); $(ECHO) $(Q)$(Q); $(ECHO) $(Q)$@$(Q)$(Q)_FAILED$(Q); $(ECHO) $(Q)$(Q); fi
+TEST_STATUS=if [ $$? -eq 0 ] ; then $(ECHO) $(Q)$(Q); $(ECHO) $(Q)$@$(Q)$(Q)_PASSED$(Q); $(ECHO) $(Q)$(Q); $(CD) $(TEST_ROOT); $(RM_REPORTDIR) else perl $(Q)-I$(JAVATEST_ROOT)$(D)lib$(D)perl$(Q) -mResultStore::Uploader -e $(Q)ResultStore::Uploader::upload('.',$(BUILD_ID),$(JOB_ID),'$(AXXONRESULTSSERVER)','results-$(JOB_ID)')$(Q); $(ECHO) $(Q)$(Q); $(ECHO) $(Q)$@$(Q)$(Q)_FAILED$(Q); $(ECHO) $(Q)$(Q); fi
 endif
 
 #######################################

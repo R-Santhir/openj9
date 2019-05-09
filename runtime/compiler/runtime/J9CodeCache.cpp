@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -53,19 +53,6 @@
 #include "env/IO.hpp"
 #include "runtime/HookHelpers.hpp"
 
-
-/*
- *  *  Debugging help
- *   */
-#ifdef CODECACHE_DEBUG
-#define mcc_printf if (CodeCacheDebug) printf
-#define mcc_hashprintf /*printf*/
-#else
-#define mcc_printf
-#define mcc_hashprintf
-#endif
-
-
 OMR::CodeCacheMethodHeader *getCodeCacheMethodHeader(char *p, int searchLimit, J9JITExceptionTable * metaData);
 
 #define addFreeBlock2(start, end) addFreeBlock2WithCallSite((start), (end), __FILE__, __LINE__)
@@ -90,19 +77,6 @@ J9::CodeCache::j9segment()
    }
 
 
-bool
-J9::CodeCache::resizeCodeMemory(void *memoryBlock, size_t newSize)
-   {
-   if (self()->OMR::CodeCache::resizeCodeMemory(memoryBlock, newSize))
-      {
-      J9JITConfig *jitConfig = _manager->jitConfig();
-      jitConfig->lastCodeAllocSize = (UDATA) newSize;
-      return true;
-      }
-   return false;
-   }
-
-
 TR::CodeCache *
 J9::CodeCache::allocate(TR::CodeCacheManager *cacheManager, size_t segmentSize, int32_t reservingCompThreadID)
    {
@@ -114,61 +88,6 @@ J9::CodeCache::allocate(TR::CodeCacheManager *cacheManager, size_t segmentSize, 
       }
 
    return newCodeCache;
-   }
-
-// Initialize a code cache
-//
-// This function is deprecated in favour of the version that does not take
-// a CodeCacheHashEntrySlab parameter, and will be removed once upstream
-// OMR changes have merged.  It is otherwise identical to that function.
-//
-bool
-J9::CodeCache::initialize(TR::CodeCacheManager *manager,
-                         TR::CodeCacheMemorySegment *codeCacheSegment,
-                         size_t codeCacheSizeAllocated,
-                         OMR::CodeCacheHashEntrySlab *hashEntrySlab)
-   {
-   // make J9 memory segment look all used up
-   //J9MemorySegment *j9segment = _segment->segment();
-   //j9segment->heapAlloc = j9segment->heapTop;
-
-   TR::CodeCacheConfig & config = manager->codeCacheConfig();
-   if (config.needsMethodTrampolines())
-      {
-      int32_t percentageToUse;
-      if (!(TR::Options::getCmdLineOptions()->getTrampolineSpacePercentage() > 0))
-         {
-#if defined(TR_HOST_X86) && defined(TR_HOST_64BIT)
-         percentageToUse = 7;
-#else
-         percentageToUse = 4;
-#endif
-         // The number of helpers and the trampoline size are both factors here
-         size_t trampolineSpaceSize = config.trampolineCodeSize() * config.numRuntimeHelpers();
-         if (trampolineSpaceSize >= 3400)
-            {
-            // This will be PPC64, AMD64 and 390
-            if (config.codeCacheKB() < 512 && config.codeCacheKB() > 256)
-               percentageToUse = 5;
-            else if (config.codeCacheKB() <= 256)
-               percentageToUse = 6;
-            }
-         }
-      else
-         {
-         percentageToUse = TR::Options::getCmdLineOptions()->getTrampolineSpacePercentage();
-         }
-
-      config._trampolineSpacePercentage = percentageToUse;
-      }
-
-   if (!self()->OMR::CodeCache::initialize(manager, codeCacheSegment, codeCacheSizeAllocated, hashEntrySlab))
-      return false;
-   self()->setInitialAllocationPointers();
-
-   _manager->reportCodeLoadEvents();
-
-   return true;
    }
 
 
@@ -633,7 +552,7 @@ J9::CodeCache::adjustTrampolineReservation(TR_OpaqueMethodBlock *method,
       if (unresolvedEntry && resolvedEntry)
          {
          // remove 1 trampoline reservation
-         self()->unreserveTrampoline();
+         self()->unreserveSpaceForTrampoline();
 
          // remove the entry from the unresolved hash table and release it
          if (_unresolvedMethodHT->remove(unresolvedEntry))
@@ -729,21 +648,13 @@ J9::CodeCache::reserveUnresolvedTrampoline(void *cp, int32_t cpIndex)
       OMR::CodeCacheHashEntry *entry = _unresolvedMethodHT->findUnresolvedMethod(cp, cpIndex);
       if (!entry)
          {
-         // don't have any reservation for this particular name/classLoader, make one
-         OMR::CodeCacheTrampolineCode *trampoline = self()->reserveTrampoline();
-         if (trampoline)
+         // There isn't a reservation for this particular name/classLoader, make one
+         //
+         retValue = self()->reserveSpaceForTrampoline_bridge();
+         if (retValue == OMR::CodeCacheErrorCode::ERRORCODE_SUCCESS)
             {
             if (!self()->addUnresolvedMethod(cp, cpIndex))
                retValue = OMR::CodeCacheErrorCode::ERRORCODE_FATALERROR; // couldn't allocate memory from VM
-            }
-         else // no space in this code cache; must allocate a new one
-            {
-            _almostFull = TR_yes;
-            retValue = OMR::CodeCacheErrorCode::ERRORCODE_INSUFFICIENTSPACE;
-            if (config.verboseCodeCache())
-               {
-               TR_VerboseLog::writeLineLocked(TR_Vlog_CODECACHE, "CodeCache %p marked as full in reserveUnresolvedTrampoline", this);
-               }
             }
          }
       }
@@ -803,7 +714,7 @@ extern "C"
 
    void mcc_lookupHelperTrampoline_unwrapper(void **argsPtr, void **resPtr)
       {
-      OMR::CodeCacheTrampolineCode *trampoline = TR::CodeCacheManager::instance()->findHelperTrampoline(argsPtr[0], static_cast<int32_t>((UDATA)argsPtr[1]));
+      intptrj_t trampoline = TR::CodeCacheManager::instance()->findHelperTrampoline(static_cast<int32_t>((UDATA)argsPtr[1]), argsPtr[0]);
       *resPtr = reinterpret_cast<void *>(trampoline);
       }
 

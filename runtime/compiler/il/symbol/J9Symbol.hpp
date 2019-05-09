@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2017 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -34,12 +34,12 @@ namespace J9 { typedef J9::Symbol SymbolConnector; }
 
 #include "il/symbol/OMRSymbol.hpp"
 
-#include <stddef.h>                 // for size_t
-#include <stdint.h>                 // for uint32_t, uint16_t, uint8_t, etc
-#include "env/TRMemory.hpp"         // for TR_Memory, etc
-#include "il/DataTypes.hpp"         // for TR::DataType, DataTypes
-#include "infra/Assert.hpp"         // for TR_ASSERT
-#include "infra/Flags.hpp"          // for flags32_t
+#include <stddef.h>
+#include <stdint.h>
+#include "env/TRMemory.hpp"
+#include "il/DataTypes.hpp"
+#include "infra/Assert.hpp"
+#include "infra/Flags.hpp"
 
 class TR_FrontEnd;
 class TR_ResolvedMethod;
@@ -158,12 +158,23 @@ public:
       Java_math_BigInteger_ZERO,
       Java_math_BigInteger_useLongRepresentation,
       Java_lang_invoke_VarHandle_handleTable,
+      Java_lang_Integer_value,
+      Java_lang_Long_value,
+      Java_lang_Float_value,
+      Java_lang_Double_value,
+      Java_lang_Byte_value,
+      Java_lang_Character_value,
+      Java_lang_Short_value,
+      Java_lang_Boolean_value,
+      Java_lang_Class_enumVars,
+      Java_lang_ClassEnumVars_cachedEnumConstants,
       assertionsDisabled,
       NumRecognizedFields
       };
 
    static RecognizedField searchRecognizedField(TR::Compilation *, TR_ResolvedMethod * owningMethodSymbol, int32_t cpIndex, bool isStatic);
    RecognizedField  getRecognizedField();
+   const char *owningClassNameCharsForRecognizedField(int32_t & length);
 
    /**
     * TR_RecognizedShadowSymbol

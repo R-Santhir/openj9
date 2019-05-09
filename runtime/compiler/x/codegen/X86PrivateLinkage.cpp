@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,6 +22,7 @@
 
 #include "x/codegen/X86PrivateLinkage.hpp"
 
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/LiveRegister.hpp"
 #include "codegen/Machine.hpp"
 #include "codegen/MemoryReference.hpp"
@@ -50,8 +51,6 @@
 #include "x/codegen/X86Instruction.hpp"
 #include "x/codegen/CallSnippet.hpp"
 #include "x/codegen/FPTreeEvaluator.hpp"
-#include "x/codegen/CheckFailureSnippet.hpp"
-#include "x/codegen/StackOverflowCheckSnippet.hpp"
 #include "runtime/J9Profiler.hpp"
 #include "runtime/J9ValueProfiler.hpp"
 
@@ -95,59 +94,6 @@ const TR::X86LinkageProperties& TR::X86PrivateLinkage::getProperties()
    {
    return _properties;
    }
-
-// Create the test, branch, and snippet for the stack overflow check in a method's prologue.
-//
-TR::X86HelperCallSnippet  *
-TR::X86PrivateLinkage::createStackOverflowCheck(
-      TR::Instruction * &cursor,
-      TR::Register *cmpRegister,
-      int32_t stackSpaceAllocated,
-      int32_t stackPointerAdjustment)
-   {
-   TR::Register *vmThreadReg = machine()->getX86RealRegister(_properties.getMethodMetaDataRegister());
-   TR::MemoryReference *mr = generateX86MemoryReference(vmThreadReg, cg()->getStackLimitOffset(), cg());
-
-   TR::X86StackOverflowCheckInstruction *ins =
-      generateStackOverflowCheckInstruction(
-         cursor,
-         CMPRegMem(),
-         cmpRegister,
-         mr,
-         cg());
-
-   cursor = ins;
-
-   TR::LabelSymbol *snippetLabel = generateLabelSymbol(cg());
-   TR::LabelSymbol *startLabel   = generateLabelSymbol(cg());
-   TR::LabelSymbol *reStartLabel = generateLabelSymbol(cg());
-
-   startLabel->setStartInternalControlFlow();
-   reStartLabel->setEndInternalControlFlow();
-   cursor = new (trHeapMemory()) TR::X86LabelInstruction(cursor, LABEL, startLabel, cg());
-
-   TR::SymbolReferenceTable *symRefTab = comp()->getSymRefTab();
-   TR::SymbolReference *helper = symRefTab->findOrCreateStackOverflowSymbolRef(comp()->getMethodSymbol());
-
-   cursor = new (trHeapMemory()) TR::X86LabelInstruction(cursor, JBE4, snippetLabel, cg());
-
-   TR::X86HelperCallSnippet  *snippet =
-      new (trHeapMemory()) TR::X86StackOverflowCheckSnippet(
-         cg(),
-         cursor->getNode(),
-         reStartLabel,
-         snippetLabel,
-         helper,
-         stackSpaceAllocated,
-         stackPointerAdjustment);
-
-   cg()->addSnippet(snippet);
-   cursor = new (trHeapMemory()) TR::X86LabelInstruction(cursor, LABEL, reStartLabel, cg());
-
-   return snippet;
-
-   }
-
 
 ////////////////////////////////////////////////
 //
@@ -226,7 +172,7 @@ TR::Instruction *TR::X86PrivateLinkage::movLinkageRegisters(TR::Instruction *cur
    TR_ASSERT(cursor, "assertion failure");
 
    TR::Machine *machine = cg()->machine();
-   TR::RealRegister  *rspReal = machine->getX86RealRegister(TR::RealRegister::esp);
+   TR::RealRegister  *rspReal = machine->getRealRegister(TR::RealRegister::esp);
 
    TR::ResolvedMethodSymbol             *bodySymbol = comp()->getJittedMethodSymbol();
    ListIterator<TR::ParameterSymbol>  paramIterator(&(bodySymbol->getParameterList()));
@@ -243,7 +189,7 @@ TR::Instruction *TR::X86PrivateLinkage::movLinkageRegisters(TR::Instruction *cur
       if (lri != NOT_LINKAGE) // This param should be in a linkage reg
          {
          TR_MovDataTypes movDataType = paramMovType(paramCursor);
-         TR::RealRegister     *reg = machine->getX86RealRegister(getProperties().getArgumentRegister(lri, isFloat(movDataType)));
+         TR::RealRegister     *reg = machine->getRealRegister(getProperties().getArgumentRegister(lri, isFloat(movDataType)));
          TR::MemoryReference  *memRef = generateX86MemoryReference(rspReal, paramCursor->getParameterOffset(), cg());
 
          if (isStore)
@@ -270,7 +216,7 @@ TR::Instruction *TR::X86PrivateLinkage::movLinkageRegisters(TR::Instruction *cur
 TR::Instruction *TR::X86PrivateLinkage::copyParametersToHomeLocation(TR::Instruction *cursor, bool parmsHaveBeenStored)
    {
    TR::Machine *machine = cg()->machine();
-   TR::RealRegister  *framePointer = machine->getX86RealRegister(TR::RealRegister::vfp);
+   TR::RealRegister  *framePointer = machine->getRealRegister(TR::RealRegister::vfp);
 
    TR::ResolvedMethodSymbol             *bodySymbol = comp()->getJittedMethodSymbol();
    ListIterator<TR::ParameterSymbol>  paramIterator(&(bodySymbol->getParameterList()));
@@ -325,7 +271,7 @@ TR::Instruction *TR::X86PrivateLinkage::copyParametersToHomeLocation(TR::Instruc
             loadCursor = generateRegMemInstruction(
                loadCursor,
                TR::Linkage::movOpcodes(RegMem, movDataType),
-               machine->getX86RealRegister(ai),
+               machine->getRealRegister(ai),
                generateX86MemoryReference(framePointer, offset, cg()),
                cg()
                );
@@ -353,7 +299,7 @@ TR::Instruction *TR::X86PrivateLinkage::copyParametersToHomeLocation(TR::Instruc
                   cursor,
                   TR::Linkage::movOpcodes(MemReg, movDataType),
                   generateX86MemoryReference(framePointer, offset, cg()),
-                  machine->getX86RealRegister(sourceIndex),
+                  machine->getRealRegister(sourceIndex),
                   cg()
                   );
                }
@@ -445,8 +391,8 @@ TR::Instruction *TR::X86PrivateLinkage::copyParametersToHomeLocation(TR::Instruc
             cursor = generateRegRegInstruction(
                cursor,
                TR::Linkage::movOpcodes(RegReg, movStatus[source].outgoingDataType),
-               machine->getX86RealRegister(regCursor),
-               machine->getX86RealRegister(source),
+               machine->getRealRegister(regCursor),
+               machine->getRealRegister(source),
                cg()
                );
             // Update movStatus as we go so we don't generate redundant movs
@@ -622,9 +568,9 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
 #endif
    bool trace = comp()->getOption(TR_TraceCG);
 
-   TR::RealRegister  *espReal      = machine()->getX86RealRegister(TR::RealRegister::esp);
-   TR::RealRegister  *scratchReg   = machine()->getX86RealRegister(getProperties().getIntegerScratchRegister(0));
-   TR::RealRegister  *metaDataReg  = machine()->getX86RealRegister(getProperties().getMethodMetaDataRegister());
+   TR::RealRegister  *espReal      = machine()->getRealRegister(TR::RealRegister::esp);
+   TR::RealRegister  *scratchReg   = machine()->getRealRegister(getProperties().getIntegerScratchRegister(0));
+   TR::RealRegister  *metaDataReg  = machine()->getRealRegister(getProperties().getMethodMetaDataRegister());
 
    TR::ResolvedMethodSymbol             *bodySymbol = comp()->getJittedMethodSymbol();
    ListIterator<TR::ParameterSymbol>  paramIterator(&(bodySymbol->getParameterList()));
@@ -660,7 +606,7 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
    // Preserved register index
    for (int32_t pindex = 0; pindex < properties.getMaxRegistersPreservedInPrologue(); pindex++)
       {
-      TR::RealRegister *reg = machine()->getX86RealRegister(properties.getPreservedRegister((uint32_t)pindex));
+      TR::RealRegister *reg = machine()->getRealRegister(properties.getPreservedRegister((uint32_t)pindex));
       if (reg->getHasBeenAssignedInMethod() && reg->getState() != TR::RealRegister::Locked)
          {
          preservedRegsSize += properties.getPointerSize();
@@ -715,7 +661,7 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
    //
    const bool frameIsSmall  = peakSize < STACKCHECKBUFFER;
    const bool frameIsMedium = !frameIsSmall;
-   
+
    if (trace)
       {
       traceMsg(comp(), "\nFrame size: %c%c locals=%d frame=%d peak=%d\n",
@@ -733,7 +679,7 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
       debugFrameSlotInfo = new (trHeapMemory()) TR_DebugFrameSegmentInfo(comp(),
          paramCursor->getOffset(), paramCursor->getSize(), "Parameter",
          debugFrameSlotInfo,
-         (ai==NOT_ASSIGNED)? NULL : machine()->getX86RealRegister(ai)
+         (ai==NOT_ASSIGNED)? NULL : machine()->getRealRegister(ai)
          );
       }
 
@@ -784,9 +730,6 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
    if (metaDataReg)
       {
       // Generate stack overflow check
-
-      TR::RealRegister *cmpRegister = espReal;
-
       doAllocateFrameSpeculatively = frameIsMedium;
 
       if (doAllocateFrameSpeculatively)
@@ -802,9 +745,40 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
          minInstructionSize = 0; // The SUB satisfies the constraint
          }
 
-      TR::X86HelperCallSnippet *snippet = NULL;
+      TR::Instruction* jitOverflowCheck = NULL;
       if (doOverflowCheck)
-         snippet = createStackOverflowCheck(cursor, cmpRegister, allocSize, doAllocateFrameSpeculatively? allocSize : 0);
+         {
+         TR::X86VFPSaveInstruction* vfp = generateVFPSaveInstruction(cursor, cg());
+         cursor = generateStackOverflowCheckInstruction(vfp, CMPRegMem(), espReal, generateX86MemoryReference(metaDataReg, cg()->getStackLimitOffset(), cg()), cg());
+
+         TR::LabelSymbol* begLabel = generateLabelSymbol(cg());
+         TR::LabelSymbol* endLabel = generateLabelSymbol(cg());
+         TR::LabelSymbol* checkLabel = generateLabelSymbol(cg());
+         begLabel->setStartInternalControlFlow();
+         endLabel->setEndInternalControlFlow();
+         checkLabel->setStartOfColdInstructionStream();
+
+         cursor = generateLabelInstruction(cursor, LABEL, begLabel, cg());
+         cursor = generateLabelInstruction(cursor, JBE4, checkLabel, cg());
+         cursor = generateLabelInstruction(cursor, LABEL, endLabel, cg());
+
+         // At this point, cg()->getAppendInstruction() is already in the cold code section.
+         generateVFPRestoreInstruction(vfp, cursor->getNode(), cg());
+         generateLabelInstruction(LABEL, cursor->getNode(), checkLabel, cg());
+         generateRegImmInstruction(MOV4RegImm4, cursor->getNode(), machine()->getRealRegister(TR::RealRegister::edi), allocSize, cg());
+         if (doAllocateFrameSpeculatively)
+            {
+            generateRegImmInstruction(ADDRegImm4(), cursor->getNode(), espReal, allocSize, cg());
+            }
+         TR::SymbolReference* helper = comp()->getSymRefTab()->findOrCreateStackOverflowSymbolRef(NULL);
+         jitOverflowCheck = generateImmSymInstruction(CALLImm4, cursor->getNode(), (uintptrj_t)helper->getMethodAddress(), helper, cg());
+         jitOverflowCheck->setNeedsGCMap(0xFF00FFFF);
+         if (doAllocateFrameSpeculatively)
+            {
+            generateRegImmInstruction(SUBRegImm4(), cursor->getNode(), espReal, allocSize, cg());
+            }
+         generateLabelInstruction(JMP4, cursor->getNode(), endLabel, cg());
+         }
 
       if (atlas)
          {
@@ -845,8 +819,8 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
                }
             }
 
-         if (snippet)
-            snippet->gcMap().setStackMap(map);
+         if (jitOverflowCheck)
+            jitOverflowCheck->setGCMap(map);
 
          atlas->setParameterMap(map);
          }
@@ -875,7 +849,7 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
       uint64_t paintValue64 = 0;
 
       TR::RealRegister *paintReg = NULL;
-      TR::RealRegister *frameSlotIndexReg = machine()->getX86RealRegister(TR::RealRegister::edi);
+      TR::RealRegister *frameSlotIndexReg = machine()->getRealRegister(TR::RealRegister::edi);
       uint32_t paintBound = 0;
       uint32_t paintSlotsOffset = 0;
       uint32_t paintSize = allocSize-sizeof(uintptrj_t);
@@ -907,7 +881,7 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
 
       //Load the 64 bit paint value into a paint reg.
 #ifdef TR_TARGET_64BIT
-       paintReg = machine()->getX86RealRegister(TR::RealRegister::r8);
+       paintReg = machine()->getRealRegister(TR::RealRegister::r8);
        cursor = new (trHeapMemory()) TR::AMD64RegImm64Instruction(cursor, MOV8RegImm64, paintReg, paintValue64, cg());
 #endif
 
@@ -935,11 +909,11 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
 
    // Initialize any local pointers that could otherwise confuse the GC.
    //
-   TR::RealRegister *framePointer = machine()->getX86RealRegister(TR::RealRegister::vfp);
+   TR::RealRegister *framePointer = machine()->getRealRegister(TR::RealRegister::vfp);
    if (atlas)
       {
       TR_ASSERT(_properties.getNumScratchRegisters() >= 2, "Need two scratch registers to initialize reference locals");
-      TR::RealRegister *loopReg = machine()->getX86RealRegister(properties.getIntegerScratchRegister(1));
+      TR::RealRegister *loopReg = machine()->getRealRegister(properties.getIntegerScratchRegister(1));
 
       int32_t numReferenceLocalSlotsToInitialize = atlas->getNumberOfSlotsToBeInitialized();
       int32_t numInternalPointerSlotsToInitialize = 0;
@@ -1029,7 +1003,6 @@ void TR::X86PrivateLinkage::createPrologue(TR::Instruction *cursor)
 #endif
    }
 
-// for shrinkwrapping
 bool TR::X86PrivateLinkage::needsFrameDeallocation()
    {
    // frame needs a deallocation if FrameSize == 0
@@ -1045,7 +1018,7 @@ TR::Instruction *TR::X86PrivateLinkage::deallocateFrameIfNeeded(TR::Instruction 
 
 void TR::X86PrivateLinkage::createEpilogue(TR::Instruction *cursor)
    {
-   TR::RealRegister* espReal = machine()->getX86RealRegister(TR::RealRegister::esp);
+   TR::RealRegister* espReal = machine()->getRealRegister(TR::RealRegister::esp);
 
    cursor = cg()->generateDebugCounter(cursor, "cg.epilogues", 1, TR::DebugCounter::Expensive);
 
@@ -1059,8 +1032,8 @@ void TR::X86PrivateLinkage::createEpilogue(TR::Instruction *cursor)
       {
       // Restore stack pointer from frame pointer
       //
-      cursor = generateRegRegInstruction(cursor, MOVRegReg(), espReal, machine()->getX86RealRegister(_properties.getFramePointerRegister()), cg());
-      cursor = generateRegInstruction(cursor, POPReg, machine()->getX86RealRegister(_properties.getFramePointerRegister()), cg());
+      cursor = generateRegRegInstruction(cursor, MOVRegReg(), espReal, machine()->getRealRegister(_properties.getFramePointerRegister()), cg());
+      cursor = generateRegInstruction(cursor, POPReg, machine()->getRealRegister(_properties.getFramePointerRegister()), cg());
       }
    else
       {
@@ -1075,50 +1048,6 @@ void TR::X86PrivateLinkage::createEpilogue(TR::Instruction *cursor)
       {
       toIA32ImmInstruction(cursor->getNext())->setSourceImmediate(comp()->getJittedMethodSymbol()->getNumParameterSlots() << getProperties().getParmSlotShift());
       }
-   }
-
-bool TR::X86PrivateLinkage::mapPreservedRegistersToStackOffsets(
-      int32_t *mapRegsToStack,
-      int32_t &numPreserved,
-      TR_BitVector *&preservedRegsInLinkage)
-   {
-   // this routine provides a mapping between the preserved registers and
-   // their location on the stack ; so shrinkWrapping can use the right
-   // offsets when sinking the save/restores
-   //
-   TR::ResolvedMethodSymbol *bodySymbol  = comp()->getJittedMethodSymbol();
-   const int32_t          localSize   = getProperties().getOffsetToFirstLocal() - bodySymbol->getLocalMappingCursor();
-   const int32_t          pointerSize = getProperties().getPointerSize();
-   bool                   traceIt     = comp()->getOption(TR_TraceShrinkWrapping);
-
-   int32_t offsetCursor = -localSize - pointerSize;
-   numPreserved = getProperties().getMaxRegistersPreservedInPrologue();
-
-   if (traceIt)
-      traceMsg(comp(), "Preserved registers for this linkage: { ");
-
-   for (int32_t pindex = numPreserved-1;
-        pindex >= 0;
-        pindex--)
-      {
-      TR::RealRegister::RegNum idx = getProperties().getPreservedRegister((uint32_t)pindex);
-      if (traceIt)
-         traceMsg(comp(), "%s ", comp()->getDebug()->getRealRegisterName(idx-1));
-      preservedRegsInLinkage->set(idx);
-      TR::RealRegister *reg = machine()->getX86RealRegister(idx);
-      if (reg->getHasBeenAssignedInMethod() && reg->getState() != TR::RealRegister::Locked)
-         {
-         mapRegsToStack[idx] = offsetCursor;
-         offsetCursor -= pointerSize;
-         }
-      }
-
-   if (traceIt)
-      traceMsg(comp(), "}\n");
-   // return true or false depending on whether
-   // the linkage uses pushes for preserved regs
-   //
-   return false;
    }
 
 TR::Register *
@@ -1162,15 +1091,6 @@ TR::X86PrivateLinkage::buildDirectDispatch(
    // Build arguments and initially populate regdeps
    //
    buildCallArguments(site);
-
-   if (spillFPRegs && !cg()->useSSEForDoublePrecision())
-      {
-      // Force the FP register stack to be spilled.
-      //
-      TR::RegisterDependencyConditions *fpSpillDependency = generateRegisterDependencyConditions(1, 0, cg());
-      fpSpillDependency->addPreCondition(NULL, TR::RealRegister::AllFPRegisters, cg());
-      generateInstruction(FPREGSPILL, callNode, fpSpillDependency, cg());
-      }
 
    // Remember where internal control flow region should start,
    // and create labels
@@ -1329,7 +1249,8 @@ void TR::X86CallSite::setupVirtualGuardInfo()
 
             TR::SymbolReference *methodSymRef = getSymbolReference();
             TR_PersistentCHTable * chTable = comp()->getPersistentInfo()->getPersistentCHTable();
-            if (thisClass && TR::Compiler->cls.isAbstractClass(comp(), thisClass))
+            /* Devirtualization is not currently supported for AOT compilations */
+            if (thisClass && TR::Compiler->cls.isAbstractClass(comp(), thisClass) && !comp()->compileRelocatableCode())
                {
                TR_ResolvedMethod * method = chTable->findSingleAbstractImplementer(thisClass, methodSymRef->getOffset(), methodSymRef->getOwningMethod(comp()), comp());
                if (method &&
@@ -1708,15 +1629,6 @@ TR::Register *TR::X86PrivateLinkage::buildIndirectDispatch(TR::Node *callNode)
    //
    buildCallArguments(site);
 
-   if (!cg()->useSSEForDoublePrecision())
-      {
-      // Force the FP register stack to be spilled.
-      //
-      TR::RegisterDependencyConditions *fpSpillDependency = generateRegisterDependencyConditions(1, 0, cg());
-      fpSpillDependency->addPreCondition(NULL, TR::RealRegister::AllFPRegisters, cg());
-      generateInstruction(FPREGSPILL, callNode, fpSpillDependency, cg());
-      }
-
    // If receiver could be NULL, must evaluate it before the call
    // so any exception occurs before the call.
    // Might as well do it outside the internal control flow.
@@ -1894,7 +1806,7 @@ TR::Register *TR::X86PrivateLinkage::buildIndirectDispatch(TR::Node *callNode)
 
             picSlot = i.getNext();
             if (picSlot)
-               generateLabelInstruction(LABEL, site.getCallNode(), picMismatchLabel, true, cg());
+               generateLabelInstruction(LABEL, site.getCallNode(), picMismatchLabel, cg());
             }
 
          site.setFirstPICSlotInstruction(NULL);
@@ -2003,7 +1915,7 @@ void TR::X86PrivateLinkage::buildDirectCall(TR::SymbolReference *methodSymRef, T
          generateRegImmInstruction(MOV4RegImm4, callNode, ramMethodReg, (uint32_t)(uintptrj_t)methodSymbol->getMethodAddress(), cg());
          }
 
-      callInstr = generateHelperCallInstruction(callNode, TR_icallVMprJavaSendNativeStatic, NULL, cg());
+      callInstr = generateHelperCallInstruction(callNode, TR_j2iTransition, NULL, cg());
       cg()->stopUsingRegister(ramMethodReg);
       }
    else if (TR::Compiler->target.is64Bit() && methodSymbol->isJITInternalNative())
@@ -2032,7 +1944,7 @@ void TR::X86PrivateLinkage::buildDirectCall(TR::SymbolReference *methodSymRef, T
       generateBoundaryAvoidanceInstruction(TR::X86BoundaryAvoidanceInstruction::unresolvedAtomicRegions, 8, 8, callInstr, cg());
 
       // Nop is necessary due to confusion when resolving shared slots at a transition
-      if (methodSymRef == cg()->symRefTab()->element(TR_induceOSRAtCurrentPC))
+      if (methodSymRef->isOSRInductionHelper())
          generatePaddingInstruction(1, callNode, cg());
       }
    else
@@ -2144,7 +2056,7 @@ bool TR::X86PrivateLinkage::buildVirtualGuard(TR::X86CallSite &site, TR::LabelSy
          {
          TR_VirtualGuard* HCRGuard = TR_VirtualGuard::createGuardedDevirtualizationGuard(TR_HCRGuard, comp(), callNode);
          TR::Instruction *HCRpatchable = generateVirtualGuardNOPInstruction(callNode, HCRGuard->addNOPSite(), NULL, revirtualizeLabel, cg());
-	      if (TR::Compiler->target.isSMP())
+         if (TR::Compiler->target.isSMP())
             generatePatchableCodeAlignmentInstruction(vgnopAtomicRegions, HCRpatchable, cg());
          }
       return true;
@@ -2258,23 +2170,9 @@ TR::Instruction *TR::X86PrivateLinkage::buildVFTCall(TR::X86CallSite &site, TR_X
 
    callInstr->setNeedsGCMap(site.getPreservedRegisterMask());
 
-   if (site.getSymbolReference()->isUnresolved() && !site.getMethodSymbol()->isInterface())
-      {
-      generateBoundaryAvoidanceInstruction(
-         TR::X86BoundaryAvoidanceInstruction::unresolvedAtomicRegions, 8, 8, callInstr, cg());
-
-      TR::LabelSymbol *snippetLabel = TR::LabelSymbol::create(cg()->trHeapMemory(),cg());
-      TR::UnresolvedDataSnippet *snippet = new (comp()->trHeapMemory()) TR::X86UnresolvedVirtualCallSnippet(
-         callNode,
-         site.getSymbolReference(),
-         callInstr,
-         cg());
-
-      // Need to do this so that stack map registered inside the snippet
-      targetAddressMemref->setUnresolvedDataSnippet(snippet);
-      snippet->gcMap().setGCRegisterMask(site.getPreservedRegisterMask());
-      cg()->addSnippet(snippet);
-      }
+   TR_ASSERT_FATAL(
+      !site.getSymbolReference()->isUnresolved() || site.getMethodSymbol()->isInterface(),
+      "buildVFTCall: unresolved virtual site");
 
    if (cg()->enableSinglePrecisionMethods() &&
        comp()->getJittedMethodSymbol()->usesSinglePrecisionMode())
@@ -2353,7 +2251,7 @@ TR::Register *TR::X86PrivateLinkage::buildCallPostconditions(TR::X86CallSite &si
       case TR::Float:
       case TR::Double:
          returnRegIndex  = getProperties().getFloatReturnRegister();
-         returnKind      = cg()->useSSEFor(callNode->getDataType())? TR_FPR : TR_X87;
+         returnKind      = TR_FPR;
          break;
       }
 
@@ -2405,7 +2303,7 @@ TR::Register *TR::X86PrivateLinkage::buildCallPostconditions(TR::X86CallSite &si
          {
          // Skip non-assignable registers
          //
-         if (machine()->getX86RealRegister(regIndex)->getState() == TR::RealRegister::Locked)
+         if (machine()->getRealRegister(regIndex)->getState() == TR::RealRegister::Locked)
             continue;
 
          // Skip registers already present
@@ -2421,22 +2319,19 @@ TR::Register *TR::X86PrivateLinkage::buildCallPostconditions(TR::X86CallSite &si
             }
          }
 
-      if (cg()->useSSEForSinglePrecision() || cg()->useSSEForDoublePrecision())
+      TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
+      if(!lr || lr->getNumberOfLiveRegisters() > 0)
          {
-         TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
-         if(!lr || lr->getNumberOfLiveRegisters() > 0)
+         for (regIndex = TR::RealRegister::FirstXMMR; regIndex <= TR::RealRegister::LastXMMR; regIndex = (TR::RealRegister::RegNum)(regIndex + 1))
             {
-            for (regIndex = TR::RealRegister::FirstXMMR; regIndex <= TR::RealRegister::LastXMMR; regIndex = (TR::RealRegister::RegNum)(regIndex + 1))
+            TR_ASSERT(regIndex != highReturnRegIndex, "highReturnRegIndex should not be an XMM register.");
+            if ((regIndex != returnRegIndex) && !properties.isPreservedRegister(regIndex))
                {
-               TR_ASSERT(regIndex != highReturnRegIndex, "assertion failure");
-               if ((regIndex != returnRegIndex) && !properties.isPreservedRegister(regIndex))
-                  {
-                  TR::Register *dummy = cg()->allocateRegister(TR_FPR);
-                  dummy->setPlaceholderReg();
-                  dependencies->addPostCondition(dummy, regIndex, cg());
-                  cg()->stopUsingRegister(dummy);
-		            }
-		         }
+               TR::Register *dummy = cg()->allocateRegister(TR_FPR);
+               dummy->setPlaceholderReg();
+               dependencies->addPostCondition(dummy, regIndex, cg());
+               cg()->stopUsingRegister(dummy);
+               }
             }
          }
       }

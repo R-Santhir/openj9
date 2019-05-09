@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -144,7 +144,7 @@ internalDefineClass(
 		/* Host class can only be set for anonymous classes, which are defined by Unsafe.defineAnonymousClass.
 		 * For other cases, host class is set to NULL.
 		 */
-		if ((NULL != hostClass) && (J2SE_VERSION(vm) >= J2SE_19)) {
+		if ((NULL != hostClass) && (J2SE_VERSION(vm) >= J2SE_V11)) {
 			J9ROMClass *hostROMClass = hostClass->romClass;
 			/* This error-check should only be done for anonymous classes. */
 			Trc_BCU_Assert_True(isAnonFlagSet);
@@ -520,7 +520,7 @@ internalLoadROMClass(J9VMThread * vmThread, J9LoadROMClassData *loadData, J9Tran
 		/* Disable static verification for the bootstrap loader if Xfuture not present */
 		if ((vm->systemClassLoader == loadData->classLoader)
 		&& ((NULL == vm->bytecodeVerificationData) || (0 == (vm->bytecodeVerificationData->verificationFlags & J9_VERIFY_BOOTCLASSPATH_STATIC)))
-		&& ((NULL == vm->sharedCacheAPI) || (0 == (vm->sharedCacheAPI->xShareClassesPresent)))
+		&& (NULL == vm->sharedClassConfig)
 		) {
 			translationFlags &= ~BCT_StaticVerification;
 		}
@@ -530,16 +530,18 @@ internalLoadROMClass(J9VMThread * vmThread, J9LoadROMClassData *loadData, J9Tran
 		translationFlags |= BCT_AlwaysSplitBytecodes;
 	}
 
+	if (J9_ARE_ALL_BITS_SET(vm->extendedRuntimeFlags2, J9_EXTENDED_RUNTIME2_ENABLE_VALHALLA)) {
+		translationFlags |= BCT_ValueTypesEnabled;
+	}
+
 	/* Determine allowed class file version */
 #ifdef J9VM_OPT_SIDECAR
-	if (J2SE_VERSION(vm) >= J2SE_V12) {
+	if (J2SE_VERSION(vm) >= J2SE_V13) {
+		translationFlags |= BCT_Java13MajorVersionShifted;
+	} else if (J2SE_VERSION(vm) >= J2SE_V12) {
 		translationFlags |= BCT_Java12MajorVersionShifted;
 	} else if (J2SE_VERSION(vm) >= J2SE_V11) {
 		translationFlags |= BCT_Java11MajorVersionShifted;
-	} else if (J2SE_VERSION(vm) >= J2SE_V10) {
-		translationFlags |= BCT_Java10MajorVersionShifted;
-	} else if (J2SE_VERSION(vm) >= J2SE_19) {
-		translationFlags |= BCT_Java9MajorVersionShifted;
 	} else if (J2SE_VERSION(vm) >= J2SE_18) {
 		translationFlags |= BCT_Java8MajorVersionShifted;
 	}
@@ -749,10 +751,9 @@ callDynamicLoader(J9JavaVM * vm, J9LoadROMClassData *loadData, U_8 * intermediat
 			localBuffer);
 
 	/* The module of a class transformed by a JVMTI agent needs access to unnamed modules */
-	if (
-			(J2SE_VERSION(vm) >= J2SE_19)
-			&& (classFileBytesReplacedByRIA || classFileBytesReplacedByRCA)
-			&& (NULL != loadData->romClass)
+	if ((J2SE_VERSION(vm) >= J2SE_V11)
+		&& (classFileBytesReplacedByRIA || classFileBytesReplacedByRCA)
+		&& (NULL != loadData->romClass)
 	) {
 		J9VMThread *currentThread = vm->internalVMFunctions->currentVMThread(vm);
 		J9Module *module = vm->internalVMFunctions->findModuleForPackage(currentThread, loadData->classLoader,

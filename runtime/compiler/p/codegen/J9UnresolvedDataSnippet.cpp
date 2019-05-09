@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,36 +22,37 @@
 
 #include "codegen/UnresolvedDataSnippet.hpp"
 
-#include <stddef.h>                                 // for NULL
-#include <stdint.h>                                 // for int32_t, uint8_t, etc
-#include "codegen/CodeGenerator.hpp"                // for CodeGenerator
-#include "codegen/FrontEnd.hpp"                     // for TR_FrontEnd
-#include "codegen/Instruction.hpp"                  // for Instruction
-#include "codegen/Machine.hpp"                      // for Machine, etc
-#include "codegen/MemoryReference.hpp"              // for MemoryReference
-#include "codegen/RealRegister.hpp"                 // for RealRegister, etc
+#include <stddef.h>
+#include <stdint.h>
+#include "codegen/CodeGenerator.hpp"
+#include "codegen/FrontEnd.hpp"
+#include "codegen/Instruction.hpp"
+#include "codegen/Machine.hpp"
+#include "codegen/MemoryReference.hpp"
+#include "codegen/RealRegister.hpp"
 #include "codegen/Relocation.hpp"
-#include "compile/Compilation.hpp"                  // for Compilation
+#include "compile/Compilation.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "compile/SymbolReferenceTable.hpp"
 #include "control/Options.hpp"
-#include "control/Options_inlines.hpp"              // for TR::Options, etc
+#include "control/Options_inlines.hpp"
 #include "env/IO.hpp"
-#include "env/ObjectModel.hpp"                      // for ObjectModel
+#include "env/ObjectModel.hpp"
 #include "env/TRMemory.hpp"
-#include "env/jittypes.h"                           // for intptrj_t, uintptrj_t
+#include "env/jittypes.h"
 #include "env/VMJ9.h"
 #include "il/DataTypes.hpp"
-#include "il/Node.hpp"                              // for Node
-#include "il/Symbol.hpp"                            // for Symbol
-#include "il/SymbolReference.hpp"                   // for SymbolReference
-#include "il/symbol/LabelSymbol.hpp"                // for LabelSymbol, etc
-#include "il/symbol/StaticSymbol.hpp"               // for StaticSymbol
-#include "il/symbol/StaticSymbol_inlines.hpp"       // for StaticSymbol
-#include "infra/Assert.hpp"                         // for TR_ASSERT
-#include "p/codegen/PPCTableOfConstants.hpp"        // for PTOC_FULL_INDEX
-#include "ras/Debug.hpp"                            // for TR_Debug
-#include "runtime/Runtime.hpp"
+#include "il/Node.hpp"
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/symbol/LabelSymbol.hpp"
+#include "il/symbol/StaticSymbol.hpp"
+#include "il/symbol/StaticSymbol_inlines.hpp"
+#include "infra/Assert.hpp"
+#include "p/codegen/PPCTableOfConstants.hpp"
+#include "ras/Debug.hpp"
+#include "runtime/CodeCacheManager.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "env/CompilerEnv.hpp"
 
 J9::Power::UnresolvedDataSnippet::UnresolvedDataSnippet(
@@ -73,62 +74,66 @@ uint8_t *J9::Power::UnresolvedDataSnippet::emitSnippetBody()
    TR::Compilation *comp = cg()->comp();
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp->fe());
    TR::SymbolReference *glueRef;
+   TR_RuntimeHelper refNum;
 
    if (getDataSymbol()->getShadowSymbol() != NULL) // instance data
       {
       if (isUnresolvedStore())
-         glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedInstanceDataStoreGlue, false, false, false);
+         refNum = TR_PPCinterpreterUnresolvedInstanceDataStoreGlue;
       else
-         glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedInstanceDataGlue, false, false, false);
+         refNum = TR_PPCinterpreterUnresolvedInstanceDataGlue;
       }
    else if (getDataSymbol()->isClassObject())
       {
       if (getDataSymbol()->addressIsCPIndexOfStatic())
-         glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedClassGlue2, false, false, false);
+         refNum = TR_PPCinterpreterUnresolvedClassGlue2;
       else
-         glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedClassGlue, false, false, false);
+         refNum = TR_PPCinterpreterUnresolvedClassGlue;
       }
    else if (getDataSymbol()->isConstString())
       {
-      glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedStringGlue, false, false, false);
+      refNum = TR_PPCinterpreterUnresolvedStringGlue;
       }
    else if (getDataSymbol()->isConstMethodType())
       {
-      glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_interpreterUnresolvedMethodTypeGlue, false, false, false);
+      refNum = TR_interpreterUnresolvedMethodTypeGlue;
       }
    else if (getDataSymbol()->isConstMethodHandle())
       {
-      glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_interpreterUnresolvedMethodHandleGlue, false, false, false);
+      refNum = TR_interpreterUnresolvedMethodHandleGlue;
       }
    else if (getDataSymbol()->isCallSiteTableEntry())
       {
-      glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_interpreterUnresolvedCallSiteTableEntryGlue, false, false, false);
+      refNum = TR_interpreterUnresolvedCallSiteTableEntryGlue;
       }
    else if (getDataSymbol()->isMethodTypeTableEntry())
       {
-      glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_interpreterUnresolvedMethodTypeTableEntryGlue, false, false, false);
+      refNum = TR_interpreterUnresolvedMethodTypeTableEntryGlue;
+      }
+   else if (getDataSymbol()->isConstantDynamic())
+      {
+      refNum = TR_PPCinterpreterUnresolvedConstantDynamicGlue;
       }
    else // must be static data
       {
       if (isUnresolvedStore())
-         glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedStaticDataStoreGlue, false, false, false);
+         refNum = TR_PPCinterpreterUnresolvedStaticDataStoreGlue;
       else
-         glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinterpreterUnresolvedStaticDataGlue, false, false, false);
+         refNum = TR_PPCinterpreterUnresolvedStaticDataGlue;
       }
 
+   glueRef = cg()->symRefTab()->findOrCreateRuntimeHelper(refNum, false, false, false);
    getSnippetLabel()->setCodeLocation(cursor);
 
-   intptrj_t distance = (intptrj_t)glueRef->getMethodAddress() - (intptrj_t)cursor;
-   if (!(distance<=BRANCH_FORWARD_LIMIT && distance>=BRANCH_BACKWARD_LIMIT))
+   intptrj_t helperAddress = (intptrj_t)glueRef->getMethodAddress();
+   if (cg()->directCallRequiresTrampoline(helperAddress, (intptrj_t)cursor))
       {
-      distance = fej9->indexedTrampolineLookup(glueRef->getReferenceNumber(), (void *)cursor) - (intptrj_t)cursor;
-      TR_ASSERT(distance<=BRANCH_FORWARD_LIMIT && distance>=BRANCH_BACKWARD_LIMIT,
-             "CodeCache is more than 32MB.\n");
+      helperAddress = TR::CodeCacheManager::instance()->findHelperTrampoline(glueRef->getReferenceNumber(), (void *)cursor);
+      TR_ASSERT_FATAL(TR::Compiler->target.cpu.isTargetWithinIFormBranchRange(helperAddress, (intptrj_t)cursor), "Helper address is out of range");
       }
 
-
    // bl distance
-   *(int32_t *)cursor = 0x48000001 | (distance & 0x03fffffc);
+   *(int32_t *)cursor = 0x48000001 | ((helperAddress - (intptrj_t)cursor) & 0x03fffffc);
    cg()->addProjectSpecializedRelocation(cursor,(uint8_t *)glueRef, NULL, TR_HelperAddress,
                           __FILE__,
                           __LINE__,
@@ -187,7 +192,7 @@ uint8_t *J9::Power::UnresolvedDataSnippet::emitSnippetBody()
    else
       {
       *(int32_t *)cursor = getMemoryReference()->getOffset(*(comp)); // offset
-      if (getDataSymbol()->isConstObjectRef())
+      if (getDataSymbol()->isConstObjectRef() || getDataSymbol()->isConstantDynamic())
          {
          cg()->addProjectSpecializedRelocation(cursor, *(uint8_t **)(cursor-4),
                getNode() ? (uint8_t *)getNode()->getInlinedSiteIndex() : (uint8_t *)-1, TR_ConstantPool,
@@ -227,7 +232,7 @@ uint8_t *J9::Power::UnresolvedDataSnippet::emitSnippetBody()
       toRealRegister(getMemoryReference()->getModBase())->setRegisterFieldRT((uint32_t *)cursor);
       if (getMemoryReference()->getBaseRegister() == NULL)
          {
-         cg()->machine()->getPPCRealRegister(TR::RealRegister::gr0)->setRegisterFieldRA((uint32_t *)cursor);
+         cg()->machine()->getRealRegister(TR::RealRegister::gr0)->setRegisterFieldRA((uint32_t *)cursor);
          }
       else
          {
@@ -242,9 +247,10 @@ uint8_t *J9::Power::UnresolvedDataSnippet::emitSnippetBody()
    cursor += 4;
    *(int32_t *)cursor = 0xdeadbeef; // Pached with lis via runtime code
    cursor += 4;
-   intptrj_t ra_distance = ((intptrj_t)getAddressOfDataReference()+4) - (intptrj_t)cursor;
-   TR_ASSERT(ra_distance<=BRANCH_FORWARD_LIMIT && ra_distance>=BRANCH_BACKWARD_LIMIT, "Return address is more than 32MB.\n");
-   *(int32_t *)cursor = 0x48000000 | (ra_distance & 0x03fffffc);
+   intptrj_t targetAddress = (intptrj_t)getAddressOfDataReference()+4;
+   TR_ASSERT_FATAL(TR::Compiler->target.cpu.isTargetWithinIFormBranchRange(targetAddress, (intptrj_t)cursor),
+                   "Return address is out of range");
+   *(int32_t *)cursor = 0x48000000 | ((targetAddress - (intptrj_t)cursor) & 0x03fffffc);
 
    return cursor+4;
    }
@@ -294,6 +300,10 @@ TR_Debug::print(TR::FILE *pOutFile, TR::UnresolvedDataSnippet * snippet)
    else if (snippet->getDataSymbol()->isMethodTypeTableEntry())
       {
       glueRef = _cg->getSymRef(TR_interpreterUnresolvedMethodTypeTableEntryGlue);
+      }
+   else if (snippet->getDataSymbol()->isConstantDynamic())
+      {
+      glueRef = _cg->getSymRef(TR_PPCinterpreterUnresolvedConstantDynamicGlue);
       }
    else // must be static data
       {

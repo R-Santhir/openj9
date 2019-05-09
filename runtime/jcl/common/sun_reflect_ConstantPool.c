@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -564,35 +564,62 @@ Java_sun_reflect_ConstantPool_getMemberRefInfoAt0(JNIEnv *env, jobject unusedObj
 				result = getROMCPItem(vmThread, constantPoolOop, classRefCPIndex, J9CPTYPE_CLASS, (J9ROMConstantPoolItem **) &classRef);
 				if (OK == result) {
 					J9UTF8 *className = J9ROMCLASSREF_NAME(classRef);
+					j9object_t internalNameObject = NULL;
+					j9object_t internalSignatureObject = NULL;
 					j9object_t internalClassNameObject = gcFunctions->j9gc_createJavaLangString(vmThread, J9UTF8_DATA(className), (U_32) J9UTF8_LENGTH(className), 0);
-					j9object_t internalNameObject = gcFunctions->j9gc_createJavaLangString(vmThread, J9UTF8_DATA(name), (U_32) J9UTF8_LENGTH(name), 0);
-					j9object_t internalSignatureObject = gcFunctions->j9gc_createJavaLangString(vmThread, J9UTF8_DATA(signature), (U_32) J9UTF8_LENGTH(signature), 0);
+					if (internalClassNameObject == NULL) {
+						goto dropAccess;
+					}
 					classNameObject = vmFunctions->j9jni_createLocalRef(env, internalClassNameObject);
+					if (classNameObject == NULL) {
+						goto dropAccess;
+					}
+					internalNameObject = gcFunctions->j9gc_createJavaLangString(vmThread, J9UTF8_DATA(name), (U_32) J9UTF8_LENGTH(name), 0);
+					if (internalNameObject == NULL) {
+						goto dropAccess;
+					}
 					nameObject = vmFunctions->j9jni_createLocalRef(env, internalNameObject);
+					if (nameObject == NULL) {
+						goto dropAccess;
+					}
+					internalSignatureObject = gcFunctions->j9gc_createJavaLangString(vmThread, J9UTF8_DATA(signature), (U_32) J9UTF8_LENGTH(signature), 0);
+					if (internalSignatureObject == NULL) {
+						goto dropAccess;
+					}
 					signatureObject = vmFunctions->j9jni_createLocalRef(env, internalSignatureObject);
+					if (signatureObject == NULL) {
+						goto dropAccess;
+					}
 				}
 			}
 		}
+dropAccess:
 		vmFunctions->internalExitVMToJNI(vmThread);
 	}
 
 	if ((NULL != classNameObject) && (NULL != nameObject) && (NULL != signatureObject)) {
 		jclass jlString = JCL_CACHE_GET(env, CLS_java_lang_String);
 		jobject array = (*env)->NewObjectArray(env, 3, jlString, NULL);
-		(*env)->SetObjectArrayElement(env, array, 0, classNameObject);
-		(*env)->SetObjectArrayElement(env, array, 1, nameObject);
-		(*env)->SetObjectArrayElement(env, array, 2, signatureObject);
-		(*env)->DeleteLocalRef(env, classNameObject);
-		(*env)->DeleteLocalRef(env, nameObject);
-		(*env)->DeleteLocalRef(env, signatureObject);
-		if (!(*env)->ExceptionCheck(env)) {
-			returnValue = array;
+		if (array == NULL) {
+			goto done;
 		}
-
+		(*env)->SetObjectArrayElement(env, array, 0, classNameObject);
+		if ((*env)->ExceptionCheck(env)) {
+			goto done;
+		}
+		(*env)->SetObjectArrayElement(env, array, 1, nameObject);
+		if ((*env)->ExceptionCheck(env)) {
+			goto done;
+		}
+		(*env)->SetObjectArrayElement(env, array, 2, signatureObject);
+		if ((*env)->ExceptionCheck(env)) {
+			goto done;
+		}
+		returnValue = array;
 	}
 
 	checkResult(env, result);
-
+done:
 	return returnValue;
 }
 
@@ -731,6 +758,40 @@ Java_java_lang_invoke_MethodHandle_getCPMethodHandleAt(JNIEnv *env, jclass unuse
 			}
 		}
 		vmFunctions->internalExitVMToJNI(vmThread);
+	}
+
+	checkResult(env, result);
+
+	return returnValue;
+}
+
+jobject JNICALL
+Java_java_lang_invoke_MethodHandle_getCPConstantDynamicAt(JNIEnv *env, jclass unusedClass, jobject constantPoolOop, jint cpIndex)
+{
+	jobject returnValue = NULL;
+	J9VMThread *vmThread = (J9VMThread *) env;
+	J9InternalVMFunctions *vmFunctions = vmThread->javaVM->internalVMFunctions;
+	SunReflectCPResult result = NULL_POINTER_EXCEPTION;
+
+	if (NULL != constantPoolOop) {
+		J9RAMConstantDynamicRef *ramConstantDynamicRef = NULL;
+		vmFunctions->internalEnterVMFromJNI(vmThread);
+		result = getRAMConstantRef(vmThread, constantPoolOop, cpIndex, J9CPTYPE_CONSTANT_DYNAMIC, (J9RAMConstantRef **) &ramConstantDynamicRef);
+		if (OK == result) {
+			J9Class *ramClass = J9CLASS_FROMCPINTERNALRAMCLASS(vmThread, constantPoolOop);
+			j9object_t value = J9STATIC_OBJECT_LOAD(vmThread, ramClass, &ramConstantDynamicRef->value);;
+
+			/* Check if the value is resolved, Void.Class exception represents a valid null reference */
+			if ((NULL == value) && (ramConstantDynamicRef->exception != vmThread->javaVM->voidReflectClass->classObject)) {
+				/* If entry resolved to an exception previously, same exception will be set by resolution code */
+				value = vmFunctions->resolveConstantDynamic(vmThread, J9_CP_FROM_CLASS(ramClass), (UDATA)cpIndex, J9_RESOLVE_FLAG_RUNTIME_RESOLVE);
+			}
+
+			if (NULL != value) {
+				returnValue = vmFunctions->j9jni_createLocalRef(env, value);
+			}
+		}
+		vmFunctions->internalReleaseVMAccess(vmThread);
 	}
 
 	checkResult(env, result);

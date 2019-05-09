@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -150,10 +150,15 @@ SH_OSCachesysv::startup(J9JavaVM* vm, const char* ctrlDirName, UDATA cacheDirPer
 	IDATA semLength = 0;
 	LastErrorInfo lastErrorInfo;
 	UDATA defaultCacheSize = J9_SHARED_CLASS_CACHE_DEFAULT_SIZE;
+
 #if defined(J9VM_ENV_DATA64)
-	if (J2SE_VERSION(vm) >= J2SE_19) {
+#if defined(OPENJ9_BUILD)
+	defaultCacheSize = J9_SHARED_CLASS_CACHE_DEFAULT_SIZE_64BIT_PLATFORM;
+#else /* OPENJ9_BUILD */
+	if (J2SE_VERSION(vm) >= J2SE_V11) {
 		defaultCacheSize = J9_SHARED_CLASS_CACHE_DEFAULT_SIZE_64BIT_PLATFORM;
 	}
+#endif /* OPENJ9_BUILD */
 #endif /* J9VM_ENV_DATA64 */
 	PORT_ACCESS_FROM_PORT(_portLibrary);
 	
@@ -1773,7 +1778,7 @@ SH_OSCachesysv::getCacheStats(J9JavaVM* vm, const char* ctrlDirName, UDATA group
 	PORT_ACCESS_FROM_JAVAVM(vm);
 	char cacheDirName[J9SH_MAXPATH];
 
-	SH_OSCache::getCacheDir(PORTLIB, ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_NONPERSISTENT);
+	SH_OSCache::getCacheDir(vm, ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_NONPERSISTENT);
 	if (SH_OSCachesysv::getCacheStatsHelper(vm, cacheDirName, groupPerm, cacheNameWithVGen, cacheInfo, reason) == 0) {
 		/* Using 'SH_OSCachesysv cacheStruct' breaks the pattern of calling getRequiredConstrBytes(), and then allocating memory.
 		 * However it is consistent with 'SH_OSCachemmap::getCacheStats'.
@@ -2660,9 +2665,9 @@ SH_OSCachesysv::restoreFromSnapshot(J9JavaVM* vm, const char* cacheName, UDATA n
 	setCurrentCacheVersion(vm, J2SE_VERSION(vm), &versionData);
 	versionData.cacheType = J9PORT_SHR_CACHE_TYPE_SNAPSHOT;
 
-	if (-1 == SH_OSCache::getCacheDir(PORTLIB, ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_SNAPSHOT)) {
+	if (-1 == SH_OSCache::getCacheDir(vm, ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_SNAPSHOT)) {
 		Trc_SHR_OSC_Sysv_restoreFromSnapshot_getCacheDirFailed();
-		OSC_ERR_TRACE(J9NLS_SHRC_GETSNAPSHOTDIR_FAILED);
+		/* NLS message has been printed out inside SH_OSCache::getCacheDir() if verbose flag is not 0 */
 		rc = -1;
 		goto done;
 	}

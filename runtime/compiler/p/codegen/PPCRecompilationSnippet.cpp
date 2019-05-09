@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -40,27 +40,26 @@
 #include "il/symbol/StaticSymbol.hpp"
 #include "p/codegen/PPCInstruction.hpp"
 #include "p/codegen/PPCRecompilation.hpp"
+#include "runtime/CodeCacheManager.hpp"
 
 uint8_t *TR::PPCRecompilationSnippet::emitSnippetBody()
    {
    uint8_t             *buffer = cg()->getBinaryBufferCursor();
    TR::Compilation *comp = cg()->comp();
-   TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp->fe());
    TR::SymbolReference  *countingRecompMethodSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCcountingRecompileMethod, false, false, false);
    bool                 longPrologue = (getBranchToSnippet()->getBinaryLength() > 4);
 
    getSnippetLabel()->setCodeLocation(buffer);
 
-   intptrj_t distance = (intptrj_t)countingRecompMethodSymRef->getMethodAddress() - (intptrj_t)buffer;
-   if (!(distance>=BRANCH_BACKWARD_LIMIT && distance<=BRANCH_FORWARD_LIMIT))
+   intptrj_t helperAddress = (intptrj_t)countingRecompMethodSymRef->getMethodAddress();
+   if (cg()->directCallRequiresTrampoline(helperAddress, (intptrj_t)buffer))
       {
-      distance = fej9->indexedTrampolineLookup(countingRecompMethodSymRef->getReferenceNumber(), (void *)buffer) - (intptrj_t)buffer;
-      TR_ASSERT(distance>=BRANCH_BACKWARD_LIMIT && distance<=BRANCH_FORWARD_LIMIT,
-             "CodeCache is more than 32MB.\n");
+      helperAddress = TR::CodeCacheManager::instance()->findHelperTrampoline(countingRecompMethodSymRef->getReferenceNumber(), (void *)buffer);
+      TR_ASSERT_FATAL(TR::Compiler->target.cpu.isTargetWithinIFormBranchRange(helperAddress, (intptrj_t)buffer), "Helper address is out of range");
       }
 
    // bl distance
-   *(int32_t *)buffer = 0x48000001 | (distance & 0x03ffffff);
+   *(int32_t *)buffer = 0x48000001 | ((helperAddress - (intptrj_t)buffer) & 0x03ffffff);
    cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(buffer,(uint8_t *)countingRecompMethodSymRef,TR_HelperAddress, cg()),
                           __FILE__,
                           __LINE__,

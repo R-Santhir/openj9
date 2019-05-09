@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -26,6 +26,7 @@
 #include "codegen/AMD64JNILinkage.hpp"
 
 #include <stdint.h>
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/Machine.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
@@ -280,7 +281,7 @@ static uint8_t *flushArgument(
    ModRM |= (offset >= -128 && offset <= 127) ? 0x40 : 0x80;
 
    *(cursor - 1) = ModRM;
-   cg->machine()->getX86RealRegister(regIndex)->setRegisterFieldInModRM(cursor - 1);
+   cg->machine()->getRealRegister(regIndex)->setRegisterFieldInModRM(cursor - 1);
 
    // Scale = 0x00, Index = none, Base = rsp
    //
@@ -722,37 +723,6 @@ void TR::AMD64PrivateLinkage::mapIncomingParms(TR::ResolvedMethodSymbol *method)
 
    }
 
-// routines for shrink wrapping
-//
-TR::Instruction *TR::AMD64PrivateLinkage::savePreservedRegister(TR::Instruction *cursor, int32_t regIndex, int32_t offset)
-   {
-   TR::RealRegister *reg = machine()->getX86RealRegister((TR::RealRegister::RegNum)regIndex);
-   cursor = generateMemRegInstruction(
-               cursor,
-               TR::Linkage::movOpcodes(MemReg, fullRegisterMovType(reg)),
-               generateX86MemoryReference(machine()->getX86RealRegister(TR::RealRegister::vfp), offset, cg()),
-               reg,
-               cg()
-               );
-   return cursor;
-   }
-
-TR::Instruction *TR::AMD64PrivateLinkage::restorePreservedRegister(TR::Instruction *cursor, int32_t regIndex, int32_t offset)
-   {
-   TR::RealRegister *reg = machine()->getX86RealRegister((TR::RealRegister::RegNum)regIndex);
-
-   cursor = generateRegMemInstruction(
-               cursor,
-               TR::Linkage::movOpcodes(RegMem, fullRegisterMovType(reg)),
-               reg,
-               generateX86MemoryReference(machine()->getX86RealRegister(TR::RealRegister::vfp), offset, cg()),
-               cg()
-               );
-   return cursor;
-   }
-
-// please reflect any changes to these routines in mapPreservedRegistersToStackOffsets
-//
 TR::Instruction *TR::AMD64PrivateLinkage::savePreservedRegisters(TR::Instruction *cursor)
    {
    TR::ResolvedMethodSymbol *bodySymbol  = comp()->getJittedMethodSymbol();
@@ -761,36 +731,29 @@ TR::Instruction *TR::AMD64PrivateLinkage::savePreservedRegisters(TR::Instruction
 
 
    int32_t offsetCursor = -localSize - pointerSize;
-   // this bitvector is populated by shrinkWrapping
-   // and is consulted before regs are saved/restored
-   //
 
    int32_t preservedRegStoreBytesSaved = 0;
    if (_properties.getOffsetToFirstLocal() - bodySymbol->getLocalMappingCursor() > 0)
       preservedRegStoreBytesSaved -= 4; // There's an extra mov rsp
 
-   TR_BitVector *p = cg()->getPreservedRegsInPrologue();
    for (int32_t pindex = _properties.getMaxRegistersPreservedInPrologue()-1;
         pindex >= 0;
         pindex--)
       {
-      TR::RealRegister *scratch = machine()->getX86RealRegister(getProperties().getIntegerScratchRegister(0));
+      TR::RealRegister *scratch = machine()->getRealRegister(getProperties().getIntegerScratchRegister(0));
       TR::RealRegister::RegNum idx = _properties.getPreservedRegister((uint32_t)pindex);
       TR::RealRegister::RegNum r8  = TR::RealRegister::r8;
-      TR::RealRegister *reg = machine()->getX86RealRegister(idx);
+      TR::RealRegister *reg = machine()->getRealRegister(idx);
       if (reg->getHasBeenAssignedInMethod() &&
             (reg->getState() != TR::RealRegister::Locked))
          {
-         if (!p || p->get(idx))
-            {
-            cursor = generateMemRegInstruction(
-               cursor,
-               TR::Linkage::movOpcodes(MemReg, fullRegisterMovType(reg)),
-               generateX86MemoryReference(machine()->getX86RealRegister(TR::RealRegister::vfp), offsetCursor, cg()),
-               reg,
-               cg()
-               );
-            }
+         cursor = generateMemRegInstruction(
+            cursor,
+            TR::Linkage::movOpcodes(MemReg, fullRegisterMovType(reg)),
+            generateX86MemoryReference(machine()->getRealRegister(TR::RealRegister::vfp), offsetCursor, cg()),
+            reg,
+            cg()
+            );
          offsetCursor -= pointerSize;
          }
       }
@@ -807,26 +770,22 @@ TR::Instruction *TR::AMD64PrivateLinkage::restorePreservedRegisters(TR::Instruct
    const int32_t          pointerSize = _properties.getPointerSize();
 
    int32_t pindex;
-   TR_BitVector *p = cg()->getPreservedRegsInPrologue();
    int32_t offsetCursor = -localSize - _properties.getPointerSize();
    for (pindex = _properties.getMaxRegistersPreservedInPrologue()-1;
         pindex >= 0;
         pindex--)
       {
       TR::RealRegister::RegNum idx = _properties.getPreservedRegister((uint32_t)pindex);
-      TR::RealRegister *reg = machine()->getX86RealRegister(idx);
+      TR::RealRegister *reg = machine()->getRealRegister(idx);
       if (reg->getHasBeenAssignedInMethod())
          {
-         if (!p || p->get(idx))
-            {
-            cursor = generateRegMemInstruction(
-               cursor,
-               TR::Linkage::movOpcodes(RegMem, fullRegisterMovType(reg)),
-               reg,
-               generateX86MemoryReference(machine()->getX86RealRegister(TR::RealRegister::vfp), offsetCursor, cg()),
-               cg()
-               );
-            }
+         cursor = generateRegMemInstruction(
+            cursor,
+            TR::Linkage::movOpcodes(RegMem, fullRegisterMovType(reg)),
+            reg,
+            generateX86MemoryReference(machine()->getRealRegister(TR::RealRegister::vfp), offsetCursor, cg()),
+            cg()
+            );
          offsetCursor -= _properties.getPointerSize();
          }
       }
@@ -878,7 +837,7 @@ int32_t TR::AMD64PrivateLinkage::buildArgs(TR::Node                             
    TR::SymbolReference *methodSymRef = callNode->getSymbolReference();
    bool passArgsOnStack;
    bool rightToLeft = methodSymbol && methodSymbol->isHelper()
-      && methodSymRef != cg()->symRefTab()->element(TR_induceOSRAtCurrentPC); //we want the arguments for induceOSR to be passed from left to right as in any other non-helper call
+      && !methodSymRef->isOSRInductionHelper(); //we want the arguments for induceOSR to be passed from left to right as in any other non-helper call
    if (callNode->getOpCode().isIndirect())
       {
       if (methodSymbol->isVirtual() &&
@@ -942,7 +901,7 @@ int32_t TR::AMD64PrivateLinkage::buildPrivateLinkageArgs(TR::Node               
                                                         bool                                 passArgsOnStack)
    {
    TR::RealRegister::RegNum   noReg         = TR::RealRegister::NoReg;
-   TR::RealRegister          *stackPointer  = machine()->getX86RealRegister(TR::RealRegister::esp);
+   TR::RealRegister          *stackPointer  = machine()->getRealRegister(TR::RealRegister::esp);
    int32_t                    firstArgument = callNode->getFirstArgumentIndex();
    int32_t                    lastArgument  = callNode->getNumChildren() - 1;
    int32_t                    offset        = 0;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -77,15 +77,21 @@ J9::ObjectModel::initialize()
       _arrayLetLeafLogSize = 0;
       }
 
-   _shouldGenerateReadBarriersForFieldLoads = mmf->j9gc_concurrent_scavenger_enabled(vm);
    _shouldReplaceGuardedLoadWithSoftwareReadBarrier = mmf->j9gc_software_read_barrier_enabled(vm);
+   _readBarrierType  = (MM_GCReadBarrierType) mmf->j9gc_modron_getReadBarrierType(vm);
+   _writeBarrierType = (MM_GCWriteBarrierType)mmf->j9gc_modron_getWriteBarrierType(vm);
+   if (_writeBarrierType == gc_modron_wrtbar_satb_and_oldcheck)
+      {
+      // JIT treats satb_and_oldcheck same as satb
+      _writeBarrierType = gc_modron_wrtbar_satb;
+      }
    }
 
 
 int32_t
 J9::ObjectModel::sizeofReferenceField()
    {
-#if defined(J9VM_GC_COMPRESSED_POINTERS)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
    return sizeof(fj9object_t);
 #else
    return sizeof(uintptrj_t);
@@ -107,7 +113,7 @@ J9::ObjectModel::getSizeOfArrayElement(TR::Node * node)
 
    if (node->getOpCodeValue() == TR::anewarray)
       {
-#if defined(J9VM_GC_COMPRESSED_POINTERS)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
       return TR::Compiler->om.sizeofReferenceField();
 #else
       return TR::Symbol::convertTypeToSize(TR::Address);
@@ -219,7 +225,7 @@ J9::ObjectModel::nativeAddressesCanChangeSize()
 bool
 J9::ObjectModel::generateCompressedObjectHeaders()
    {
-#if defined(J9VM_INTERP_COMPRESSED_OBJECT_HEADER)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
    return true;
 #else
    return false;
@@ -300,7 +306,7 @@ J9::ObjectModel::compressedReferenceShiftOffset()
 int32_t
 J9::ObjectModel::compressedReferenceShift()
    {
-#if defined(J9VM_GC_COMPRESSED_POINTERS)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
    J9JavaVM *javaVM = TR::Compiler->javaVM;
    if (!javaVM)
       return 0;
@@ -453,17 +459,6 @@ J9::ObjectModel::offsetOfIndexableSizeField()
    return offsetof(J9ROMArrayClass, arrayShape);
    }
 
-bool
-J9::ObjectModel::shouldGenerateReadBarriersForFieldLoads()
-   {
-   return _shouldGenerateReadBarriersForFieldLoads;
-   }
-
-bool
-J9::ObjectModel::shouldReplaceGuardedLoadWithSoftwareReadBarrier()
-   {
-   return _shouldReplaceGuardedLoadWithSoftwareReadBarrier;
-   }
 
 bool
 J9::ObjectModel::isDiscontiguousArray(TR::Compilation* comp, uintptrj_t objectPointer)

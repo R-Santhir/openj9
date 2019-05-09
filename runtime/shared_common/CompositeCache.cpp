@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -264,6 +264,7 @@ SH_CompositeCacheImpl::commonInit(J9JavaVM* vm)
 	_doMetaProtect = _doSegmentProtect = _doHeaderProtect = _doHeaderReadWriteProtect = _doReadWriteSync = _doPartialPagesProtect = false;
 	_useWriteHash = false;
 	_reduceStoreContentionDisabled = false;
+	_initializingNewCache = false;
 }
 
 #if defined(J9SHR_CACHELET_SUPPORT)
@@ -305,7 +306,7 @@ SH_CompositeCacheImpl::getFreeBlockBytes(void)
 	I_32 minJIT = _theca->minJIT;
 	I_32 aotBytes = (I_32)_theca->aotBytes;
 	I_32 jitBytes = (I_32)_theca->jitBytes;
-    I_32 freeBytes = (I_32) FREEBYTES(_theca);
+	I_32 freeBytes = (I_32) FREEBYTES(_theca);
 
 
 	if (((-1 == minAOT) && (-1 == minJIT)) ||
@@ -583,7 +584,7 @@ SH_CompositeCacheImpl::setCorruptCache(J9VMThread* currentThread)
 
 	if (_started) {
 		ccToUse->unprotectHeaderReadWriteArea(currentThread, false);
-    }
+	}
 
 	getCorruptionContext(&ccToUse->_theca->corruptionCode, &ccToUse->_theca->corruptValue);
 
@@ -594,8 +595,8 @@ SH_CompositeCacheImpl::setCorruptCache(J9VMThread* currentThread)
 		 */
 		ccToUse->_theca->corruptFlag = 1;
 	}
-    if (_started) {
-        ccToUse->protectHeaderReadWriteArea(currentThread, false);
+	if (_started) {
+		ccToUse->protectHeaderReadWriteArea(currentThread, false);
 	}
 	Trc_SHR_CC_setCorruptCache_Exit();
 }
@@ -1228,7 +1229,7 @@ SH_CompositeCacheImpl::startup(J9VMThread* currentThread, J9SharedClassPreinitCo
 		if (cacheMemory != NULL) {
 			_theca = (J9SharedCacheHeader*)cacheMemory;
 		} else {
-	    	_theca = (J9SharedCacheHeader*)_oscache->attach(currentThread, &versionData);
+			_theca = (J9SharedCacheHeader*)_oscache->attach(currentThread, &versionData);
 #ifndef J9SHR_CACHELET_SUPPORT
 			/* Verify that a non-realtime VM is not attaching to a Realtime cache when printing stats */
 			if ((_theca != 0) && getContainsCachelets() &&
@@ -1325,12 +1326,11 @@ SH_CompositeCacheImpl::startup(J9VMThread* currentThread, J9SharedClassPreinitCo
 				}
 			}
 			if (!isCacheCorrupt()) {
-				bool initializingNewCache = false;
 				IDATA retryCntr = 0;
 				
 				/* If we're running read-only, we have no write mutex. Resolve this race by waiting for ccInitComplete flag */
 				if (!_readOnlyOSCache) {
-	                /* The cache is about to undergo change, so mark the CRC as invalid */
+					/* The cache is about to undergo change, so mark the CRC as invalid */
 					_theca->crcValid = 0;
 				} else {
 					while ((isCacheInitComplete() == false) && (retryCntr < J9SH_OSCACHE_READONLY_RETRY_COUNT)) {
@@ -1355,9 +1355,11 @@ SH_CompositeCacheImpl::startup(J9VMThread* currentThread, J9SharedClassPreinitCo
 				 *  - store information regarding -Xnolinenumbers
 				 */
 				if (isCacheInitComplete() == false) {
-					initializingNewCache = true;
+					_initializingNewCache = true;
 					UDATA extraFlags = 0;
 					
+					Trc_SHR_CC_startup_Event_InitializingNewCache(currentThread);
+
 					if (J9_ARE_NO_BITS_SET(currentThread->javaVM->requiredDebugAttributes, (J9VM_DEBUG_ATTRIBUTE_LINE_NUMBER_TABLE | J9VM_DEBUG_ATTRIBUTE_SOURCE_FILE))) {
 						extraFlags |= J9SHR_EXTRA_FLAGS_NO_LINE_NUMBERS;
 					}
@@ -1634,7 +1636,7 @@ SH_CompositeCacheImpl::startup(J9VMThread* currentThread, J9SharedClassPreinitCo
 				 * used by shrtest which doesn't enable protection until after startup
 				 */
 				setRomClassProtectEnd(SEGUPDATEPTR(_theca));
-				if (initializingNewCache) {
+				if (_initializingNewCache) {
 					*cacheHasIntegrity = true;
 					_theca->ccInitComplete |= CC_STARTUP_COMPLETE;
 				}
@@ -3086,7 +3088,7 @@ SH_CompositeCacheImpl::commitUpdateHelper(J9VMThread* currentThread, bool isCach
 
 	/* The cache is changing and so mark the CRC as invalid. */
 	/* TODO: This will not work for cachelets - need to reorganised how the CRCing is done */
-    _theca->crcValid = 0;
+	_theca->crcValid = 0;
 
 	if (_storedSegmentUsedBytes) {
 		BlockPtr startAddress = SEGUPDATEPTR(_theca);
@@ -3255,6 +3257,14 @@ SH_CompositeCacheImpl::markStale(J9VMThread* currentThread, BlockPtr blockEnd, b
 	}
 	Trc_SHR_Assert_Equals(currentThread, _commonCCInfo->hasWriteMutexThread);
 	Trc_SHR_CC_markStale_Event(currentThread, ih);
+
+	if (0 != _theca->crcValid) {
+		/* _theca->crcValid is set to 0 when locking the cache. isCacheLocked cannot be true here */
+		Trc_SHR_Assert_False(isCacheLocked);
+		unprotectHeaderReadWriteArea(currentThread, false);
+		_theca->crcValid = 0;
+		protectHeaderReadWriteArea(currentThread, false);
+	}
 
 	/* If the cache is locked, don't bother to unprotect the page as the whole metadata area will be unprotected */
 	if (_doMetaProtect && !isCacheLocked) {
@@ -4078,11 +4088,11 @@ SH_CompositeCacheImpl::exitReadWriteAreaMutex(J9VMThread* currentThread, UDATA r
 		 * _headerProtectCntr and _readWriteProtectCntr
 		 */
 		if (0 != (*_runtimeFlags & J9SHR_RUNTIMEFLAG_ENABLE_MPROTECT_ALL)) {
-	    	Trc_SHR_Assert_Equals(_headerProtectCntr, 0);
-	    } else {
-	    	/* If mprotect=all is not set, _headerProtectCntr should be same as initial value (= 1). */
-	    	Trc_SHR_Assert_Equals(_headerProtectCntr, 1);
-	    }
+			Trc_SHR_Assert_Equals(_headerProtectCntr, 0);
+		} else {
+			/* If mprotect=all is not set, _headerProtectCntr should be same as initial value (= 1). */
+			Trc_SHR_Assert_Equals(_headerProtectCntr, 1);
+		}
 		Trc_SHR_Assert_Equals(_readWriteProtectCntr, 0);
 
 		/* Clear hasReadWriteMutexThread just before calling releaseWriteLock() */
@@ -5547,12 +5557,12 @@ SH_CompositeCacheImpl::shutdownForStats(J9VMThread* currentThread)
 			notifyPagesRead(CASTART(_theca), CAEND(_theca), DIRECTION_FORWARD, false);
 		}
 
-		_started = false;
-
-		if (exitWriteMutex(currentThread, fnName) != 0) {
+		if (exitWriteMutex(currentThread, fnName, false) != 0) {
+			_started = false;
 			retval = -1;
 			goto done;
 		}
+		_started = false;
 	}
 
 	if (_commonCCInfo->writeMutexEntryCount != 0) {
@@ -6860,4 +6870,19 @@ SH_CompositeCacheImpl::increaseUnstoredBytes(U_32 blockBytes, U_32 aotBytes, U_3
 	}
 
 	Trc_SHR_CC_increaseUnstoredBytes_Exit();
+}
+
+/* Query whether the cache is being created by the current VM,
+ * which we assume to be in cold run.
+ *
+ * @return true if cache is being created, false otherwise
+ */
+bool
+SH_CompositeCacheImpl::isNewCache(void)
+{
+	if (!_started) {
+		Trc_SHR_Assert_ShouldNeverHappen();
+		return false;
+	}
+	return _initializingNewCache;
 }

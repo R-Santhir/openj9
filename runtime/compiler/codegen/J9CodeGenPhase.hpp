@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -47,7 +47,7 @@ class OMR_EXTENSIBLE CodeGenPhase: public OMR::CodeGenPhaseConnector
    public:
 
    void reportPhase(PhaseValue phase);
-
+   static void performFixUpProfiledInterfaceGuardTestPhase(TR::CodeGenerator *cg, TR::CodeGenPhase *);
    static void performAllocateLinkageRegistersPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
    static void performPopulateOSRBufferPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
    static void performMoveUpArrayLengthStoresPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
@@ -55,7 +55,6 @@ class OMR_EXTENSIBLE CodeGenPhase: public OMR::CodeGenPhaseConnector
    static void performCompressedReferenceRematerializationPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
    static void performSplitWarmAndColdBlocksPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
    static void performIdentifyUnneededByteConvsPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
-   static void performFoldSignCleaningIntoStorePhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
    static void performLateSequentialConstantStoreSimplificationPhase(TR::CodeGenerator * cg, TR::CodeGenPhase *);
 
 

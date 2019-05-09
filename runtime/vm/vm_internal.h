@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -375,19 +375,11 @@ checkModuleAccess(J9VMThread *currentThread, J9JavaVM* vm, J9ROMClass* srcRomCla
 
 #if defined(OMR_GC_CONCURRENT_SCAVENGER) && defined(J9VM_ARCH_S390)
 /**
- * Guarded Storage Trap Handler
+ * Hardware Read Barrier Handler
  *
  * The trap handler that gets invoked when a H/W Read Barrier is triggered
  */
-J9_EXTERN_BUILDER_SYMBOL(handleGuardedStorageEvent);
-
-/**
- * Software Read Barrier Handler
- *
- * The handler that gets invoked by JIT before loads when running concurrent scavenger on hardware
- * that doesn't support guarded storage facility for object that are being evacuated
- */
-J9_EXTERN_BUILDER_SYMBOL(handleReadBarrier);
+J9_EXTERN_BUILDER_SYMBOL(handleHardwareReadBarrier);
 
 /**
  * Handle a Guarded Storage Event

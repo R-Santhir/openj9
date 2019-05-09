@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -165,6 +165,7 @@ typedef enum {
 	J9_BCLOOP_SEND_TARGET_VARHANDLE,
 	J9_BCLOOP_SEND_TARGET_INL_THREAD_ON_SPIN_WAIT,
 	J9_BCLOOP_SEND_TARGET_OUT_OF_LINE_INL,
+	J9_BCLOOP_SEND_TARGET_CLASS_ARRAY_TYPE_IMPL,
 } VM_SendTarget;
 
 typedef enum {
@@ -348,12 +349,8 @@ public:
 	/**
 	 * Checks whether the class must be initialized before using it.
 	 *
-	 * Non-isolated classes which have been successfully initialized or are in the process
+	 * Classes which have been successfully initialized or are in the process
 	 * of being initialized by the current thread do not need to be initialized.
-	 *
-	 * Isolated classes which have been successfully initialized on the current tenant
-	 * or are in the process of being initialized on the current tenant by the current thread
-	 * do not need to be initialized.
 	 *
 	 * @param currentThread[in] the current J9VMThread
 	 * @param j9clazz[in] the J9Class to query
@@ -366,7 +363,6 @@ public:
 		bool requiresInitialization = true;
 		UDATA initStatus = j9clazz->initializeStatus;
 		if ((J9ClassInitSucceeded == initStatus) || (((UDATA)currentThread) == initStatus)) {
-			/* Non-isolated class either fully initialized or initializing on the current thread */
 			requiresInitialization = false;
 		}
 		return requiresInitialization;
@@ -1061,24 +1057,64 @@ done:
 	}
 
 	/**
-	 * Get the field address from a RAM static field ref.
+	 * Determine if a RAM instance field ref is resolved.
 	 *
-	 * @param ramRef[in] the ref
+	 * @param flags[in] field from the ref
+	 * @param valueOffset[in] field from the ref
 	 *
-	 * @returns the field address, or NULL if the ref is unresolved
+	 * @returns true if resolved, false if not
+	 */
+	static VMINLINE bool
+	instanceFieldRefIsResolved(UDATA flags, UDATA valueOffset)
+	{
+		/* In a resolved field, flags will have the J9FieldFlagResolved bit set, thus
+		 * having a higher value than any valid valueOffset.
+		 *
+		 * This check avoids the need for a barrier, as it will only succeed if flags
+		 * and valueOffset have both been updated. It is crucial that we do not treat
+		 * a field ref as resolved if only one of the two values has been set (by
+		 * another thread that is in the middle of a resolve).
+		 */
+		return (flags > valueOffset);
+	}
+
+	/**
+	 * Determine if a RAM static field ref is resolved.
+	 *
+	 * @param flagsAndClass[in] field from the ref
+	 * @param valueOffset[in] field from the ref
+	 *
+	 * @returns true if resolved, false if not
+	 */
+	static VMINLINE bool
+	staticFieldRefIsResolved(IDATA flagsAndClass, UDATA valueOffset)
+	{
+		/* In an unresolved static fieldref, the valueOffset will be -1 or flagsAndClass will be <= 0.
+		 * If the fieldref was resolved as an instance fieldref, the high bit of flagsAndClass will be
+		 * set, so it will be < 0 and will be treated as an unresolved static fieldref.
+		 *
+		 * Since instruction re-ordering may result in us reading an updated valueOffset but
+		 * a stale flagsAndClass, we check that both fields have been updated. It is crucial
+		 * that we do not use a stale flagsAndClass with non-zero value, as doing so may cause the
+		 * the StaticFieldRefDouble bit check to succeed when it shouldn't.
+		 */
+		return ((UDATA)-1 != valueOffset) && (flagsAndClass > 0);
+	}
+
+	/**
+	 * Get the field address from a resolved RAM static field ref.
+	 *
+	 * @param flagsAndClass[in] field from the ref
+	 * @param staticAddress[in] field from the ref
+	 *
+	 * @returns the field address
 	 */
 	static VMINLINE void*
-	staticFieldAddressFromRef(J9RAMStaticFieldRef *ramRef)
+	staticFieldAddressFromResolvedRef(IDATA flagsAndClass, UDATA staticAddress)
 	{
-		IDATA flagsAndClass = ramRef->flagsAndClass;
-		UDATA staticAddress = ramRef->valueOffset;
-		if (((UDATA)-1 == staticAddress) || (flagsAndClass <= 0)) {
-			staticAddress = 0;
-		} else {
-			J9Class *clazz = (J9Class*)((UDATA)flagsAndClass << J9_REQUIRED_CLASS_SHIFT);
-			staticAddress &= ~((UDATA)1 << ((8 * sizeof(UDATA)) - 1));
-			staticAddress += (UDATA)clazz->ramStatics;
-		}
+		J9Class *clazz = (J9Class*)((UDATA)flagsAndClass << J9_REQUIRED_CLASS_SHIFT);
+		staticAddress &= ~((UDATA)1 << ((8 * sizeof(UDATA)) - 1));
+		staticAddress += (UDATA)clazz->ramStatics;
 		return (void*)staticAddress;
 	}
 
@@ -1107,7 +1143,7 @@ done:
 				currentThread->javaOffloadState = 0;
 				/* check if the class requires lazy switching (for JDBC) or normal switching */
 				J9Class *methodClass = J9_CLASS_FROM_METHOD(method);
-				if (J9_ARE_ANY_BITS_SET(J9CLASS_FLAGS(methodClass), J9_JAVA_CLASS_HAS_JDBC_NATIVES)) {
+				if (J9_ARE_ANY_BITS_SET(J9CLASS_FLAGS(methodClass), J9AccClassHasJDBCNatives)) {
 					vm->javaOffloadSwitchJDBCWithMethodFunc(currentThread, method);
 				} else {
 					vm->javaOffloadSwitchOffWithMethodFunc(currentThread, method);
@@ -1317,7 +1353,15 @@ exit:
 			}
 			break;
 		case J9NtcBoolean:
-			*returnStorage = (UDATA)(U_8)*returnStorage;
+		{
+			U_32 returnValue = (U_32)*returnStorage;
+			U_8 * returnAddress = (U_8 *)&returnValue;
+#ifdef J9VM_ENV_LITTLE_ENDIAN
+			*returnStorage = (UDATA)(0 != returnAddress[0]);
+#else
+			*returnStorage = (UDATA)(0 != returnAddress[3]);
+#endif /*J9VM_ENV_LITTLE_ENDIAN */
+		}
 			break;
 		case J9NtcByte:
 			*returnStorage = (UDATA)(IDATA)(I_8)*returnStorage;
@@ -1386,6 +1430,42 @@ exit:
 	{
 		return (J9SFJNINativeMethodFrame*)((UDATA)currentThread->sp + (UDATA)currentThread->literals);
 	}
+
+	/**
+	 * Checks whether a ROM method is <clinit> or <init>
+	 *
+	 * @param romMethod[in] the J9ROMMethod to test
+	 * @param isStatic[in] true to check for <clinit>, false to check for <init>
+	 *
+	 * @returns true if the method is a constructor, false if not
+	 */
+	static VMINLINE bool
+	romMethodIsInitializer(J9ROMMethod *romMethod, bool isStatic)
+	{
+		U_8 *name = J9UTF8_DATA(J9ROMMETHOD_NAME(romMethod));
+		/* No method may have an empty name, so reading the first byte is always
+		 * legal. The verifier only allows <clinit> or <init> to start with "<",
+		 * so reading the second byte is legal if the first byte is "<".
+		 */
+		return ('<' == name[0]) && ((isStatic ? 'c' : 'i') == name[1]);
+	}
+
+	/**
+	 * Checks whether a class enforces the final field setting rules.
+	 * Classes which are class file version 53 or above enforce the rule
+	 * unless the class was defined in a way that exempts it from validation.
+	 *
+	 * @param ramClass[in] the J9Class to test
+	 *
+	 * @returns true if the class enforces the rules, false if not
+	 */
+	static VMINLINE bool
+	ramClassChecksFinalStores(J9Class *ramClass)
+	{
+		return (!J9CLASS_IS_EXEMPT_FROM_VALIDATION(ramClass))
+			&& (ramClass->romClass->majorVersion >= 53);
+	}
+
 };
 
 #endif /* VMHELPERS_HPP_ */

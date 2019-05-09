@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2012, 2018 IBM Corp. and others
+ * Copyright (c) 2012, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -394,16 +394,11 @@ getObjectClass(JNIEnv *env, jobject obj)
 jint JNICALL
 getVersion(JNIEnv *env)
 {
-	J9VMThread *currentThread = (J9VMThread*)env;
-	J9JavaVM *vm = currentThread->javaVM;
-
-	if (J2SE_VERSION(vm) >= J2SE_V10) {
-		return JNI_VERSION_10;
-	} else if (J2SE_VERSION(vm) == J2SE_19) {
-		return JNI_VERSION_9;
-	} else {
-		return JNI_VERSION_1_8;
-	}
+#if JAVA_SPEC_VERSION >= 10
+	return JNI_VERSION_10;
+#else /* JAVA_SPEC_VERSION >= 10 */
+	return JNI_VERSION_1_8;
+#endif /* JAVA_SPEC_VERSION >= 10 */
 }
 
 jsize JNICALL

@@ -1,4 +1,4 @@
-# Copyright (c) 2000, 2018 IBM Corp. and others
+# Copyright (c) 2000, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -66,11 +66,8 @@ ifeq (default,$(origin CXX))
     CXX=cl
 endif
 
-# This is the script that's used to generate TRBuildName.cpp
-GENERATE_VERSION_SCRIPT?=$(JIT_SCRIPT_DIR)/generateVersion.pl
-
 #
-# First setup C and C++ compilers. 
+# First setup C and C++ compilers.
 #
 #     Note: "CX" means both C and C++
 #
@@ -81,10 +78,9 @@ CX_DEFINES+=\
     $(TARGET_DEFINES) \
     CRTAPI1=_cdecl \
     CRTAPI2=_cdecl \
-    _WIN95 \
-    _WIN32_WINDOWS=0x400 \
-    _WIN32_IE=0x300 \
-    WINVER=0x400 \
+    _WIN32_WINDOWS=0x601 \
+    _WIN32_WINNT=0x0601 \
+    WINVER=0x601\
     _WIN32 \
     WIN32 \
     _CRT_SECURE_NO_WARNINGS \
@@ -127,7 +123,6 @@ endif
 
 ifeq ($(HOST_BITS),64)
     CX_DEFINES+=\
-        _WIN32_WINNT=0x0400 \
         _WINSOCKAPI_ \
         J9HAMMER
 endif
@@ -153,60 +148,40 @@ CXX_DEFINES+=$(CX_DEFINES) $(CX_DEFINES_EXTRA) $(CXX_DEFINES_EXTRA)
 CXX_FLAGS+=$(CX_FLAGS) $(CX_FLAGS_EXTRA) $(CXX_FLAGS_EXTRA)
 
 #
-# Now setup ASM
+# Setup NASM
 #
-ASM_CMD?=$(ML)
 
-ASM_INCLUDES=$(PRODUCT_INCLUDES)
-ASM_DEFINES+=\
-    $(PRODUCT_DEFINES) \
-    $(HOST_DEFINES) \
-    $(TARGET_DEFINES)
-    
-ASM_FLAGS+=-nologo -c -Cp
+NASM_CMD?=nasm
 
-ASM_DEFINES_DEBUG+=DEBUG
-ASM_FLAGS_DEBUG+=-Zdi
+NASM_DEFINES=\
+    TR_HOST_X86 \
+    TR_TARGET_X86 \
+    WINDOWS
 
-ASM_FLAGS_PROD+=-Zi
+NASM_INCLUDES=\
+    ../oti \
+    ../compiler \
+    ../compiler/x/runtime
 
 ifeq ($(HOST_BITS),32)
-    ASM_FLAGS+=-Zm -Gd -coff -safeseh
+    NASM_OBJ_FORMAT=-fwin32
+
+    NASM_DEFINES+=\
+        TR_HOST_32BIT \
+        TR_TARGET_32BIT
+
+    NASM_INCLUDES+=\
+        ../compiler/x/i386/runtime
+else
+    NASM_OBJ_FORMAT=-fwin64
+
+    NASM_DEFINES+=\
+        TR_HOST_64BIT \
+        TR_TARGET_64BIT
+
+    NASM_INCLUDES+=\
+        ../compiler/x/amd64/runtime
 endif
-
-ifeq ($(HOST_BITS),64)
-    ASM_FLAGS+=-W3
-endif
-
-ifeq ($(BUILD_CONFIG),debug)
-    ASM_DEFINES+=$(ASM_DEFINES_DEBUG)
-    ASM_FLAGS+=$(ASM_FLAGS_DEBUG)
-endif
-
-ifeq ($(BUILD_CONFIG),prod)
-    ASM_DEFINES+=$(ASM_DEFINES_PROD)
-    ASM_FLAGS+=$(ASM_FLAGS_PROD)
-endif
-
-ASM_DEFINES+=$(ASM_DEFINES_EXTRA)
-ASM_FLAGS+=$(ASM_FLAGS_EXTRA)
-
-#
-# Setup PASM
-#
-PASM_CMD?=$(CC)
-
-PASM_INCLUDES=$(PRODUCT_INCLUDES)
-
-ifeq ($(BUILD_CONFIG),debug)
-    PASM_FLAGS+=$(PASM_FLAGS_DEBUG)
-endif
-
-ifeq ($(BUILD_CONFIG),prod)
-    PASM_FLAGS+=$(PASM_FLAGS_PROD)
-endif
-
-PASM_FLAGS+=$(PASM_FLAGS_EXTRA)
 
 #
 # Setup RC
@@ -237,8 +212,14 @@ SOLINK_FLAGS+=-nologo -nodefaultlib -incremental:no -debug
 SOLINK_LIBPATH+=$(PRODUCT_LIBPATH)
 SOLINK_SLINK+=$(PRODUCT_SLINK) j9thr j9hookable kernel32 oldnames msvcrt msvcprt ws2_32
 
-ifneq (,$(filter 2015 2017, $(MSVC_VERSION)))
-    SOLINK_SLINK+=ucrt vcruntime
+ifeq ($(origin MSVC_VERSION), undefined)
+    ifneq (,$(filter 14.0 15.0, $(VisualStudioVersion)))
+        SOLINK_SLINK+=ucrt vcruntime
+    endif
+else
+    ifneq (,$(filter 2015 2017, $(MSVC_VERSION)))
+        SOLINK_SLINK+=ucrt vcruntime
+    endif
 endif
 
 SOLINK_DEF?=$(JIT_SCRIPT_DIR)/j9jit.def

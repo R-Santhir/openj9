@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -80,7 +80,7 @@ computeJCLRuntimeFlags(J9JavaVM *vm)
 #endif
 
 #ifdef J9VM_OPT_MODULE
-	if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) >= J2SE_19) {
+	if (J2SE_VERSION(vm) >= J2SE_V11) {
 		flags |= JCL_RTFLAG_OPT_MODULE;
 	}
 #endif
@@ -100,11 +100,10 @@ standardInit( J9JavaVM *vm, char *dllName)
 	J9InternalVMFunctions *vmFuncs = vm->internalVMFunctions;
 	J9ConstantPool *jclConstantPool = (J9ConstantPool *) vm->jclConstantPool;
 	extern J9ROMClass *jclROMClass;
-	jclass clazz;
+	jclass clazz = NULL;
 	J9NativeLibrary *javaLibHandle = NULL;
 	char *threadName = NULL;
 	jobject threadGroup = NULL;
-	UDATA j2seVersion = J2SE_VERSION(vm) & J2SE_VERSION_MASK;
 
 	/* Register this module with trace */
 	UT_MODULE_LOADED(J9_UTINTERFACE_FROM_VM(vm));
@@ -117,7 +116,7 @@ standardInit( J9JavaVM *vm, char *dllName)
 	jclConstantPool->romConstantPool = J9_ROM_CP_FROM_ROM_CLASS(jclROMClass);
 
 #ifdef J9VM_OPT_DYNAMIC_LOAD_SUPPORT
-	if (j2seVersion < J2SE_19) {
+	if (J2SE_VERSION(vm) < J2SE_V11) {
 		/* Process the command-line bootpath additions/modifications */
 		if (computeFinalBootstrapClassPath(vm)) {
 			goto _fail;
@@ -138,16 +137,6 @@ standardInit( J9JavaVM *vm, char *dllName)
 		goto _fail;
 	}
 
-	vmFuncs->internalAcquireVMAccess(vmThread);
-	result = (jint)initializeRequiredClasses(vmThread, dllName);
-
-	if (0 == result) {
-		result = vmFuncs->initializeHeapOOMMessage(vmThread);
-	}
-
-	/* CANNOT hold VM Access while calling registerBootstrapLibrary */
-	vmFuncs->internalReleaseVMAccess(vmThread);
-
 	/* Add the correct "zip" natives to the path:
 	 * Configuration	Load Zip
 	 *  Java_6			yes
@@ -156,62 +145,74 @@ standardInit( J9JavaVM *vm, char *dllName)
 	 */
 #ifdef J9VM_OPT_SIDECAR
 #if !defined(J9VM_INTERP_MINIMAL_JCL)
-	if (result == 0) {
+	{
 		UDATA handle = 0;
 		result = (jint)vmFuncs->registerBootstrapLibrary(vm->mainThread, "zip", (J9NativeLibrary **)&handle, FALSE);
 	}
 #endif /* !J9VM_INTERP_MINIMAL_JCL */
 #endif /* J9VM_OPT_SIDECAR */
 
-	vmFuncs->internalAcquireVMAccess(vmThread);
-
-	if (result == 0) {
-		U_32 runtimeFlags = computeJCLRuntimeFlags(vm);
-		result = initializeKnownClasses(vm, runtimeFlags);
-	}
-
-	if (result == 0) {
-		IDATA continueInitialization = TRUE;
-		/* Must do this before initializeAttachedThread */
-		vmFuncs->internalReleaseVMAccess(vmThread);
-
-		TRIGGER_J9HOOK_VM_INITIALIZE_REQUIRED_CLASSES_DONE(vm->hookInterface, vmThread, continueInitialization);
-		if (!continueInitialization) {
-			goto _fail;
-		}
-
-		result = (jint)initializeSystemThreadGroup(vm, (JNIEnv *)vmThread);
-		if (result != JNI_OK) goto _fail;
-
-#if defined(J9VM_INTERP_ATOMIC_FREE_JNI)
-		vmFuncs->internalEnterVMFromJNI(vmThread);
-		vmFuncs->internalReleaseVMAccess(vmThread);
-#endif /* J9VM_INTERP_ATOMIC_FREE_JNI */
-		vmFuncs->initializeAttachedThread(vmThread, threadName, (j9object_t *)threadGroup, FALSE, vmThread);
-
+	if (JNI_OK == result) {
 		vmFuncs->internalAcquireVMAccess(vmThread);
+		
+		result = (jint)initializeRequiredClasses(vmThread, dllName);
+		
+		if (JNI_OK == result) {
+			result = vmFuncs->initializeHeapOOMMessage(vmThread);
+		}
+		
+		if (JNI_OK == result) {
+			U_32 runtimeFlags = computeJCLRuntimeFlags(vm);
+			result = initializeKnownClasses(vm, runtimeFlags);
+		}
+		
+		if (JNI_OK == result) {
+			IDATA continueInitialization = TRUE;
+			/* Must do this before initializeAttachedThread */
+			vmFuncs->internalReleaseVMAccess(vmThread);
 
-		if ((vmThread->currentException != NULL) || (vmThread->threadObject == NULL)) {
-			result = JNI_ERR;
-		} else {
-			vmFuncs->internalFindKnownClass(vmThread,
-				J9VMCONSTANTPOOL_JAVALANGTHREADDEATH,
-				J9_FINDKNOWNCLASS_FLAG_INITIALIZE | J9_FINDKNOWNCLASS_FLAG_NON_FATAL);
-			if (vmThread->currentException) {
+			TRIGGER_J9HOOK_VM_INITIALIZE_REQUIRED_CLASSES_DONE(vm->hookInterface, vmThread, continueInitialization);
+			if (!continueInitialization) {
+				goto _fail;
+			}
+
+			result = (jint)initializeSystemThreadGroup(vm, (JNIEnv *)vmThread);
+			if (JNI_OK != result) {
+				goto _fail;
+			}
+
+	#if defined(J9VM_INTERP_ATOMIC_FREE_JNI)
+			vmFuncs->internalEnterVMFromJNI(vmThread);
+			vmFuncs->internalReleaseVMAccess(vmThread);
+	#endif /* J9VM_INTERP_ATOMIC_FREE_JNI */
+			vmFuncs->initializeAttachedThread(vmThread, threadName, (j9object_t *)threadGroup, FALSE, vmThread);
+
+			vmFuncs->internalAcquireVMAccess(vmThread);
+
+			if ((NULL != vmThread->currentException) || (NULL == vmThread->threadObject)) {
 				result = JNI_ERR;
+			} else {
+				vmFuncs->internalFindKnownClass(vmThread,
+					J9VMCONSTANTPOOL_JAVALANGTHREADDEATH,
+					J9_FINDKNOWNCLASS_FLAG_INITIALIZE | J9_FINDKNOWNCLASS_FLAG_NON_FATAL);
+				if (vmThread->currentException) {
+					result = JNI_ERR;
+				}
 			}
 		}
+		vmFuncs->internalReleaseVMAccess(vmThread);
 	}
-	vmFuncs->internalReleaseVMAccess(vmThread);
-
-	if (result != JNI_OK) goto _fail;
+	
+	if (JNI_OK != result) {
+		goto _fail;
+	}
 
 	internalInitializeJavaLangClassLoader((JNIEnv*)vmThread);
 	if (vmThread->currentException) goto _fail;
 
-	if (J2SE_VERSION(vm) >= J2SE_19) {
+	if (J2SE_VERSION(vm) >= J2SE_V11) {
 		result = registerJdkInternalReflectConstantPoolNatives((JNIEnv*)vmThread);
-		if (0 != result) {
+		if (JNI_OK != result) {
 			fprintf(stderr, "Failed to register natives for jdk.internal.reflect.ConstantPool\n");
 			goto _fail;
 		}
@@ -228,37 +229,38 @@ standardInit( J9JavaVM *vm, char *dllName)
 		vm->jlrMethodInvoke = ((J9JNIMethodID *) invokeMethod)->method;
 		(*(JNIEnv*)vmThread)->DeleteLocalRef((JNIEnv*)vmThread, clazz);
 
-		if (J2SE_SHAPE(vm) != J2SE_SHAPE_RAW) {
-			/* JSR 292-related class */
-			clazz = (*(JNIEnv*)vmThread)->FindClass((JNIEnv*)vmThread, "com/ibm/oti/lang/ArgumentHelper");
-			if (!clazz) goto _fail;
-			vm->jliArgumentHelper = (*(JNIEnv*)vmThread)->NewGlobalRef((JNIEnv*)vmThread, clazz);
-			if (!vm->jliArgumentHelper) goto _fail;
-			(*(JNIEnv*)vmThread)->DeleteLocalRef((JNIEnv*)vmThread, clazz);
+#ifndef J9VM_IVE_RAW_BUILD /* J9VM_IVE_RAW_BUILD is not enabled by default */
+		/* JSR 292-related class */
+		clazz = (*(JNIEnv*)vmThread)->FindClass((JNIEnv*)vmThread, "com/ibm/oti/lang/ArgumentHelper");
+		if (!clazz) goto _fail;
+		vm->jliArgumentHelper = (*(JNIEnv*)vmThread)->NewGlobalRef((JNIEnv*)vmThread, clazz);
+		if (!vm->jliArgumentHelper) goto _fail;
+		(*(JNIEnv*)vmThread)->DeleteLocalRef((JNIEnv*)vmThread, clazz);
 
-			clazz = (*(JNIEnv*)vmThread)->FindClass((JNIEnv*)vmThread, "java/lang/invoke/MethodHandle");
-			if (!clazz) goto _fail;
-			invokeMethod = (*(JNIEnv*)vmThread)->GetMethodID((JNIEnv*)vmThread, clazz, "invokeWithArguments", "([Ljava/lang/Object;)Ljava/lang/Object;");
-			if (!invokeMethod) goto _fail;
-			vm->jliMethodHandleInvokeWithArgs = ((J9JNIMethodID *) invokeMethod)->method;
-			invokeMethod = (*(JNIEnv*)vmThread)->GetMethodID((JNIEnv*)vmThread, clazz, "invokeWithArguments", "(Ljava/util/List;)Ljava/lang/Object;");
-			if (!invokeMethod) goto _fail;
-			vm->jliMethodHandleInvokeWithArgsList = ((J9JNIMethodID *) invokeMethod)->method;
+		clazz = (*(JNIEnv*)vmThread)->FindClass((JNIEnv*)vmThread, "java/lang/invoke/MethodHandle");
+		if (!clazz) goto _fail;
+		invokeMethod = (*(JNIEnv*)vmThread)->GetMethodID((JNIEnv*)vmThread, clazz, "invokeWithArguments", "([Ljava/lang/Object;)Ljava/lang/Object;");
+		if (!invokeMethod) goto _fail;
+		vm->jliMethodHandleInvokeWithArgs = ((J9JNIMethodID *) invokeMethod)->method;
+		invokeMethod = (*(JNIEnv*)vmThread)->GetMethodID((JNIEnv*)vmThread, clazz, "invokeWithArguments", "(Ljava/util/List;)Ljava/lang/Object;");
+		if (!invokeMethod) goto _fail;
+		vm->jliMethodHandleInvokeWithArgsList = ((J9JNIMethodID *) invokeMethod)->method;
+		(*(JNIEnv*)vmThread)->DeleteLocalRef((JNIEnv*)vmThread, clazz);
+		clazz = (*(JNIEnv*)vmThread)->FindClass((JNIEnv*)vmThread, "com/ibm/jit/JITHelpers");
+		if (NULL != clazz) {
+			/* Force class initialization */
+			(void)(*(JNIEnv*)vmThread)->GetStaticFieldID((JNIEnv*)vmThread, clazz, "helpers", "Lcom/ibm/jit/JITHelpers;");
 			(*(JNIEnv*)vmThread)->DeleteLocalRef((JNIEnv*)vmThread, clazz);
-
-			clazz = (*(JNIEnv*)vmThread)->FindClass((JNIEnv*)vmThread, "com/ibm/jit/JITHelpers");
-			if (NULL != clazz) {
-				/* Force class initialization */
-				(void)(*(JNIEnv*)vmThread)->GetStaticFieldID((JNIEnv*)vmThread, clazz, "helpers", "Lcom/ibm/jit/JITHelpers;");
-				(*(JNIEnv*)vmThread)->DeleteLocalRef((JNIEnv*)vmThread, clazz);
-			}
 		}
+#endif /* !J9VM_IVE_RAW_BUILD */
 	}
 #endif
 
 #ifdef J9VM_INTERP_SIG_QUIT_THREAD
 	result = J9SigQuitStartup(vm);
-	if (result != JNI_OK) goto _fail;
+	if (JNI_OK != result) {
+		goto _fail;
+	}
 #endif
 
 	/*
@@ -294,7 +296,7 @@ standardPreconfigure(JavaVM *jvm)
 	J9JavaVM* vm = (J9JavaVM*)jvm;
 
 #ifdef J9VM_OPT_DYNAMIC_LOAD_SUPPORT
-	if (J2SE_VERSION(vm) < J2SE_19) {
+	if (J2SE_VERSION(vm) < J2SE_V11) {
 		/* Now, based on java.home we can compute the default bootpath */
 		if (initializeBootClassPathSystemProperty(vm)) {
 			goto _fail;
@@ -525,7 +527,7 @@ initializeBootstrapClassPath(J9JavaVM *vm)
 	BOOLEAN initClassPathEntry = FALSE;
 
 	/* Get the BP from the VM sysprop */
-	if ((J2SE_VERSION(vm) & J2SE_VERSION_MASK) < J2SE_19) {
+	if (J2SE_VERSION(vm) < J2SE_V11) {
 		(*VMI)->GetSystemProperty(VMI, BOOT_PATH_SYS_PROP, &path);
 	} else {
 		(*VMI)->GetSystemProperty(VMI, BOOT_CLASS_PATH_APPEND_PROP, &path);
@@ -948,13 +950,22 @@ jobject getPropertyList(JNIEnv *env);
 jint
 completeInitialization(J9JavaVM * vm)
 {
+	jint result = JNI_OK;
 	J9InternalVMFunctions *vmFuncs = vm->internalVMFunctions;
-	vmFuncs->internalEnterVMFromJNI(vm->mainThread);
-	vmFuncs->sendCompleteInitialization(vm->mainThread, 0, 0, 0, 0);
-	vmFuncs->internalReleaseVMAccess(vm->mainThread);
-
-	if (vm->mainThread->currentException) {
-		return JNI_ERR;
+	J9VMThread *currentThread = vm->mainThread;
+	
+	vmFuncs->internalEnterVMFromJNI(currentThread);
+	vmFuncs->sendCompleteInitialization(currentThread);
+	vmFuncs->internalReleaseVMAccess(currentThread);
+	
+	if (NULL == currentThread->currentException) {
+		/* ensure ClassLoader.applicationClassLoader updated via system property java.system.class.loader is updated in VM as well */
+		internalInitializeJavaLangClassLoader((JNIEnv*)currentThread);
+		if (NULL != currentThread->currentException) {
+			result = JNI_ERR;
+		}
+	} else {
+		result = JNI_ERR;
 	}
-	return JNI_OK;
+	return result;
 }

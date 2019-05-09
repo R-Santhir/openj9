@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -225,10 +225,10 @@ public:
 
    virtual bool isAOT_DEPRECATED_DO_NOT_USE() { return false; }
    virtual bool supportsMethodEntryPadding() { return true; }
+   virtual bool canUseSymbolValidationManager() { return false; }
 
 #if defined(TR_TARGET_S390)
-   virtual void initializeS390zLinuxProcessorFeatures();
-   virtual void initializeS390zOSProcessorFeatures();
+   virtual void initializeS390ProcessorFeatures();
 #endif
 
 /////
@@ -240,10 +240,12 @@ public:
 /////
    virtual bool isGetImplInliningSupported();
 
+   virtual uintptrj_t getClassDepthAndFlagsValue(TR_OpaqueClassBlock * classPointer);
 
    virtual bool isAbstractClass(TR_OpaqueClassBlock * clazzPointer);
    virtual bool isCloneable(TR_OpaqueClassBlock *);
    virtual bool isInterfaceClass(TR_OpaqueClassBlock * clazzPointer);
+   virtual bool isEnumClass(TR_OpaqueClassBlock * clazzPointer, TR_ResolvedMethod *method);
    virtual bool isPrimitiveClass(TR_OpaqueClassBlock *clazz);
    virtual bool isPrimitiveArray(TR_OpaqueClassBlock *);
    virtual bool isReferenceArray(TR_OpaqueClassBlock *);
@@ -274,7 +276,6 @@ public:
    static char *getJ9FormattedName(J9JITConfig *, J9PortLibrary *, char *, int32_t, char *, char *, bool suffix=false);
    static TR_Processor getPPCProcessorType();
    virtual bool getPPCSupportsVSXRegisters();
-   static void initializeX86ProcessorInfo(J9JITConfig *);
 
    static bool isBigDecimalClass(J9UTF8 * className);
    bool isCachedBigDecimalClassFieldAddr(){ return cachedStaticDFPAvailField; }
@@ -311,7 +312,7 @@ public:
    // Not implemented
    virtual TR_ResolvedMethod * getObjectNewInstanceImplMethod(TR_Memory *) { return 0; }
 
-   bool stackWalkerMaySkipFrames(TR_OpaqueMethodBlock *method, TR_OpaqueClassBlock *methodClass);
+   virtual bool stackWalkerMaySkipFrames(TR_OpaqueMethodBlock *method, TR_OpaqueClassBlock *methodClass) = 0;
 
    virtual bool supportsEmbeddedHeapBounds()  { return true; }
    virtual bool supportsFastNanoTime();
@@ -322,6 +323,8 @@ public:
    virtual bool forceUnresolvedDispatch() { return false; }
 
    virtual TR_OpaqueMethodBlock * getMethodFromClass(TR_OpaqueClassBlock *, char *, char *, TR_OpaqueClassBlock * = NULL);
+
+   TR_OpaqueMethodBlock * getMatchingMethodFromNameAndSignature(TR_OpaqueClassBlock * classPointer, const char* methodName, const char *signature, bool validate = true);
 
    virtual void getResolvedMethods(TR_Memory *, TR_OpaqueClassBlock *, List<TR_ResolvedMethod> *);
    /**
@@ -339,6 +342,8 @@ public:
    virtual TR_ResolvedMethod *getResolvedMethodForNameAndSignature(TR_Memory * trMemory, TR_OpaqueClassBlock * classPointer, const char* methodName, const char *signature);
    virtual TR_OpaqueMethodBlock *getResolvedVirtualMethod(TR_OpaqueClassBlock * classObject, int32_t cpIndex, bool ignoreReResolve = true);
    virtual TR_OpaqueMethodBlock *getResolvedInterfaceMethod(TR_OpaqueMethodBlock *ownerMethod, TR_OpaqueClassBlock * classObject, int32_t cpIndex);
+
+   TR_OpaqueMethodBlock *getResolvedInterfaceMethod(J9ConstantPool *ownerCP, TR_OpaqueClassBlock * classObject, int32_t cpIndex);
 
    uintptrj_t getReferenceField(uintptrj_t objectPointer, char *fieldName, char *fieldSignature)
       {
@@ -382,12 +387,9 @@ public:
    virtual bool               hasFixedFrameC_CallingConvention();
    virtual bool               pushesOutgoingArgsAtCallSite( TR::Compilation *comp);
 
-
-   bool                       getX86SupportsHLE();
-   virtual bool               getX86SupportsPOPCNT();
-
    virtual TR::PersistentInfo * getPersistentInfo()  { return ((TR_PersistentMemory *)_jitConfig->scratchSegment)->getPersistentInfo(); }
    void                       unknownByteCode( TR::Compilation *, uint8_t opcode);
+   void                       unsupportedByteCode( TR::Compilation *, uint8_t opcode);
 
    virtual bool isBenefitInliningCheckIfFinalizeObject() { return false; }
 
@@ -404,12 +406,7 @@ public:
    uint32_t                   getNumMethods(TR_OpaqueClassBlock *classPointer);
 
    virtual uint8_t *          allocateCodeMemory( TR::Compilation *, uint32_t warmCodeSize, uint32_t coldCodeSize, uint8_t **coldCode, bool isMethodHeaderNeeded=true);
-   virtual void               resizeCodeMemory( TR::Compilation *, uint8_t *, uint32_t numBytes);
 
-   virtual uint8_t *          getCodeCacheBase();
-   virtual uint8_t *          getCodeCacheBase(TR::CodeCache *);
-   virtual uint8_t *          getCodeCacheTop();
-   virtual uint8_t *          getCodeCacheTop(TR::CodeCache *);
    virtual void               releaseCodeMemory(void *startPC, uint8_t bytesToSaveAtStart);
    virtual uint8_t *          allocateRelocationData( TR::Compilation *, uint32_t numBytes);
 
@@ -447,7 +444,6 @@ public:
    virtual uintptrj_t         thisThreadGetSystemSPOffset();
 
    virtual uintptrj_t         thisThreadGetMachineSPOffset();
-   virtual uintptrj_t         thisThreadGetMachineBPOffset( TR::Compilation *);
    virtual uintptrj_t         thisThreadGetJavaFrameFlagsOffset();
    virtual uintptrj_t         thisThreadGetCurrentThreadOffset();
    virtual uintptrj_t         thisThreadGetFloatTemp1Offset();
@@ -713,13 +709,6 @@ public:
    virtual bool               isClassArray(TR_OpaqueClassBlock *);
    virtual bool               isFinalFieldPointingAtJ9Class(TR::SymbolReference *symRef, TR::Compilation *comp);
 
-   virtual const char * getX86ProcessorVendorId();
-   virtual uint32_t     getX86ProcessorSignature();
-   virtual uint32_t     getX86ProcessorFeatureFlags();
-   virtual uint32_t     getX86ProcessorFeatureFlags2();
-   virtual uint32_t     getX86ProcessorFeatureFlags8();
-   virtual bool         getX86SupportsSSE4_1();
-
    virtual void *getJ2IThunk(char *signatureChars, uint32_t signatureLength,  TR::Compilation *comp);
    virtual void *setJ2IThunk(char *signatureChars, uint32_t signatureLength, void *thunkptr,  TR::Compilation *comp);
    virtual void *setJ2IThunk(TR_Method *method, void *thunkptr, TR::Compilation *comp);  // DMDM: J9 now
@@ -801,8 +790,6 @@ public:
    virtual bool methodMayHaveBeenInterpreted( TR::Compilation *comp);
    virtual bool canRecompileMethodWithMatchingPersistentMethodInfo( TR::Compilation *comp);
 
-   virtual void abortCompilationIfLowFreePhysicalMemory(TR::Compilation *comp, size_t sizeToAllocate = 0);
-
    virtual void               revertToInterpreted(TR_OpaqueMethodBlock *method);
 
    virtual bool               argumentCanEscapeMethodCall(TR::MethodSymbol *method, int32_t argIndex);
@@ -821,7 +808,6 @@ public:
    void *getCCPreLoadedCodeAddress(TR::CodeCache *codeCache, TR_CCPreLoadedCode h, TR::CodeGenerator *cg);
 
    virtual void reserveTrampolineIfNecessary( TR::Compilation *, TR::SymbolReference *symRef, bool inBinaryEncoding);
-   virtual intptrj_t indexedTrampolineLookup(int32_t helperIndex, void *callSite);
    virtual TR::CodeCache* getResolvedTrampoline( TR::Compilation *, TR::CodeCache* curCache, J9Method * method, bool inBinaryEncoding) = 0;
 
    // Interpreter profiling support
@@ -841,11 +827,6 @@ public:
    virtual bool    isClassLibraryMethod(TR_OpaqueMethodBlock *method, bool vettedForAOT = false);
    virtual bool    isClassLibraryClass(TR_OpaqueClassBlock *clazz);
    virtual int32_t getMaxCallGraphCallCount();
-
-   virtual void getNumberofCallersAndTotalWeight(TR_OpaqueMethodBlock *method, uint32_t *count, uint32_t *weight);
-   virtual uint32_t getOtherBucketWeight(TR_OpaqueMethodBlock *method);
-   virtual bool getCallerWeight(TR_OpaqueMethodBlock *calleeMethod, TR_OpaqueMethodBlock *callerMethod , uint32_t *weight);
-   virtual bool getCallerWeight(TR_OpaqueMethodBlock *calleeMethod, TR_OpaqueMethodBlock *callerMethod , uint32_t *weight, uint32_t pcIndex);
 
    virtual bool    getSupportsRecognizedMethods();
 
@@ -880,15 +861,10 @@ public:
 
     TR::TreeTop * lowerAsyncCheck( TR::Compilation *, TR::Node * root,  TR::TreeTop * treeTop);
     TR::TreeTop * lowerAtcCheck( TR::Compilation *, TR::Node * root,  TR::TreeTop * treeTop);
-   virtual bool isMethodEnterTracingEnabled(TR_OpaqueMethodBlock *method);
-   virtual bool isMethodEnterTracingEnabled(J9Method *j9method)
+   virtual bool isMethodTracingEnabled(TR_OpaqueMethodBlock *method);
+   virtual bool isMethodTracingEnabled(J9Method *j9method)
       {
-      return isMethodEnterTracingEnabled((TR_OpaqueMethodBlock *)j9method);
-      }
-   virtual bool isMethodExitTracingEnabled(TR_OpaqueMethodBlock *method);
-   virtual bool isMethodExitTracingEnabled(J9Method *j9method)
-      {
-      return isMethodExitTracingEnabled((TR_OpaqueMethodBlock *)j9method);
+      return isMethodTracingEnabled((TR_OpaqueMethodBlock *)j9method);
       }
 
    virtual bool isSelectiveMethodEnterExitEnabled();
@@ -905,7 +881,6 @@ public:
 
    TR::Node * initializeLocalObjectFlags( TR::Compilation *, TR::Node * allocationNode, J9Class * ramClass);
 
-   virtual bool             testOSForSSESupport();
    virtual J9JITConfig *getJ9JITConfig() { return _jitConfig; }
 
    virtual int32_t getCompThreadIDForVMThread(void *vmThread);
@@ -1007,11 +982,7 @@ public:
    virtual void *getLocationOfClassLoaderObjectPointer(TR_OpaqueClassBlock *classPointer);
    virtual bool isMethodBreakpointed(TR_OpaqueMethodBlock *method);
 
-   protected:
-#if defined(TR_TARGET_S390)
-   int32_t getS390MachineName(TR_S390MachineType machine, char* processorName, int32_t stringLength);
-#endif
-
+   virtual bool canRememberClass(TR_OpaqueClassBlock *classPtr) { return false; }
    private:
 #if !defined(HINTS_IN_SHAREDCACHE_OBJECT)
    uint32_t     getSharedCacheHint(J9VMThread * vmThread, J9Method *romMethod, J9SharedClassConfig * scConfig);
@@ -1045,8 +1016,7 @@ public:
    virtual void               initializeHasFixedFrameC_CallingConvention();
 
    virtual bool               isPublicClass(TR_OpaqueClassBlock *clazz);
-   virtual TR_OpaqueMethodBlock *             getMethodFromName(char * className, char *methodName, char *signature, TR_OpaqueMethodBlock *callingMethod=0);
-   virtual uintptrj_t         getClassDepthAndFlagsValue(TR_OpaqueClassBlock * classPointer);
+   virtual TR_OpaqueMethodBlock *getMethodFromName(char * className, char *methodName, char *signature);
 
    virtual TR_OpaqueClassBlock * getComponentClassFromArrayClass(TR_OpaqueClassBlock * arrayClass);
    virtual TR_OpaqueClassBlock * getArrayClassFromComponentClass(TR_OpaqueClassBlock *componentClass);
@@ -1059,6 +1029,7 @@ public:
    virtual TR_OpaqueClassBlock * getSystemClassFromClassName(const char * name, int32_t length, bool isVettedForAOT=false);
    virtual TR_YesNoMaybe      isInstanceOf(TR_OpaqueClassBlock *instanceClass, TR_OpaqueClassBlock *castClass, bool instanceIsFixed, bool castIsFixed = true, bool optimizeForAOT=false);
 
+   virtual bool               stackWalkerMaySkipFrames(TR_OpaqueMethodBlock *method, TR_OpaqueClassBlock *methodClass);
 
    virtual TR_OpaqueClassBlock *             getSuperClass(TR_OpaqueClassBlock *classPointer);
    virtual bool               isUnloadAssumptionRequired(TR_OpaqueClassBlock *, TR_ResolvedMethod *);
@@ -1089,6 +1060,8 @@ public:
 
    virtual bool isDecimalFormatPattern( TR::Compilation *comp, TR_ResolvedMethod *method);
 
+   TR_OpaqueClassBlock * getClassFromSignature(const char * sig, int32_t sigLength, J9ConstantPool * constantPool);
+
 private:
    void transformJavaLangClassIsArrayOrIsPrimitive( TR::Compilation *, TR::Node * callNode,  TR::TreeTop * treeTop, int32_t andMask);
    void transformJavaLangClassIsArray( TR::Compilation *, TR::Node * callNode,  TR::TreeTop * treeTop);
@@ -1105,6 +1078,7 @@ public:
    virtual bool               isAOT_DEPRECATED_DO_NOT_USE()                                         { return true; }
 
    // replacing calls to isAOT
+   virtual bool               canUseSymbolValidationManager() { return true; }
    virtual bool               supportsCodeCacheSnippets()                     { return false; }
    virtual bool               canRelocateDirectNativeCalls()                  { return false; }
    virtual bool               needClassAndMethodPointerRelocations()          { return true; }
@@ -1127,8 +1101,9 @@ public:
 
    virtual bool               isClassLibraryMethod(TR_OpaqueMethodBlock *method, bool vettedForAOT = false);
 
-   virtual bool               isMethodEnterTracingEnabled(TR_OpaqueMethodBlock *method);
-   virtual bool               isMethodExitTracingEnabled(TR_OpaqueMethodBlock *method);
+   virtual bool               stackWalkerMaySkipFrames(TR_OpaqueMethodBlock *method, TR_OpaqueClassBlock *methodClass);
+
+   virtual bool               isMethodTracingEnabled(TR_OpaqueMethodBlock *method);
    virtual bool               traceableMethodsCanBeInlined();
 
    virtual bool               canMethodEnterEventBeHooked();
@@ -1139,9 +1114,12 @@ public:
    virtual TR_ResolvedMethod *getResolvedMethodForNameAndSignature(TR_Memory * trMemory, TR_OpaqueClassBlock * classPointer, const char* methodName, const char *signature);
    virtual uint32_t           getInstanceFieldOffset(TR_OpaqueClassBlock * classPointer, char * fieldName,
                                                      uint32_t fieldLen, char * sig, uint32_t sigLen, UDATA options);
+
+   virtual TR_OpaqueMethodBlock *getResolvedVirtualMethod(TR_OpaqueClassBlock * classObject, int32_t cpIndex, bool ignoreReResolve = true);
+   virtual TR_OpaqueMethodBlock *getResolvedInterfaceMethod(TR_OpaqueMethodBlock *ownerMethod, TR_OpaqueClassBlock * classObject, int32_t cpIndex);
+
 #if defined(TR_TARGET_S390)
-   virtual void               initializeS390zLinuxProcessorFeatures();
-   virtual void               initializeS390zOSProcessorFeatures();
+   virtual void               initializeS390ProcessorFeatures();
 #endif
 
    virtual int32_t            getJavaLangClassHashCode(TR::Compilation * comp, TR_OpaqueClassBlock * clazzPointer, bool &hashCodeComputed);
@@ -1155,7 +1133,6 @@ public:
    virtual bool               isPublicClass(TR_OpaqueClassBlock *clazz);
    virtual bool               hasFinalizer(TR_OpaqueClassBlock * classPointer);
    virtual uintptrj_t         getClassDepthAndFlagsValue(TR_OpaqueClassBlock * classPointer);
-   virtual TR_OpaqueMethodBlock *             getMethodFromName(char * className, char *methodName, char *signature, TR_OpaqueMethodBlock *callingMethod=0);
    virtual TR_OpaqueMethodBlock * getMethodFromClass(TR_OpaqueClassBlock *, char *, char *, TR_OpaqueClassBlock * = NULL);
    virtual bool               isPrimitiveClass(TR_OpaqueClassBlock *clazz);
    virtual TR_OpaqueClassBlock * getComponentClassFromArrayClass(TR_OpaqueClassBlock * arrayClass);
@@ -1190,6 +1167,7 @@ public:
    virtual bool                   supportAllocationInlining( TR::Compilation *comp, TR::Node *node);
 
    virtual J9Class *              getClassForAllocationInlining( TR::Compilation *comp, TR::SymbolReference *classSymRef);
+   virtual bool canRememberClass(TR_OpaqueClassBlock *classPtr);
    };
 
 #endif
@@ -1207,25 +1185,6 @@ typedef J9JITExceptionTable TR_MethodMetaData;
 TR_MethodMetaData * createMethodMetaData(TR_J9VMBase &, TR_ResolvedMethod *, TR::Compilation *);
 
 extern J9JITConfig * jitConfig;
-
-struct TR_MetaDataStats
-   {
-#if defined(DEBUG)
-   ~TR_MetaDataStats();
-#endif
-
-   uint32_t _counter;
-   uint32_t _codeSize;
-   uint32_t _maxCodeSize;
-   uint32_t _exceptionDataSize;
-   uint32_t _tableSize;
-   uint32_t _inlinedCallDataSize;
-   uint32_t _gcDataSize;
-   uint32_t _relocationSize;
-
-   };
-
-extern struct TR_MetaDataStats metaDataStats;
 
 static inline char * utf8Data(J9UTF8 * name)
    {

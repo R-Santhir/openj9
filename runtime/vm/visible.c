@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -97,11 +97,11 @@ checkVisibility(J9VMThread *currentThread, J9Class* sourceClass, J9Class* destCl
 				J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(sourceClass->romClass)), J9UTF8_DATA(J9ROMCLASS_CLASSNAME(sourceClass->romClass)),
 				J9UTF8_LENGTH(J9ROMCLASS_CLASSNAME(destClass->romClass)), J9UTF8_DATA(J9ROMCLASS_CLASSNAME(destClass->romClass)));
 #endif
-	if (J9ROMCLASS_IS_UNSAFE(sourceClass->romClass) == 0) {
+	if (!J9CLASS_IS_EXEMPT_FROM_VALIDATION(sourceClass)) {
 		if ( modifiers & J9AccPublic ) {
 			/* Public */
 			if ((sourceClass != destClass)
-				&& (J2SE_VERSION(vm) >= J2SE_19) 
+				&& (J2SE_VERSION(vm) >= J2SE_V11) 
 				&& J9_ARE_ALL_BITS_SET(vm->runtimeFlags, J9_RUNTIME_JAVA_BASE_MODULE_CREATED)
 				&& !J9ROMCLASS_IS_PRIMITIVE_TYPE(destClass->romClass)
 			) {
@@ -198,7 +198,7 @@ _exit:
  * 					J9_VISIBILITY_NEST_HOST_DIFFERENT_PACKAGE_ERROR
  * 					J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR
  */
-static void
+void
 setNestmatesError(J9VMThread *vmThread, J9Class *nestMember, J9Class *nestHost, IDATA errorCode)
 {
 	PORT_ACCESS_FROM_VMC(vmThread);
@@ -278,14 +278,19 @@ loadAndVerifyNestHost(J9VMThread *vmThread, J9Class *clazz, UDATA options)
 		J9Class *nestHost = NULL;
 		J9ROMClass *romClass = clazz->romClass;
 		J9UTF8 *nestHostName = J9ROMCLASS_NESTHOSTNAME(romClass);
-		BOOLEAN throwException = J9_ARE_NO_BITS_SET(options, J9_LOOK_NO_THROW);
+		BOOLEAN canRunJavaCode = J9_ARE_NO_BITS_SET(options, J9_LOOK_NO_JAVA);
+		BOOLEAN throwException = canRunJavaCode && J9_ARE_NO_BITS_SET(options, J9_LOOK_NO_THROW);
 		/* If no nest host is named, class is own nest host */
 		if (NULL == nestHostName) {
 			nestHost = clazz;
 		} else {
 			UDATA classLoadingFlags = 0;
-			if (throwException) {
-				classLoadingFlags = J9_FINDCLASS_FLAG_THROW_ON_FAIL;
+			if (canRunJavaCode) {
+				if (!throwException) {
+					classLoadingFlags = J9_FINDCLASS_FLAG_THROW_ON_FAIL;
+				}
+			} else {
+				classLoadingFlags = J9_FINDCLASS_FLAG_EXISTING_ONLY;
 			}
 
 			nestHost = internalFindClassUTF8(vmThread, J9UTF8_DATA(nestHostName), J9UTF8_LENGTH(nestHostName), clazz->classLoader, classLoadingFlags);
@@ -317,7 +322,16 @@ loadAndVerifyNestHost(J9VMThread *vmThread, J9Class *clazz, UDATA options)
 		if (J9_VISIBILITY_ALLOWED == result) {
 			clazz->nestHost = nestHost;
 		} else if (throwException) {
-			setNestmatesError(vmThread, clazz, nestHost, result);
+			/* Only set an exception is there isn't only already pending (and pop frame is not requested) */
+			if (J9_ARE_NO_BITS_SET(vmThread->publicFlags, J9_PUBLIC_FLAGS_POP_FRAMES_INTERRUPT)
+			&& (NULL == vmThread->currentException)
+			) {
+				setNestmatesError(vmThread, clazz, nestHost, result);
+			}
+		} else {
+			/* Asked not to throw - clear any pending exception */
+			vmThread->currentException = NULL;
+			vmThread->privateFlags &= ~(UDATA)J9_PRIVATE_FLAGS_REPORT_EXCEPTION_THROW;
 		}
 	}
 

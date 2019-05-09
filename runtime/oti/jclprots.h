@@ -88,7 +88,7 @@ Java_com_ibm_oti_shared_SharedClassURLHelperImpl_init(JNIEnv *env, jclass clazz)
 void JNICALL
 Java_com_ibm_oti_shared_SharedClassURLClasspathHelperImpl_init(JNIEnv *env, jclass clazz);
 jboolean JNICALL
-Java_com_ibm_oti_shared_Shared_isSharingEnabledImpl(JNIEnv* env, jclass clazz);
+Java_com_ibm_oti_shared_Shared_isNonBootSharingEnabledImpl(JNIEnv* env, jclass clazz);
 jlong JNICALL
 Java_com_ibm_oti_shared_SharedClassStatistics_softMaxBytesImpl (JNIEnv* env, jobject thisObj);
 /* J9SourceJclExtremeInit*/
@@ -729,8 +729,6 @@ getStackTraceForThread (J9VMThread * vmThread, J9VMThread *targetThread, UDATA s
 /* J9SourceJclStandardInit*/
 jint JCL_OnUnload (J9JavaVM* vm, void* reserved);
 jint standardPreconfigure ( JavaVM *jvm);
-jint
-standardInitAndCompleteInitialization (J9JavaVM *vm, char* dllName);
 void
 internalInitializeJavaLangClassLoader (JNIEnv * env);
 IDATA checkJCL (J9VMThread * vmThread, U_8* dllValue, U_8* jclConfig, UDATA j9Version, UDATA jclVersion);
@@ -1004,6 +1002,7 @@ jint JNICALL Java_java_lang_invoke_MethodHandle_getCPTypeAt(JNIEnv *env, jclass 
 jobject JNICALL Java_java_lang_invoke_MethodHandle_getCPMethodTypeAt(JNIEnv *env, jclass unusedClass, jobject constantPoolOop, jint cpIndex);
 jobject JNICALL Java_java_lang_invoke_MethodHandle_getCPMethodHandleAt(JNIEnv *env, jclass unusedClass, jobject constantPoolOop, jint cpIndex);
 jobject JNICALL Java_java_lang_invoke_MethodHandle_getCPClassNameAt(JNIEnv *env, jobject unusedObject, jobject constantPoolOop, jint cpIndex);
+jobject JNICALL Java_java_lang_invoke_MethodHandle_getCPConstantDynamicAt(JNIEnv *env, jclass unusedClass, jobject constantPoolOop, jint cpIndex);
 jint JNICALL Java_jdk_internal_reflect_ConstantPool_getClassRefIndexAt0(JNIEnv *env, jobject unusedObject, jobject constantPoolOop, jint cpIndex);
 jint JNICALL Java_jdk_internal_reflect_ConstantPool_getNameAndTypeRefIndexAt0(JNIEnv *env, jobject unusedObject, jobject constantPoolOop, jint cpIndex);
 jobject JNICALL Java_jdk_internal_reflect_ConstantPool_getNameAndTypeRefInfoAt0(JNIEnv *env, jobject unusedObject, jobject constantPoolOop, jint cpIndex);

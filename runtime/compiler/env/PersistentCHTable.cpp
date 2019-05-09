@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,30 +22,30 @@
 
 #include "env/PersistentCHTable.hpp"
 
-#include <stdint.h>                            // for int32_t
-#include <stdio.h>                             // for printf, fflush, NULL, etc
-#include <string.h>                            // for memcpy, memset, etc
-#include "codegen/FrontEnd.hpp"                // for TR_FrontEnd, feGetEnv
-#include "compile/Compilation.hpp"             // for Compilation, etc
-#include "compile/CompilationTypes.hpp"        // for TR_Hotness
-#include "compile/ResolvedMethod.hpp"          // for TR_ResolvedMethod
-#include "compile/SymbolReferenceTable.hpp"    // for SymbolReferenceTable
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include "codegen/FrontEnd.hpp"
+#include "compile/Compilation.hpp"
+#include "compile/CompilationTypes.hpp"
+#include "compile/ResolvedMethod.hpp"
+#include "compile/SymbolReferenceTable.hpp"
 #include "control/Options.hpp"
 #include "control/Options_inlines.hpp"
 #include "env/CHTable.hpp"
 #include "env/CompilerEnv.hpp"
-#include "env/PersistentInfo.hpp"              // for PersistentInfo
+#include "env/PersistentInfo.hpp"
 #include "env/RuntimeAssumptionTable.hpp"
 #include "env/TRMemory.hpp"
-#include "env/jittypes.h"                      // for uintptrj_t
-#include "env/ClassTableCriticalSection.hpp"   // for ClassTableCriticalSection
+#include "env/jittypes.h"
+#include "env/ClassTableCriticalSection.hpp"
 #include "env/VMJ9.h"
-#include "il/DataTypes.hpp"                    // for etc
-#include "il/SymbolReference.hpp"              // for classNameToSignature, etc
-#include "il/symbol/ResolvedMethodSymbol.hpp"  // for ResolvedMethodSymbol
-#include "infra/Assert.hpp"                    // for TR_ASSERT
-#include "infra/Link.hpp"                      // for TR_LinkHead
-#include "infra/List.hpp"                      // for ListIterator, etc
+#include "il/DataTypes.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/symbol/ResolvedMethodSymbol.hpp"
+#include "infra/Assert.hpp"
+#include "infra/Link.hpp"
+#include "infra/List.hpp"
 #include "runtime/RuntimeAssumptions.hpp"
 
 class TR_OpaqueClassBlock;
@@ -230,7 +230,7 @@ FindSingleJittedImplementer::visitSubclass(TR_PersistentClassInfo *cl)
          }
 
       // check to see if there are any duplicates
-      if (!method->isInterpreted())
+      if (!method->isInterpretedForHeuristics())
          {
          if (_implementer)
             {
@@ -309,17 +309,29 @@ TR_PersistentCHTable::findClassInfo(TR_OpaqueClassBlock * classId)
  * The class table lock is used to synchronize use of this method
  */
 TR_PersistentClassInfo *
-TR_PersistentCHTable::findClassInfoAfterLocking(
-      TR_OpaqueClassBlock *classId,
+TR_PersistentCHTable::findClassInfoAfterLocking(TR_OpaqueClassBlock *classId,
       TR::Compilation *comp,
-      bool returnClassInfoForAOT)
+      bool returnClassInfoForAOT,
+      bool validate)
    {
-   if (comp->fej9()->isAOT_DEPRECATED_DO_NOT_USE() && !returnClassInfoForAOT) // for AOT do not use the class hierarchy
+   // for AOT do not use the class hierarchy
+   if (comp->compileRelocatableCode() && !returnClassInfoForAOT)
+      {
       return NULL;
+      }
 
    if (comp->getOption(TR_DisableCHOpts))
       return NULL;
-   return findClassInfoAfterLocking(classId, comp->fe(), returnClassInfoForAOT);
+
+   TR_PersistentClassInfo *classInfo = findClassInfoAfterLocking(classId, comp->fe(), returnClassInfoForAOT);
+   if (classInfo &&
+       comp->compileRelocatableCode() &&
+       comp->getOption(TR_UseSymbolValidationManager) &&
+       validate)
+      {
+      comp->getSymbolValidationManager()->addClassInfoIsInitializedRecord(classId, classInfo->isInitialized());
+      }
+   return classInfo;
    }
 
 /**
@@ -387,22 +399,50 @@ TR_PersistentCHTable::isOverriddenInThisHierarchy(
    }
 
 TR_ResolvedMethod * TR_PersistentCHTable::findSingleImplementer(
-   TR_OpaqueClassBlock * thisClass, int32_t cpIndexOrVftSlot, TR_ResolvedMethod * callerMethod, TR::Compilation * comp, bool locked, TR_YesNoMaybe useGetResolvedInterfaceMethod)
+      TR_OpaqueClassBlock * thisClass,
+      int32_t cpIndexOrVftSlot,
+      TR_ResolvedMethod * callerMethod,
+      TR::Compilation * comp,
+      bool locked,
+      TR_YesNoMaybe useGetResolvedInterfaceMethod,
+      bool validate)
    {
    if (comp->getOption(TR_DisableCHOpts))
       return 0;
 
 
 
-   TR_PersistentClassInfo * classInfo = comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(thisClass, comp, true);
+   TR_PersistentClassInfo * classInfo = comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(thisClass, comp, true, validate);
    if (!classInfo)
       {
       return 0;
       }
 
    TR_ResolvedMethod *implArray[2]; // collect maximum 2 implemeters if you can
+   comp->enterHeuristicRegion();
    int32_t implCount = TR_ClassQueries::collectImplementorsCapped(classInfo, implArray, 2, cpIndexOrVftSlot, callerMethod, comp, locked, useGetResolvedInterfaceMethod);
-   return (implCount == 1 ? implArray[0] : 0);
+   comp->exitHeuristicRegion();
+
+   TR_ResolvedMethod *implementer = NULL;
+   if (implCount == 1)
+      implementer =implArray[0];
+
+   if (implementer && comp->getOption(TR_UseSymbolValidationManager) && validate)
+      {
+      TR::SymbolValidationManager *svm = comp->getSymbolValidationManager();
+
+      bool validated = svm->addMethodFromSingleImplementerRecord(implementer->getPersistentIdentifier(),
+                                                                 thisClass,
+                                                                 cpIndexOrVftSlot,
+                                                                 callerMethod->getPersistentIdentifier(),
+                                                                 useGetResolvedInterfaceMethod);
+      if (validated)
+         SVM_ASSERT_ALREADY_VALIDATED(svm, implementer->classOfMethod());
+      else
+         implementer = NULL;
+      }
+
+   return implementer;
    }
 
 TR_ResolvedMethod *
@@ -411,7 +451,8 @@ TR_PersistentCHTable::findSingleInterfaceImplementer(
       int32_t cpIndex,
       TR_ResolvedMethod *callerMethod,
       TR::Compilation *comp,
-      bool locked)
+      bool locked,
+      bool validate)
    {
    if (comp->getOption(TR_DisableCHOpts))
       return 0;
@@ -421,15 +462,36 @@ TR_PersistentCHTable::findSingleInterfaceImplementer(
       return 0;
       }
 
-   TR_PersistentClassInfo * classInfo = findClassInfoAfterLocking(thisClass, comp, true);
+   TR_PersistentClassInfo * classInfo = findClassInfoAfterLocking(thisClass, comp, true, validate);
    if (!classInfo)
       {
       return 0;
       }
 
    TR_ResolvedMethod *implArray[2]; // collect maximum 2 implemeters if you can
+   comp->enterHeuristicRegion();
    int32_t implCount = TR_ClassQueries::collectImplementorsCapped(classInfo, implArray, 2, cpIndex, callerMethod, comp, locked);
-   return (implCount == 1 ? implArray[0] : 0);
+   comp->exitHeuristicRegion();
+
+   TR_ResolvedMethod *implementer = NULL;
+   if (implCount == 1)
+      implementer = implArray[0];
+
+   if (implementer && comp->getOption(TR_UseSymbolValidationManager) && validate)
+      {
+      TR::SymbolValidationManager *svm = comp->getSymbolValidationManager();
+      bool validated = svm->addMethodFromSingleInterfaceImplementerRecord(implementer->getPersistentIdentifier(),
+                                                                          thisClass,
+                                                                          cpIndex,
+                                                                          callerMethod->getPersistentIdentifier());
+
+      if (validated)
+         SVM_ASSERT_ALREADY_VALIDATED(svm, implementer->classOfMethod());
+      else
+         implementer = NULL;
+      }
+
+   return implementer;
    }
 
 bool
@@ -496,32 +558,62 @@ TR_PersistentCHTable::isKnownToHaveMoreThanTwoInterfaceImplementers(
 
 TR_ResolvedMethod *
 TR_PersistentCHTable::findSingleAbstractImplementer(
-   TR_OpaqueClassBlock * thisClass, int32_t vftSlot, TR_ResolvedMethod * callerMethod, TR::Compilation * comp, bool locked)
+   TR_OpaqueClassBlock * thisClass,
+      int32_t vftSlot,
+      TR_ResolvedMethod * callerMethod,
+      TR::Compilation * comp,
+      bool locked,
+      bool validate)
    {
    if (comp->getOption(TR_DisableCHOpts))
       return 0;
-   TR_PersistentClassInfo * classInfo = findClassInfoAfterLocking(thisClass, comp);
+   bool allowForAOT = comp->getOption(TR_UseSymbolValidationManager);
+   TR_PersistentClassInfo * classInfo = findClassInfoAfterLocking(thisClass, comp, allowForAOT, validate);
    if (!classInfo) return 0;
 
    if (TR::Compiler->cls.isInterfaceClass(comp, thisClass))
       return 0;
 
    TR_ResolvedMethod *implArray[2]; // collect maximum 2 implemeters if you can
+   comp->enterHeuristicRegion();
    int32_t implCount = TR_ClassQueries::collectImplementorsCapped(classInfo, implArray, 2, vftSlot, callerMethod, comp, locked);
-   return (implCount == 1 ? implArray[0] : 0);
+   comp->exitHeuristicRegion();
+
+   TR_ResolvedMethod *implementer = NULL;
+   if(implCount == 1)
+      implementer = implArray[0];
+
+   if (implementer && comp->getOption(TR_UseSymbolValidationManager) && validate)
+      {
+      TR::SymbolValidationManager *svm = comp->getSymbolValidationManager();
+      bool validated = svm->addMethodFromSingleAbstractImplementerRecord(implementer->getPersistentIdentifier(),
+                                                                         thisClass,
+                                                                         vftSlot,
+                                                                         callerMethod->getPersistentIdentifier());
+
+      if (validated)
+         SVM_ASSERT_ALREADY_VALIDATED(svm, implementer->classOfMethod());
+      else
+         implementer = NULL;
+      }
+
+   return implementer;
    }
 
 
 TR_OpaqueClassBlock *
 TR_PersistentCHTable::findSingleConcreteSubClass(
       TR_OpaqueClassBlock *opaqueClass,
-      TR::Compilation *comp)
+      TR::Compilation *comp,
+      bool validate)
    {
    TR_OpaqueClassBlock *concreteSubClass = NULL;
    if (comp->getOption(TR_DisableCHOpts))
       return 0;
 
-   TR_PersistentClassInfo *classInfo = comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(opaqueClass, comp);
+   bool allowForAOT = comp->getOption(TR_UseSymbolValidationManager);
+
+   TR_PersistentClassInfo *classInfo = comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(opaqueClass, comp, allowForAOT, validate);
    if (classInfo)
       {
       TR_ScratchList<TR_PersistentClassInfo> subClasses(comp->trMemory());
@@ -537,6 +629,12 @@ TR_PersistentCHTable::findSingleConcreteSubClass(
             concreteSubClass = subClass;
             }
          }
+      }
+
+   if (validate && comp->getOption(TR_UseSymbolValidationManager))
+      {
+      if (!comp->getSymbolValidationManager()->addConcreteSubClassFromClassRecord(concreteSubClass, opaqueClass))
+         concreteSubClass = NULL;
       }
 
    return concreteSubClass;

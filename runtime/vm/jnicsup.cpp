@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -135,7 +135,9 @@ static void JNICALL releasePrimitiveArrayCritical(JNIEnv *env, jarray array, voi
 static const jchar * JNICALL getStringCritical(JNIEnv *env, jstring str, jboolean *isCopy);
 static void JNICALL releaseStringCritical(JNIEnv *env, jstring str, const jchar * elems);
 
+#if JAVA_SPEC_VERSION >= 9
 static jobject JNICALL getModule(JNIEnv *env, jclass clazz);
+#endif /* JAVA_SPEC_VERSION >= 9 */
 
 #define FIND_CLASS gpCheckFindClass
 #define TO_REFLECTED_METHOD gpCheckToReflectedMethod
@@ -373,7 +375,7 @@ JNICALL throwNew(JNIEnv *env, jclass clazz, const char *message)
 
 static void JNICALL setStaticBooleanField(JNIEnv *env, jclass cls, jfieldID fieldID, jboolean value)
 {
-	setStaticIntField(env, cls, fieldID, (jint)(value != 0));
+	setStaticIntField(env, cls, fieldID, (jint)(value & 1));
 }
 
 
@@ -445,10 +447,6 @@ UDATA JNICALL   pushArguments(J9VMThread *vmThread, J9Method* method, void *args
 	jvalue* jvalues;
 	U_8 *sigChar;
 	jobject objArg;
-	jdouble dbl;
-	jlong lng;
-	UDATA* lngOrDblPtr;
-	jfloat *fltPtr;
 	UDATA* sp;
 
 	if ( (UDATA)args & 1 ) {
@@ -465,17 +463,24 @@ UDATA JNICALL   pushArguments(J9VMThread *vmThread, J9Method* method, void *args
 	sp = vmThread->sp;
 
 	for (;;) {
+		BOOLEAN skipSignature = TRUE;
 		switch (*sigChar++) {
 			case '[':
 				/* skip the rest of the signature */
-				while (*sigChar == '[') sigChar++;
-				if (*sigChar++ != 'L') goto dontSkipClassName;
-			case 'L':
+				while ('[' == *sigChar) {
+					sigChar += 1;
+				}
+				skipSignature = ('L' == *sigChar++);
+			case 'L': /* FALLTHROUGH */
 				/* skip the rest of the signature */
-				while (*sigChar++ != ';');
-dontSkipClassName:
+				if (skipSignature) {
+					while (';' != *sigChar) {
+						sigChar += 1;
+					}
+				}
+				sp -= 1;
 				objArg = ARG(jobject, l);
-				*--sp = objArg ? (UDATA)*(j9object_t*)objArg : 0;
+				*sp = (NULL == objArg) ? 0: (UDATA) *((j9object_t*) objArg);
 				break;
 			case 'B':
 				/* byte type */
@@ -500,29 +505,20 @@ dontSkipClassName:
 #ifdef J9VM_INTERP_FLOAT_SUPPORT
 			case 'F':
 				/* float type */
-				fltPtr = (jfloat*)--sp;
-				/* The Linux SH4 compiler needs the next two lines to be two steps.  If you combine them it fails to compile */
-				dbl = ARG(jdouble, f);
-				*fltPtr = (jfloat)dbl;
-				break;
+				sp -= 1;
+				/* jfloat is promoted to double when passed through '...' */
+				*((jfloat*) sp) = (jfloat) ARG(jdouble, f);
+			break;
 			case 'D':
 				/* double type */
-				dbl = ARG(jdouble, d);
-				lngOrDblPtr = (UDATA *) &dbl;
-				goto pushLongOrDouble;
+				sp -= 2;
+				*((jdouble*) sp) = ARG(jdouble, d);
+				break;
 #endif
 			case 'J':
 				/* long type */
-				lng = ARG(jlong, j);
-				lngOrDblPtr = (UDATA *) &lng;
-pushLongOrDouble:
-#ifdef J9VM_ENV_DATA64
-				--sp;
-				*--sp = *(lngOrDblPtr);
-#else
-				*--sp = *(lngOrDblPtr + 1);
-				*--sp = *(lngOrDblPtr);
-#endif
+				sp -= 2;
+				*((jlong*) sp) = ARG(jlong, j);
 				break;
 			case ')':
 				vmThread->sp = sp;
@@ -1469,7 +1465,9 @@ struct JNINativeInterface_ EsJNIFunctions = {
 	getDirectBufferAddress,
 	getDirectBufferCapacity,
 	getObjectRefType,
+#if JAVA_SPEC_VERSION >= 9
 	getModule,
+#endif /* JAVA_SPEC_VERSION >= 9 */
 };
 
 void  initializeJNITable(J9JavaVM *vm)
@@ -1649,7 +1647,7 @@ retry:
 				(U_8*)name, strlen(name),
 				(U_8*)signature, strlen(signature),
 				&declaringClass, &element,
-				J9_RESOLVE_FLAG_SEARCH_INTERFACES,
+				0,
 				NULL);
 
 			if (fieldAddress == NULL) {
@@ -2229,6 +2227,7 @@ done:
 	return rc;
 }
 
+#if JAVA_SPEC_VERSION >= 9
 static jobject JNICALL
 getModule(JNIEnv *env, jclass clazz)
 {
@@ -2248,6 +2247,7 @@ getModule(JNIEnv *env, jclass clazz)
 	VM_VMAccess::inlineExitVMToJNI(vmThread);
 	return module;
 }
+#endif /* JAVA_SPEC_VERSION >= 9 */
 
 
 IDATA

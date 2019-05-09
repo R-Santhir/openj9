@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -907,6 +907,7 @@ class NameAndTypeIterator
 	bool hasEmptyFinalizeMethod() const { return _hasEmptyFinalizeMethod; }
 	bool hasFinalFields() const { return _hasFinalFields; }
 	bool isClassContended() const { return _isClassContended; }
+	bool isClassUnmodifiable() const { return _isClassUnmodifiable; }
 	bool hasNonStaticNonAbstractMethods() const { return _hasNonStaticNonAbstractMethods; }
 	bool hasFinalizeMethod() const { return _hasFinalizeMethod; }
 	bool isCloneable() const { return _isCloneable; }
@@ -949,6 +950,7 @@ private:
 		JDK_INTERNAL_REFLECT_CALLERSENSITIVE_ANNOTATION,
 		JAVA8_CONTENDED_ANNOTATION,
 		CONTENDED_ANNOTATION,
+		UNMODIFIABLE_ANNOTATION,
 		KNOWN_ANNOTATION_COUNT
 	};
 
@@ -988,6 +990,7 @@ private:
 	bool _isSerializable;
 	bool _isSynthetic;
 	bool _isClassContended;
+	bool _isClassUnmodifiable;
 	bool _hasVerifyExcludeAttribute;
 	bool _hasFrameIteratorSkipAnnotation;
 	bool _hasClinit;
@@ -1072,6 +1075,11 @@ private:
 	VMINLINE void markClassAsUsedByMultiANewArray(U_16 classCPIndex);
 	VMINLINE void markClassAsUsedByANewArray(U_16 classCPIndex);
 	VMINLINE void markClassAsUsedByNew(U_16 classCPIndex);
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+	VMINLINE void markClassAsUsedByDefaultValue(U_16 classCPIndex);
+	VMINLINE void markFieldRefAsUsedByWithField(U_16 fieldRefCPIndex);
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 	VMINLINE void markInvokeDynamicInfoAsUsedByInvokeDynamic(U_16 cpIndex);
 

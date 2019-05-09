@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2017 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -32,26 +32,22 @@
 
 #include "il/symbol/OMRSymbol.hpp"
 
-#include <stddef.h>                            // for size_t
-#include <stdint.h>                            // for uint32_t, int32_t, etc
-#include <string.h>                            // for memcmp, strncmp
-#include "codegen/FrontEnd.hpp"                // for TR_FrontEnd
-#include "compile/Compilation.hpp"             // for Compilation
-#include "compile/SymbolReferenceTable.hpp"    // for SymbolReferenceTable
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include "codegen/FrontEnd.hpp"
+#include "compile/Compilation.hpp"
+#include "compile/SymbolReferenceTable.hpp"
 #include "env/TRMemory.hpp"
 #include "env/VMJ9.h"
-#include "il/DataTypes.hpp"                    // for DataType
-#include "il/Symbol.hpp"                       // for Symbol
-#include "il/SymbolReference.hpp"              // for SymbolReference
-#include "il/symbol/StaticSymbol.hpp"          // for StaticSymbol
-#include "il/symbol/StaticSymbol_inlines.hpp"  // for StaticSymbol
-#include "infra/Assert.hpp"                    // for TR_ASSERT
-#include "infra/Flags.hpp"                     // for flags32_t
-#include "ras/Debug.hpp"                       // for TR_DebugBase
-
-TR::Symbol::RecognizedField
-J9::Symbol::searchRecognizedField(TR::Compilation * comp, TR_ResolvedMethod * owningMethod, int32_t cpIndex, bool isStatic)
-   {
+#include "il/DataTypes.hpp"
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/symbol/StaticSymbol.hpp"
+#include "il/symbol/StaticSymbol_inlines.hpp"
+#include "infra/Assert.hpp"
+#include "infra/Flags.hpp"
+#include "ras/Debug.hpp"
 
     struct F
       {
@@ -111,7 +107,7 @@ J9::Symbol::searchRecognizedField(TR::Compilation * comp, TR_ResolvedMethod * ow
       {r(TR::Symbol::Com_ibm_jit_JITHelpers_IDENTITY_HASH_SALT_POLICY,"com/ibm/jit/JITHelpers","IDENTITY_HASH_SALT_POLICY", "I")},
       {r(TR::Symbol::Com_ibm_oti_vm_VM_J9CLASS_CLASS_FLAGS_OFFSET,"com/ibm/oti/vm/VM","J9CLASS_CLASS_FLAGS_OFFSET", "I")},
       {r(TR::Symbol::Com_ibm_oti_vm_VM_J9CLASS_INITIALIZE_STATUS_OFFSET,"com/ibm/oti/vm/VM","J9CLASS_INITIALIZE_STATUS_OFFSET", "I")},
-      {r(TR::Symbol::Com_ibm_oti_vm_VM_J9_JAVA_CLASS_RAM_SHAPE_SHIFT,"com/ibm/oti/vm/VM","J9_JAVA_CLASS_RAM_SHAPE_SHIFT", "I")},
+      {r(TR::Symbol::Com_ibm_oti_vm_VM_J9_JAVA_CLASS_RAM_SHAPE_SHIFT,"com/ibm/oti/vm/VM","J9AccClassRAMShapeShift", "I")},
       {r(TR::Symbol::Com_ibm_oti_vm_VM_OBJECT_HEADER_SHAPE_MASK,"com/ibm/oti/vm/VM","OBJECT_HEADER_SHAPE_MASK", "I")},
       {r(TR::Symbol::Com_ibm_oti_vm_VM_ADDRESS_SIZE,"com/ibm/oti/vm/VM","ADDRESS_SIZE", "I")},
       {TR::Symbol::UnknownField}
@@ -155,9 +151,22 @@ J9::Symbol::searchRecognizedField(TR::Compilation * comp, TR_ResolvedMethod * ow
        {r(TR::Symbol::Java_math_BigInteger_useLongRepresentation,     "java/math/BigInteger", "useLongRepresentation", "Z")},
        {r(TR::Symbol::Java_lang_ref_SoftReference_age,                "java/lang/ref/SoftReference", "age", "I")},
        {r(TR::Symbol::Java_lang_invoke_VarHandle_handleTable,         "java/lang/invoke/VarHandle", "handleTable", "[Ljava/lang/invoke/MethodHandle;")},
+       {r(TR::Symbol::Java_lang_Integer_value,                        "java/lang/Integer", "value", "I")},
+       {r(TR::Symbol::Java_lang_Long_value,                           "java/lang/Long", "value", "J")},
+       {r(TR::Symbol::Java_lang_Float_value,                          "java/lang/Float", "value", "F")},
+       {r(TR::Symbol::Java_lang_Double_value,                         "java/lang/Double", "value", "D")},
+       {r(TR::Symbol::Java_lang_Byte_value,                           "java/lang/Byte", "value", "B")},
+       {r(TR::Symbol::Java_lang_Character_value,                      "java/lang/Character", "value", "C")},
+       {r(TR::Symbol::Java_lang_Short_value,                          "java/lang/Short", "value", "S")},
+       {r(TR::Symbol::Java_lang_Boolean_value,                        "java/lang/Boolean", "value", "Z")},
+       {r(TR::Symbol::Java_lang_Class_enumVars,                       "java/lang/Class", "enumVars", "Ljava/lang/Class$EnumVars;")},
+       {r(TR::Symbol::Java_lang_ClassEnumVars_cachedEnumConstants,    "java/lang/Class$EnumVars", "cachedEnumConstants", "[Ljava/lang/Object;")},
        {TR::Symbol::UnknownField}
       };
 
+TR::Symbol::RecognizedField
+J9::Symbol::searchRecognizedField(TR::Compilation * comp, TR_ResolvedMethod * owningMethod, int32_t cpIndex, bool isStatic)
+   {
    struct FP
       {
       struct F   *fieldInfo;
@@ -172,8 +181,9 @@ J9::Symbol::searchRecognizedField(TR::Compilation * comp, TR_ResolvedMethod * ow
         */
        {recognizedFieldName_c, 17, 22},
        {0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},
-       {recognizedFieldName_j, 16, 52}
+       {recognizedFieldName_j, 14, 52}
       };
+
    const char minClassPrefix = 'c';
    const char maxClassPrefix = 'j';
 
@@ -264,6 +274,38 @@ J9::Symbol::getRecognizedField()
    }
 
 /**
+ * Return the owning class name of this recognized field.
+ * Return null if this symbol does not have a recognized field.
+ */
+const char *
+J9::Symbol::owningClassNameCharsForRecognizedField(int32_t & length)
+   {
+   TR_ASSERT(isShadow(), "Must be a shadow symbol");
+   TR::Symbol::RecognizedField recognizedField = self()->getRecognizedField();
+   TR_ASSERT(TR::Symbol::UnknownField != recognizedField, "Symbol should have a valid recognized field");
+   for (int i = 0; recognizedFieldName_c[i].id != TR::Symbol::UnknownField; ++i)
+      {
+      F &knownField = recognizedFieldName_c[i];
+      if (knownField.id == recognizedField)
+         {
+         length = knownField.classLen;
+         return knownField.classStr;
+         }
+      }
+   for (int i = 0; recognizedFieldName_j[i].id != TR::Symbol::UnknownField; ++i)
+      {
+      F &knownField = recognizedFieldName_j[i];
+      if (knownField.id == recognizedField)
+         {
+         length = knownField.classLen;
+         return knownField.classStr;
+         }
+      }
+
+   return NULL;
+   }
+
+/**
  * Sets the data type of a symbol, and the size, if the size can be inferred
  * from the data type.
  */
@@ -302,6 +344,8 @@ J9::Symbol::createRecognizedShadow(AllocatorType m, TR::DataType d, RecognizedFi
    auto * sym = createShadow(m, d);
    sym->_recognizedField = f;
    sym->_flags.set(RecognizedShadow);
+   if ((f == TR::Symbol::Java_lang_Class_enumVars) || (f == TR::Symbol::Java_lang_ClassEnumVars_cachedEnumConstants))
+      sym->_flags.set(RecognizedKnownObjectShadow);
    return sym;
    }
 
@@ -312,6 +356,8 @@ J9::Symbol::createRecognizedShadow(AllocatorType m, TR::DataType d, uint32_t s, 
    auto * sym = createShadow(m,d,s);
    sym->_recognizedField = f;
    sym->_flags.set(RecognizedShadow);
+   if ((f == TR::Symbol::Java_lang_Class_enumVars) || (f == TR::Symbol::Java_lang_ClassEnumVars_cachedEnumConstants))
+      sym->_flags.set(RecognizedKnownObjectShadow);
    return sym;
    }
 

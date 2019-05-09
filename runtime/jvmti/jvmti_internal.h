@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -35,7 +35,6 @@
 
 #include "j9.h"
 #include "j9comp.h"
-#include "jvmti_api.h"
 #include "jni.h"
 #include "jvmti.h"
 #include "jvmtiInternal.h"
@@ -902,6 +901,15 @@ jvmtiIterateOverReachableObjects(jvmtiEnv* env,
 /* ---------------- jvmtiHelpers.c ---------------- */
 
 /**
+* @brief Make the heap walkable, assume exclusive VM access is held
+* @param currentThread The current J9VMThread
+* @return void
+*/
+void
+ensureHeapWalkable(J9VMThread *currentThread);
+
+
+/**
 * @brief
 * @param state
 * @return J9JVMTIAgentBreakpoint *
@@ -1496,6 +1504,17 @@ jvmtiGetLocalInstance(jvmtiEnv* env,
 	jint depth,
 	jobject* value_ptr);
 
+/**
+* @brief Set the allocation sampling interval
+* @param env The JVMTI environment pointer.
+* @param samplingInterval The sampling interval in bytes.
+* @return jvmtiError Error code returned by JVMTI function
+*/
+#if JAVA_SPEC_VERSION >= 11
+jvmtiError JNICALL 
+jvmtiSetHeapSamplingInterval(jvmtiEnv *env,
+	jint samplingInterval);
+#endif /* JAVA_SPEC_VERSION >= 11 */
 
 /**
 * @brief
@@ -2491,6 +2510,7 @@ jvmtiSetFieldModificationWatch(jvmtiEnv* env,
 	jclass klass,
 	jfieldID field);
 
+#if JAVA_SPEC_VERSION >= 9
 /* ---------------- jvmtiModules.c ---------------- */
 /**
 * @brief
@@ -2551,6 +2571,7 @@ jvmtiIsModifiableModule(jvmtiEnv* env,
 		jobject module,
 		jboolean* is_modifiable_module_ptr);
 
+#endif /* JAVA_SPEC_VERSION >= 9 */
 /* ---------------- suspendhelper.cpp ---------------- */
 /**
 * @brief

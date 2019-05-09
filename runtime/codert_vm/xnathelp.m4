@@ -1,4 +1,4 @@
-dnl Copyright (c) 2017, 2018 IBM Corp. and others
+dnl Copyright (c) 2017, 2019 IBM Corp. and others
 dnl
 dnl This program and the accompanying materials are made available under
 dnl the terms of the Eclipse Public License 2.0 which accompanies this
@@ -416,6 +416,13 @@ PICBUILDER_SLOW_PATH_ONLY_HELPER(jitResolveInvokeDynamic,3)
 PICBUILDER_SLOW_PATH_ONLY_HELPER(jitResolveConstantDynamic,3)
 PICBUILDER_SLOW_PATH_ONLY_HELPER(jitResolveHandleMethod,3)
 
+dnl Direct call field resolve helpers
+
+SLOW_PATH_ONLY_HELPER(jitResolveFieldDirect,2)
+SLOW_PATH_ONLY_HELPER(jitResolveFieldSetterDirect,2)
+SLOW_PATH_ONLY_HELPER(jitResolveStaticFieldDirect,2)
+SLOW_PATH_ONLY_HELPER(jitResolveStaticFieldSetterDirect,2)
+
 dnl Recompilation helpers
 
 SLOW_PATH_ONLY_HELPER(jitRetranslateCaller,2)
@@ -441,19 +448,44 @@ EXCEPTION_THROW_HELPER(jitThrowIncompatibleReceiver,2)
 
 dnl Write barrier helpers
 
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierBatchStore,1)
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierBatchStoreWithRange,3)
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierJ9ClassBatchStore,1)
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierJ9ClassStore,2)
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierStore,2)
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierStoreGenerational,2)
-FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierStoreGenerationalAndConcurrentMark,2)
+define({JIT_WRITE_BARRIER_WRAPPER},{
+	FASTCALL_EXTERN(fast_$1,$2+1)
+	BEGIN_HELPER($1)
+	pop uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
+	SWITCH_TO_C_STACK
+	SAVE_C_VOLATILE_REGS
+	mov PARM_REG(1),_rbp
+	mov PARM_REG(2),uword ptr J9TR_VMThread_floatTemp1[_rbp]
+	ifelse($2, 2, {
+		ifdef({ASM_J9VM_ENV_DATA64},{
+			mov PARM_REG(3),uword ptr J9TR_VMThread_floatTemp2[_rbp]
+		}, {
+			push uword ptr J9TR_VMThread_floatTemp2[_rbp]
+		})
+	})
+	call FASTCALL_SYMBOL(fast_$1,$2+1)
+	RESTORE_C_VOLATILE_REGS
+	SWITCH_TO_JAVA_STACK
+	push uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
+	dnl parms are passed via fields of VM thread instead of register or stack
+	dnl therefore, the helper's parm count is 0
+	END_HELPER($1,0)
+})
+
+JIT_WRITE_BARRIER_WRAPPER(jitWriteBarrierBatchStore,1)
+UNUSED(jitWriteBarrierBatchStoreWithRange,3)
+UNUSED(jitWriteBarrierJ9ClassBatchStore,1)
+UNUSED(jitWriteBarrierJ9ClassStore,2)
+JIT_WRITE_BARRIER_WRAPPER(jitWriteBarrierStore,2)
+JIT_WRITE_BARRIER_WRAPPER(jitWriteBarrierStoreGenerational,2)
+JIT_WRITE_BARRIER_WRAPPER(jitWriteBarrierStoreGenerationalAndConcurrentMark,2)
 FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierClassStoreMetronome,3)
 FAST_PATH_ONLY_HELPER_NO_RETURN_VALUE(jitWriteBarrierStoreMetronome,3)
 
 dnl Misc
 
 SLOW_PATH_ONLY_HELPER(jitInduceOSRAtCurrentPC,0)
+SLOW_PATH_ONLY_HELPER(jitInduceOSRAtCurrentPCAndRecompile,0)
 SLOW_PATH_ONLY_HELPER(jitNewInstanceImplAccessCheck,3)
 SLOW_PATH_ONLY_HELPER_NO_EXCEPTION_NO_RETURN_VALUE(jitCallCFunction,3)
 SLOW_PATH_ONLY_HELPER_NO_EXCEPTION_NO_RETURN_VALUE(jitCallJitAddPicToPatchOnClassUnload,2)
@@ -629,131 +661,131 @@ START_PROC(j2iVirtual)
 END_PROC(j2iVirtual)
 
 START_PROC(icallVMprJavaSendNativeStatic)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendNativeStatic)
 
 START_PROC(icallVMprJavaSendStatic0)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStatic0)
 
 START_PROC(icallVMprJavaSendStatic1)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStatic1)
 
 START_PROC(icallVMprJavaSendStaticJ)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticJ)
 
 START_PROC(icallVMprJavaSendStaticF)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticF)
 
 START_PROC(icallVMprJavaSendStaticD)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticD)
 
 START_PROC(icallVMprJavaSendStaticSync0)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticSync0)
 
 START_PROC(icallVMprJavaSendStaticSync1)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticSync1)
 
 START_PROC(icallVMprJavaSendStaticSyncJ)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticSyncJ)
 
 START_PROC(icallVMprJavaSendStaticSyncF)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticSyncF)
 
 START_PROC(icallVMprJavaSendStaticSyncD)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticSyncD)
 
 START_PROC(icallVMprJavaSendNativeVirtual)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendNativeVirtual)
 
 START_PROC(icallVMprJavaSendVirtual0)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtual0)
 
 START_PROC(icallVMprJavaSendVirtual1)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtual1)
 
 START_PROC(icallVMprJavaSendVirtualJ)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualJ)
 
 START_PROC(icallVMprJavaSendVirtualF)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualF)
 
 START_PROC(icallVMprJavaSendVirtualD)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualD)
 
 START_PROC(icallVMprJavaSendVirtualSync0)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualSync0)
 
 START_PROC(icallVMprJavaSendVirtualSync1)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualSync1)
 
 START_PROC(icallVMprJavaSendVirtualSyncJ)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualSyncJ)
 
 START_PROC(icallVMprJavaSendVirtualSyncF)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualSyncF)
 
 START_PROC(icallVMprJavaSendVirtualSyncD)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualSyncD)
 
 START_PROC(icallVMprJavaSendInvokeExact0)
-	jmp j2iInvokeExact
+	jmp GLOBAL_SYMBOL(j2iInvokeExact)
 END_PROC(icallVMprJavaSendInvokeExact0)
 
 START_PROC(icallVMprJavaSendInvokeExact1)
-	jmp j2iInvokeExact
+	jmp GLOBAL_SYMBOL(j2iInvokeExact)
 END_PROC(icallVMprJavaSendInvokeExact1)
 
 START_PROC(icallVMprJavaSendInvokeExactD)
-	jmp j2iInvokeExact
+	jmp GLOBAL_SYMBOL(j2iInvokeExact)
 END_PROC(icallVMprJavaSendInvokeExactD)
 
 START_PROC(icallVMprJavaSendInvokeExactF)
-	jmp j2iInvokeExact
+	jmp GLOBAL_SYMBOL(j2iInvokeExact)
 END_PROC(icallVMprJavaSendInvokeExactF)
 
 START_PROC(icallVMprJavaSendInvokeExactJ)
-	jmp j2iInvokeExact
+	jmp GLOBAL_SYMBOL(j2iInvokeExact)
 END_PROC(icallVMprJavaSendInvokeExactJ)
 
 START_PROC(icallVMprJavaSendInvokeExactL)
-	jmp j2iInvokeExact
+	jmp GLOBAL_SYMBOL(j2iInvokeExact)
 END_PROC(icallVMprJavaSendInvokeExactL)
 
 START_PROC(icallVMprJavaSendStaticL)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticL)
 
 START_PROC(icallVMprJavaSendStaticSyncL)
-	jmp j2iTransition
+	jmp GLOBAL_SYMBOL(j2iTransition)
 END_PROC(icallVMprJavaSendStaticSyncL)
 
 START_PROC(icallVMprJavaSendVirtualL)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualL)
 
 START_PROC(icallVMprJavaSendVirtualSyncL)
-	jmp j2iVirtual
+	jmp GLOBAL_SYMBOL(j2iVirtual)
 END_PROC(icallVMprJavaSendVirtualSyncL)
 
 	DECLARE_EXTERN(c_jitDecompileOnReturn)
@@ -959,5 +991,44 @@ START_PROC(jitDecompileOnReturnJ)
 END_PROC(jitDecompileOnReturnJ)
 
 })	dnl ASM_J9VM_ENV_DATA64
+
+START_PROC(jitSoftwareReadBarrier)
+ifdef({OMR_GC_CONCURRENT_SCAVENGER},{
+	pop uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
+	SWITCH_TO_C_STACK
+	SAVE_C_VOLATILE_REGS
+	dnl currentThread->javaVM->memoryManagerFunctions->J9ReadBarrier(currentThread,(fj9object_t*)currentThread->floatTemp1);
+	mov _rax,uword ptr J9TR_VMThread_javaVM[_rbp]
+	mov PARM_REG(2),uword ptr J9TR_VMThread_floatTemp1[_rbp]
+	mov _rax,uword ptr J9TR_JavaVM_memoryManagerFunctions[_rax]
+	mov PARM_REG(1),_rbp
+	call uword ptr J9TR_J9MemoryManagerFunctions_J9ReadBarrier[_rax]
+	RESTORE_C_VOLATILE_REGS
+	SWITCH_TO_JAVA_STACK
+	push uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
+	ret
+},{ dnl OMR_GC_CONCURRENT_SCAVENGER
+	dnl not supported
+	int 3
+})	dnl OMR_GC_CONCURRENT_SCAVENGER
+END_PROC(jitSoftwareReadBarrier)
+
+	FASTCALL_EXTERN(impl_jitReferenceArrayCopy,2)
+START_PROC(jitReferenceArrayCopy)
+	pop uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
+	SWITCH_TO_C_STACK
+	SAVE_C_VOLATILE_REGS
+	mov uword ptr J9TR_VMThread_floatTemp3[_rbp],_rsi
+	mov uword ptr J9TR_VMThread_floatTemp4[_rbp],_rdi
+	mov PARM_REG(2),_rcx
+	mov PARM_REG(1),_rbp
+	call FASTCALL_SYMBOL(impl_jitReferenceArrayCopy,2)
+	dnl set ZF if succeed
+	test _rax,_rax
+	RESTORE_C_VOLATILE_REGS
+	SWITCH_TO_JAVA_STACK
+	push uword ptr J9TR_VMThread_jitReturnAddress[_rbp]
+	ret
+END_PROC(jitReferenceArrayCopy)
 
 	FILE_END

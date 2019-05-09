@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2016 IBM Corp. and others
+ * Copyright (c) 2000, 2018 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -307,6 +307,18 @@ J9::IL::opCodeForConst(TR::DataType dt)
    return J9::IL::opCodesForConst[dt - TR::FirstJ9Type];
    }
 
+
+TR::ILOpCodes
+J9::IL::opCodeForDirectReadBarrier(TR::DataType dt)
+   {
+   if (dt == TR::Int8 || dt == TR::Int16)
+      {
+      return TR::irdbar;
+      }
+
+   return OMR::IL::opCodeForDirectReadBarrier(dt);
+   }
+
 TR::ILOpCodes
 J9::IL::opCodeForDirectLoad(TR::DataType dt)
    {
@@ -340,6 +352,28 @@ J9::IL::opCodeForDirectStore(TR::DataType dt)
    }
 
 TR::ILOpCodes
+J9::IL::opCodeForDirectWriteBarrier(TR::DataType dt)
+   {
+   if (dt == TR::Int8 || dt == TR::Int16)
+      {
+      return TR::iwrtbar;
+      }
+
+   return OMR::IL::opCodeForDirectWriteBarrier(dt);
+   }
+
+TR::ILOpCodes
+J9::IL::opCodeForIndirectReadBarrier(TR::DataType dt)
+   {
+   if (dt == TR::Int8 || dt == TR::Int16)
+      {
+      return TR::irdbari;
+      }
+
+   return OMR::IL::opCodeForIndirectReadBarrier(dt);
+   }
+
+TR::ILOpCodes
 J9::IL::opCodeForIndirectLoad(TR::DataType dt)
    {
    if (dt == TR::Int8 || dt == TR::Int16)
@@ -370,6 +404,18 @@ J9::IL::opCodeForIndirectStore(TR::DataType dt)
 
    return J9::IL::opCodesForIndirectStore[dt - TR::FirstJ9Type];
    }
+
+TR::ILOpCodes
+J9::IL::opCodeForIndirectWriteBarrier(TR::DataType dt)
+   {
+   if (dt == TR::Int8 || dt == TR::Int16)
+      {
+      return TR::iwrtbari;
+      }
+
+   return OMR::IL::opCodeForIndirectWriteBarrier(dt);
+   }
+
 
 TR::ILOpCodes
 J9::IL::opCodeForIndirectArrayLoad(TR::DataType dt)

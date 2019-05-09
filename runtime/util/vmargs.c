@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -50,9 +50,6 @@
 
 #if defined(J9ZOS390)
 #include "atoe.h"
-#endif
-#if defined(RS6000) || defined(LINUX)
-#define J9UNIX
 #endif
 
 #define MAP_TWO_COLONS_TO_ONE 8
@@ -672,33 +669,17 @@ addOptionsDefaultFile(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsL
 IDATA
 addXjcl(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsList, UDATA j2seVersion)
 {
-	char *dllName = NULL;
-	size_t dllNameLength = -1;
+	char *dllName = J9_JAVA_SE_DLL_NAME;
+	size_t dllNameLength = sizeof(J9_JAVA_SE_DLL_NAME);
 	size_t argumentLength = -1;
 	char *argString = NULL;
 	UDATA j2seReleaseValue = j2seVersion & J2SE_RELEASE_MASK;
 	J9JavaVMArgInfo *optArg = NULL;
 	
 	PORT_ACCESS_FROM_PORT(portLib);
-	if (J2SE_SHAPE_RAW == (j2seVersion & J2SE_SHAPE_MASK)) {
-		Assert_Util_unreachable();
-	} 
-	if (J2SE_V11 <= j2seReleaseValue) {
-		dllName = J9_JAVA_SE_11_DLL_NAME;
-		dllNameLength = sizeof(J9_JAVA_SE_11_DLL_NAME);
-	} else if (J2SE_V10 <= j2seReleaseValue) {
-		dllName = J9_JAVA_SE_10_DLL_NAME;
-		dllNameLength = sizeof(J9_JAVA_SE_10_DLL_NAME);
-	} else if (J2SE_19 <= j2seReleaseValue) {
-		dllName = J9_JAVA_SE_9_DLL_NAME;
-		dllNameLength = sizeof(J9_JAVA_SE_9_DLL_NAME);
-	} else if (J2SE_18 <= j2seReleaseValue) {
-		/* Java 8 uses DLL name for Java 7 */
-		dllName = J9_JAVA_SE_7_BASIC_DLL_NAME;
-		dllNameLength = sizeof(J9_JAVA_SE_7_BASIC_DLL_NAME);
-	} else { /* Java 6, 7 */
-		Assert_Util_unreachable();
-	}
+#ifdef J9VM_IVE_RAW_BUILD /* J9VM_IVE_RAW_BUILD is not enabled by default */
+	Assert_Util_unreachable();
+#endif /* J9VM_IVE_RAW_BUILD */
 
 	argumentLength = sizeof(VMOPT_XJCL_COLON) + dllNameLength - 1; /* sizeof called twice, each includes the \0 */
 	argString = j9mem_allocate_memory(argumentLength, OMRMEM_CATEGORY_VM);
@@ -706,7 +687,7 @@ addXjcl(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsList, UDATA j2s
 		return -1;
 	}
 	j9str_printf(PORTLIB, argString, argumentLength, VMOPT_XJCL_COLON "%s", dllName);
-	optArg = newJavaVMArgInfo(vmArgumentsList, argString, ARG_MEMORY_ALLOCATION|CONSUMABLE_ARG);
+	optArg = newJavaVMArgInfo(vmArgumentsList, argString, ARG_MEMORY_ALLOCATION | CONSUMABLE_ARG);
 	if (NULL == optArg) {
 		j9mem_free_memory(argString);
 		return -1;
@@ -766,9 +747,6 @@ addJavaLibraryPath(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsList
 		UDATA argEncoding, BOOLEAN jvmInSubdir, char *j9binPath, char *jrebinPath,
 		const char *libpathValue, const char *ldLibraryPathValue)
 {
-#if defined(J9UNIX) || defined(J9ZOS390)
-	IDATA envVarSize = 0;
-#endif
 	char *substringBuffer[MAX_LIBPATH_SUBSTRINGS];
 	BOOLEAN allocated[MAX_LIBPATH_SUBSTRINGS] = {FALSE};
 	char *pathBuffer = NULL;
@@ -910,20 +888,21 @@ addJavaLibraryPath(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsList
 	}
 #endif /* defined(J9UNIX) || defined(J9ZOS390) */
 
-#ifdef J9UNIX
-#if defined(J9VM_ENV_DATA64)
+#if defined(J9UNIX)
+	/* On OSX, /usr/lib64 doesn't exist. Only /usr/lib needs to be appended on OSX. */
+#if defined(J9VM_ENV_DATA64) && !defined(OSX)
 	/* JAZZ103 117105: 64-bit JDKs on Linux and AIX should add /usr/lib64 to java.library.path ahead of /usr/lib. */
 #define USRLIB64 ":/usr/lib64"
 	substringBuffer[substringIndex] = USRLIB64;
 	substringIndex += 1;
 	substringLength += (sizeof(USRLIB64) - 1) ;
 #undef USRLIB64
-#endif /* defined(J9VM_ENV_DATA64) */
+#endif /* defined(J9VM_ENV_DATA64) && !defined(OSX) */
 
 	substringBuffer[substringIndex] = ":/usr/lib";
 	substringIndex += 1;
 	substringLength += strlen(":/usr/lib");
-#endif
+#endif /* defined(J9UNIX) */
 #ifdef WIN32
 	/* CMVC 177267, RTC 87362 : On windows, current directory is added at the end */
 	substringBuffer[substringIndex] = ";.";
@@ -1090,6 +1069,13 @@ addUserDir(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsList, char *
 
 }
 
+#if !defined(OPENJ9_BUILD)
+/* Function reads the J9NLS_J2SE_EXTRA_OPTIONS to get a -D define to set the IBM java version.
+ * This isn't needed in OpenJ9 and using this is one of the items that forces the NLS message
+ * catalogs to be parsed  early in startup
+ *
+ * Disable for OpenJ9 but leave in place for IBM to be handled in a separate cleanup item
+ */
 IDATA
 addJavaPropertiesOptions(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumentsList, UDATA verboseFlags)
 {
@@ -1133,6 +1119,7 @@ addJavaPropertiesOptions(J9PortLibrary * portLib, J9JavaVMArgInfoList *vmArgumen
 	}
 	return 0;
 }
+#endif /* !OPENJ9_BUILD */
 
 /*
  * parseOptionsFileText() removes tabs and spaces following a newline.
@@ -1393,6 +1380,7 @@ addEnvironmentVariables(J9PortLibrary * portLib, JavaVMInitArgs *launcherArgs, J
 			|| (0 != mapEnvVarToArgument(portLib, ENVVAR_IBM_JAVA_ENABLE_ASCII_FILETAG, VMOPT_XASCII_FILETAG, vmArgumentsList, EXACT_MAP_NO_OPTIONS, verboseFlags))
 #endif
 			|| (0 != addEnvironmentVariableArguments(portLib, ENVVAR_JAVA_TOOL_OPTIONS, vmArgumentsList, verboseFlags))
+			|| (0 != addEnvironmentVariableArguments(portLib, ENVVAR_OPENJ9_JAVA_OPTIONS, vmArgumentsList, verboseFlags))
 			|| (0 != addEnvironmentVariableArguments(portLib, ENVVAR_IBM_JAVA_OPTIONS, vmArgumentsList, verboseFlags))
 			|| (0 != mapEnvVarToArgument(portLib, ENVVAR_IBM_JAVA_JITLIB, MAPOPT_XXJITDIRECTORY, vmArgumentsList, EXACT_MAP_WITH_OPTIONS, verboseFlags))
 	) {

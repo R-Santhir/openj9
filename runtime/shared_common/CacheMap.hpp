@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2017 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -218,7 +218,7 @@ public:
 
 	bool allocateROMClass(J9VMThread* currentThread, const J9RomClassRequirements * sizes, J9SharedRomClassPieces * pieces, U_16 classnameLength, const char* classnameData, ClasspathWrapper* cpw, const J9UTF8* partitionInCache, const J9UTF8* modContextInCache, IDATA callerHelperID, bool modifiedNoContext, void * &newItemInCache, void * &cacheAreaForAllocate);
 
-	IDATA commitROMClass(J9VMThread* currentThread, ShcItem* itemInCache, SH_CompositeCacheImpl* cacheAreaForAllocate, ClasspathWrapper* cpw, I_16 cpeIndex, const J9UTF8* partitionInCache, const J9UTF8* modContextInCache, BlockPtr romClassBuffer, bool commitOutOfLineData);
+	IDATA commitROMClass(J9VMThread* currentThread, ShcItem* itemInCache, SH_CompositeCacheImpl* cacheAreaForAllocate, ClasspathWrapper* cpw, I_16 cpeIndex, const J9UTF8* partitionInCache, const J9UTF8* modContextInCache, BlockPtr romClassBuffer, bool commitOutOfLineData, bool checkSRPs = true);
 
 	IDATA commitOrphanROMClass(J9VMThread* currentThread, ShcItem* itemInCache, SH_CompositeCacheImpl* cacheAreaForAllocate, ClasspathWrapper* cpw, BlockPtr romClassBuffer);
 
@@ -471,6 +471,8 @@ private:
 	const IDATA fillMethodSpecTable(MethodSpecTable* specTable, char* inputOption);
 
 	const bool parseWildcardMethodSpecTable(MethodSpecTable* specTable, IDATA numSpecs);
+
+	static void updateLocalHintsData(J9VMThread* currentThread, J9SharedLocalStartupHints* localHints, const J9SharedStartupHintsDataDescriptor* hintsDataInCache, bool overwrite);
 
 #if defined(J9SHR_CACHELET_SUPPORT)
 	IDATA startupCacheletForStats(J9VMThread* currentThread, SH_CompositeCache* cachelet);

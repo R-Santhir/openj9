@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -154,7 +154,6 @@ typedef struct J9JVMTIEnv {
 	omrthread_monitor_t mutex;
 	void* environmentLocalStorage;
 	jvmtiCapabilities capabilities;
-	jvmtiCapabilities capabilitiesMask;
 	jvmtiEventCallbacks callbacks;
 	J9JVMTIExtensionCallbacks extensionCallbacks;
 	omrthread_monitor_t threadDataPoolMutex;
@@ -178,7 +177,6 @@ typedef struct J9JVMTIEnv {
 #define J9JVMTIENV_FLAG_UNUSED_2 2
 #define J9JVMTIENV_FLAG_CLASS_LOAD_HOOK_EVER_ENABLED 4
 #define J9JVMTIENV_FLAG_RETRANSFORM_CAPABLE 8
-#define J9JVMTIENV_FLAG_AUTOTAG_OBJECTS 16
 
 
 typedef struct J9JVMTIData {
@@ -337,9 +335,6 @@ typedef struct jvmtiGcp_translation {
 		Trc_JVMTI_##func##_Exit(rc, param, param2, param3, param4); \
 		return rc; \
 	} while(0)
-
-#define AUTOTAGGING_OBJECTS(env) (((J9JVMTIEnv *) (env))->flags & J9JVMTIENV_FLAG_AUTOTAG_OBJECTS)
-#define OBJECT_IS_TAGGABLE(env, vm, object) ( !AUTOTAGGING_OBJECTS((env)) || J9VM_IS_INITIALIZED_HEAPCLASS_VM((vm), (object)) )
 
 /*
  * True if the given JLClass instance is a JLClass instance but is not fully initialized.

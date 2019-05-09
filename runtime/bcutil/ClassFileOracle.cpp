@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -35,6 +35,10 @@
 #include "ut_j9bcu.h"
 #include "util_api.h"
 
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+#define VALUE_TYPES_MAJOR_VERSION 55
+#endif /* J9VM_OPT_VALHALLA_VALUE_TYPES */
+
 /* The array entries must be in same order as the enums in ClassFileOracle.hpp */
 ClassFileOracle::KnownAnnotation ClassFileOracle::_knownAnnotations[] = {
 #define FRAMEITERATORSKIP_SIGNATURE "Ljava/lang/invoke/MethodHandle$FrameIteratorSkip;"
@@ -52,6 +56,7 @@ ClassFileOracle::KnownAnnotation ClassFileOracle::_knownAnnotations[] = {
 #define CONTENDED_SIGNATURE "Ljdk/internal/vm/annotation/Contended;"
 		{CONTENDED_SIGNATURE, sizeof(CONTENDED_SIGNATURE)},
 #undef CONTENDED_SIGNATURE
+		{J9_UNMODIFIABLE_CLASS_ANNOTATION, sizeof(J9_UNMODIFIABLE_CLASS_ANNOTATION)},
 		{0, 0}
 };
 
@@ -176,6 +181,7 @@ ClassFileOracle::ClassFileOracle(BufferManager *bufferManager, J9CfrClassFile *c
 	_nestMembers(NULL),
 #endif /* J9VM_OPT_VALHALLA_NESTMATES */
 	_isClassContended(false),
+	_isClassUnmodifiable(context->isClassUnmodifiable()),
 	_isInnerClass(false)
 {
 	Trc_BCU_Assert_NotEquals( classFile, NULL );
@@ -443,11 +449,15 @@ ClassFileOracle::walkAttributes()
 				knownAnnotations = addAnnotationBit(knownAnnotations, CONTENDED_ANNOTATION);
 				knownAnnotations = addAnnotationBit(knownAnnotations, JAVA8_CONTENDED_ANNOTATION);
 			}
+			knownAnnotations = addAnnotationBit(knownAnnotations, UNMODIFIABLE_ANNOTATION);
 			_annotationsAttribute = (J9CfrAttributeRuntimeVisibleAnnotations *)attrib;
 			if (0 == _annotationsAttribute->rawDataLength) {
 				UDATA foundAnnotations = walkAnnotations(_annotationsAttribute->numberOfAnnotations, _annotationsAttribute->annotations, knownAnnotations);
 				if (containsKnownAnnotation(foundAnnotations, CONTENDED_ANNOTATION) || containsKnownAnnotation(foundAnnotations, JAVA8_CONTENDED_ANNOTATION)) {
 					_isClassContended = true;
+				}
+				if (containsKnownAnnotation(foundAnnotations, UNMODIFIABLE_ANNOTATION)) {
+					_isClassUnmodifiable = true;
 				}
 			}
 			break;
@@ -835,11 +845,20 @@ ClassFileOracle::computeSendSlotCount(U_16 methodIndex)
 			while ((index < count) && ('[' == bytes[index])) {
 				++index;
 			}
-			if ((index >= count) || ('L' != bytes[index])) {
+			if ((index >= count)
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+				|| (('L' != bytes[index]) && ('Q' != bytes[index]))
+#else
+				|| ('L' != bytes[index])
+#endif /* J9VM_OPT_VALHALLA_VALUE_TYPES */
+			) {
 				break;
 			}
 			/* fall through */
 		case 'L':
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		case 'Q':
+#endif /* J9VM_OPT_VALHALLA_VALUE_TYPES */
 			++index;
 			while ((index < count) && (';' != bytes[index])) {
 				++index;
@@ -1404,22 +1423,6 @@ ClassFileOracle::walkMethodCodeAttributeCode(U_16 methodIndex)
 	U_8 *code = codeAttribute->code;
 	for (U_32 codeIndex = 0; codeIndex < codeAttribute->codeLength; codeIndex += step) { /* NOTE codeIndex is modified below for CFR_BC_tableswitch and CFR_BC_lookupswitch */
 
-#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
-		/*
-		 * TODO: Remap Valhalla L-World value type opcodes. 
-		 *
-		 * The current proposal for L-World value types maps the new value type opcodes to opcodes
-		 * that are currently in use internally. This is a workaround that remaps the new opcodes to
-		 * opcodes that do not conflict. Once the new opcodes are given in an official
-		 * specification, the conflicting internal bytecodes should be remapped.
-		 */
-		if (204 == code[codeIndex]) {
-			code[codeIndex] = CFR_BC_defaultvalue;
-		} else if (203 == code[codeIndex]) {
-			code[codeIndex] = CFR_BC_withfield;
-		}
-#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
-
 		U_8 sunInstruction = code[codeIndex];
 
 		step = sunJavaInstructionSizeTable[sunInstruction];
@@ -1754,6 +1757,23 @@ ClassFileOracle::walkMethodCodeAttributeCode(U_16 methodIndex)
 			}
 			break;
 		}
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		case CFR_BC_defaultvalue:
+			if (_classFile->majorVersion >= VALUE_TYPES_MAJOR_VERSION) {
+				cpIndex = PARAM_U16();
+				addBytecodeFixupEntry(entry++, codeIndex + 1, cpIndex, ConstantPoolMap::DEFAULT_VALUE);
+				markClassAsUsedByDefaultValue(cpIndex);
+			}
+			break;
+		case CFR_BC_withfield:
+			if (_classFile->majorVersion >= VALUE_TYPES_MAJOR_VERSION) {
+				cpIndex = PARAM_U16();
+				addBytecodeFixupEntry(entry++, codeIndex + 1, cpIndex, ConstantPoolMap::WITH_FIELD);
+				markFieldRefAsUsedByWithField(cpIndex);
+			}
+			break;
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 		default:
 			/* Do nothing */
@@ -2397,6 +2417,22 @@ ClassFileOracle::markClassAsUsedByNew(U_16 classCPIndex)
 	markClassAsReferenced(classCPIndex);
 	_constantPoolMap->markClassAsUsedByNew(classCPIndex);
 }
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+void
+ClassFileOracle::markClassAsUsedByDefaultValue(U_16 classCPIndex)
+{
+	markClassAsReferenced(classCPIndex);
+	_constantPoolMap->markClassAsUsedByDefaultValue(classCPIndex);
+}
+
+void
+ClassFileOracle::markFieldRefAsUsedByWithField(U_16 fieldRefCPIndex)
+{
+	markFieldRefAsReferenced(fieldRefCPIndex);
+	_constantPoolMap->markFieldRefAsUsedByWithField(fieldRefCPIndex);
+}
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 void
 ClassFileOracle::markFieldRefAsUsedByGetStatic(U_16 fieldRefCPIndex)

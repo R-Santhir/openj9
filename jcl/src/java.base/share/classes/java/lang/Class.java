@@ -1,8 +1,6 @@
 /*[INCLUDE-IF Sidecar16]*/
-package java.lang;
-
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,12 +20,16 @@ package java.lang;
  *
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
+package java.lang;
 
 import java.io.InputStream;
 import java.security.AccessControlContext;
 import java.security.ProtectionDomain;
 import java.security.AllPermission;
 import java.security.Permissions;
+/*[IF Java12]*/
+import java.lang.constant.ClassDesc;
+/*[ENDIF] Java12*/
 import java.lang.reflect.*;
 import java.net.URL;
 import java.lang.annotation.*;
@@ -39,12 +41,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+/*[IF Java12]*/
+import java.util.Optional;
+/*[ENDIF] Java12 */
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.security.AccessController;
 import java.security.PrivilegedExceptionAction;
 import java.security.PrivilegedAction;
 import java.lang.ref.*;
+/*[IF Java12]*/
+import java.lang.constant.ClassDesc;
+import java.lang.constant.Constable;
+/*[ENDIF]*/
 
 import sun.reflect.generics.repository.ClassRepository;
 import sun.reflect.generics.factory.CoreReflectionFactory;
@@ -52,6 +61,9 @@ import sun.reflect.generics.scope.ClassScope;
 import sun.reflect.annotation.AnnotationType;
 import java.util.Arrays;
 import com.ibm.oti.vm.VM;
+/*[IF Java11]*/
+import static com.ibm.oti.util.Util.doesClassLoaderDescendFrom;
+/*[ENDIF] Java11*/
 
 /*[IF Sidecar19-SE]
 import jdk.internal.misc.Unsafe;
@@ -122,7 +134,11 @@ import java.security.PrivilegedActionException;
  * @author		OTI
  * @version		initial
  */
-public final class Class<T> implements java.io.Serializable, GenericDeclaration, Type {
+public final class Class<T> implements java.io.Serializable, GenericDeclaration, Type
+/*[IF Java12]*/
+	, Constable, TypeDescriptor, TypeDescriptor.OfField<Class<?>>
+/*[ENDIF]*/
+{
 	private static final long serialVersionUID = 3206093459760846163L;
 	private static ProtectionDomain AllPermissionsPD;
 	private static final int SYNTHETIC = 0x1000;
@@ -241,6 +257,12 @@ public final class Class<T> implements java.io.Serializable, GenericDeclaration,
 	static Unsafe getUnsafe() {
 		return unsafe;
 	}
+	
+/*[IF Java11]*/
+	/* Store the results of getNestHostImpl() and getNestMembersImpl() respectively */
+	private Class<?> nestHost;
+	private Class<?>[] nestMembers;
+/*[ENDIF] Java11*/
 	
 /**
  * Prevents this class from being instantiated. Instances
@@ -403,7 +425,7 @@ boolean casAnnotationType(AnnotationType oldType, AnnotationType newType) {
 		localTypeOffset = getUnsafe().objectFieldOffset(field);
 		AnnotationVars.annotationTypeOffset = localTypeOffset;
 	}
-/*[IF Sidecar19-SE-OpenJ9]*/				
+/*[IF Sidecar19-SE]*/
 	return getUnsafe().compareAndSetObject(localAnnotationVars, localTypeOffset, oldType, newType);
 /*[ELSE]
 	return getUnsafe().compareAndSwapObject(localAnnotationVars, localTypeOffset, oldType, newType);
@@ -753,7 +775,6 @@ public Constructor<?>[] getConstructors() throws SecurityException {
 	if (cachedConstructors != null) {
 		return cachedConstructors;
 	}
-
 
 	/*[PR CMVC 192714,194493] prepare the class before attempting to access members */
 	J9VMInternals.prepare(this);
@@ -1902,10 +1923,10 @@ String getPackageName() {
 }
 
 /**
- * Answers a read-only stream on the contents of the
+ * Answers a URL referring to the
  * resource specified by resName. The mapping between
- * the resource name and the stream is managed by the
- * class' class loader.
+ * the resource name and the URL is managed by the
+ * class's class loader.
  *
  * @param		resName 	the name of the resource.
  * @return		a stream on the resource.
@@ -1918,31 +1939,33 @@ String getPackageName() {
 public URL getResource(String resName) {
 	ClassLoader loader = this.getClassLoaderImpl();
 	String absoluteResName = this.toResourceName(resName);
-/*[IF Sidecar19-SE]*/
+	URL result = null;
+	/*[IF Sidecar19-SE]*/
 	Module thisModule = getModule();
-	
-	if (thisModule.isNamed() && (thisModule == System.getCallerClass().getModule())) {
+	if (useModularSearch(absoluteResName, thisModule, System.getCallerClass())) {
 		try {
-			return loader.findResource(thisModule.getName(), absoluteResName);
+			result = loader.findResource(thisModule.getName(), absoluteResName);
 		} catch (IOException e) {
 			return null;
 		}
-	} else
-/*[ENDIF] Sidecar19-SE */
+	}
+	if (null == result)
+		/*[ENDIF] Sidecar19-SE */
 	{
 		if (loader == ClassLoader.bootstrapClassLoader) {
-			return ClassLoader.getSystemResource(absoluteResName);
+			result =ClassLoader.getSystemResource(absoluteResName);
 		} else {
-			return loader.getResource(absoluteResName);
+			result =loader.getResource(absoluteResName);
 		}
 	}
+	return result;
 }
 
 /**
  * Answers a read-only stream on the contents of the
  * resource specified by resName. The mapping between
  * the resource name and the stream is managed by the
- * class' class loader.
+ * class's class loader.
  *
  * @param		resName		the name of the resource.
  * @return		a stream on the resource.
@@ -1955,25 +1978,65 @@ public URL getResource(String resName) {
 public InputStream getResourceAsStream(String resName) {
 	ClassLoader loader = this.getClassLoaderImpl();
 	String absoluteResName = this.toResourceName(resName);
+	InputStream result = null;
 /*[IF Sidecar19-SE]*/
 	Module thisModule = getModule();
 	
-	if (thisModule.isNamed() && (thisModule == System.getCallerClass().getModule())) {
+	if (useModularSearch(absoluteResName, thisModule, System.getCallerClass())) {
 		try {
-			return thisModule.getResourceAsStream(absoluteResName);
+			result = thisModule.getResourceAsStream(absoluteResName);
 		} catch (IOException e) {
 			return null;
 		}
-	} else
+	}
+	if (null == result)
 /*[ENDIF] Sidecar19-SE */
 	{
 		if (loader == ClassLoader.bootstrapClassLoader) {
-			return ClassLoader.getSystemResourceAsStream(absoluteResName);
+			result = ClassLoader.getSystemResourceAsStream(absoluteResName);
 		} else {
-			return loader.getResourceAsStream(absoluteResName);
+			result = loader.getResourceAsStream(absoluteResName);
 		}
 	}
+	return result;
 }
+
+/*[IF Sidecar19-SE]*/
+/**
+ * Indicate if the package should be looked up in a module or via the class path.
+ * Look up the resource in the module if the module is named 
+ * and is the same module as the caller or the package is open to the caller.
+ * The default package (i.e. resources at the root of the module) is considered open.
+ * 
+ * @param absoluteResName name of resource, including package
+ * @param thisModule module of the current class
+ * @param callerClass class of method calling getResource() or getResourceAsStream()
+ * @return true if modular lookup should be used.
+ */
+private boolean useModularSearch(String absoluteResName, Module thisModule, Class<?> callerClass) {
+	boolean visible = false;
+
+	if (thisModule.isNamed()) {
+		final Module callerModule = callerClass.getModule();
+		visible = (thisModule == callerModule);
+		if (!visible) {
+			visible = absoluteResName.endsWith(".class"); //$NON-NLS-1$
+			if (!visible) {
+				// extract the package name
+				int lastSlash = absoluteResName.lastIndexOf('/');
+				if (-1 == lastSlash) { // no package name
+					visible = true;
+				} else {
+					String result = absoluteResName.substring(0, lastSlash).replace('/', '.');
+					visible = thisModule.isOpen(result, callerModule);
+				}
+			}
+		}
+	}
+	return visible;
+}
+/*[ENDIF] Sidecar19-SE */
+
 
 /**
  * Answers a String object which represents the class's
@@ -2190,12 +2253,18 @@ public String toString() {
 /**
  * Returns a formatted string describing this Class. The string has
  * the following format:
- * modifier1 modifier2 ... kind name&#60;typeparam1, typeparam2, ...&#62;. 
- * kind is one of "class", "enum", "interface", "&#64;interface", or
- * empty string for primitive types. The type parameter list is
+ * <i>modifier1 modifier2 ... kind name&lt;typeparam1, typeparam2, ...&gt;</i>.
+ * kind is one of <code>class</code>, <code>enum</code>, <code>interface</code>,
+ * <code>&#64;interface</code>, or
+ * the empty string for primitive types. The type parameter list is
  * omitted if there are no type parameters.
- * 
- * @return		a formatted string describing this class.
+/*[IF Sidecar19-SE]
+ * For array classes, the string has the following format instead:
+ * <i>name&lt;typeparam1, typeparam2, ...&gt;</i> followed by a number of
+ * <code>[]</code> pairs, one pair for each dimension of the array.
+/*[ENDIF]
+ *
+ * @return a formatted string describing this class
  * @since 1.8
  */
 public String toGenericString() {
@@ -2227,6 +2296,26 @@ public String toGenericString() {
 	}
 	
 	// Build generic string
+/*[IF Sidecar19-SE]*/
+	if (isArray) {
+		int depth = 0;
+		Class inner = this;
+		Class component = this;
+		do {
+			inner = inner.getComponentType();
+			if (inner != null) {
+				component = inner;
+				depth += 1;
+			}
+		} while (inner != null);
+		result.append(component.getName());
+		component.appendTypeParameters(result);
+		for (int i = 0; i < depth; i++) {
+			result.append('[').append(']');
+		}
+		return result.toString();
+	}
+/*[ENDIF]*/
 	result.append(Modifier.toString(modifiers));
 	if (result.length() > 0) {
 		result.append(' ');
@@ -2234,20 +2323,35 @@ public String toGenericString() {
 	result.append(kindOfType);
 	result.append(getName());
 	
-	// Add type parameters if present
+	appendTypeParameters(result);
+	return result.toString();
+}
+
+// Add type parameters to stringbuilder if present
+private void appendTypeParameters(StringBuilder nameBuilder) {
 	TypeVariable<?>[] typeVariables = getTypeParameters();
 	if (0 != typeVariables.length) {
-		result.append('<');		
+		nameBuilder.append('<');
 		boolean comma = false;
 		for (TypeVariable<?> t : typeVariables) {
-			if (comma) result.append(',');
-			result.append(t);
+			if (comma) nameBuilder.append(',');
+			nameBuilder.append(t);
 			comma = true;
+/*[IF Java12]*/
+			Type[] types = t.getBounds();
+			if (types.length == 1 && types[0].equals(Object.class)) {
+				// skip in case the only bound is java.lang.Object
+			} else {
+				String prefix = " extends "; //$NON-NLS-1$
+				for (Type type : types) {
+					nameBuilder.append(prefix).append(type.getTypeName());
+					prefix = " & "; //$NON-NLS-1$
+				}
+			}
+/*[ENDIF] Java12 */
 		}
-		result.append('>');
+		nameBuilder.append('>');
 	}
-	
-	return result.toString();
 }
 
 /**
@@ -3483,21 +3587,28 @@ static void setReflectCacheAppOnly(boolean cacheAppOnly) {
 }
 @SuppressWarnings("nls")
 static void doInitCacheIds() {
-	constructorParameterTypesField = getAccessibleField(Constructor.class, "parameterTypes");
-	methodParameterTypesField = getAccessibleField(Method.class, "parameterTypes");
+	/*
+	 * We cannot just call getDeclaredField() because that method includes a call
+	 * to Reflection.filterFields() which will remove the fields needed here.
+	 * The remaining required behavior of getDeclaredField() is inlined here.
+	 * The security checks are omitted (they would be redundant). Caching is
+	 * not done (we're in the process of initializing the caching mechanisms).
+	 * We must ensure the classes that own the fields of interest are prepared.
+	 */
+	J9VMInternals.prepare(Constructor.class);
+	J9VMInternals.prepare(Method.class);
+	try {
+		constructorParameterTypesField = Constructor.class.getDeclaredFieldImpl("parameterTypes");
+		methodParameterTypesField = Method.class.getDeclaredFieldImpl("parameterTypes");
+	} catch (NoSuchFieldException e) {
+		throw newInternalError(e);
+	}
+	constructorParameterTypesField.setAccessible(true);
+	methodParameterTypesField.setAccessible(true);
 	if (reflectCacheEnabled) {
 		copyConstructor = getAccessibleMethod(Constructor.class, "copy");
 		copyMethod = getAccessibleMethod(Method.class, "copy");
 		copyField = getAccessibleMethod(Field.class, "copy");
-	}
-}
-private static Field getAccessibleField(Class<?> cls, String name) {
-	try {
-		Field field = cls.getDeclaredField(name);
-		field.setAccessible(true);
-		return field;
-	} catch (NoSuchFieldException e) {
-		throw newInternalError(e);
 	}
 }
 private static Method getAccessibleMethod(Class<?> cls, String name) {
@@ -3899,7 +4010,7 @@ private ReflectCache acquireReflectCache() {
 		ReflectCache newCache = new ReflectCache(this);
 		do {
 			// Some thread will insert this new cache making it available to all.
-/*[IF Sidecar19-SE-OpenJ9]*/				
+/*[IF Sidecar19-SE]*/
 			if (theUnsafe.compareAndSetObject(this, cacheOffset, null, newCache)) {
 /*[ELSE]
 			if (theUnsafe.compareAndSwapObject(this, cacheOffset, null, newCache)) {
@@ -3941,9 +4052,7 @@ private ReflectCache peekReflectCache() {
 }
 
 static InternalError newInternalError(Exception cause) {
-	InternalError err = new InternalError(cause.toString());
-	err.setCause(cause);
-	return err;
+	return new InternalError(cause);
 }
 
 private Method lookupCachedMethod(String methodName, Class<?>[] parameters) {
@@ -4379,34 +4488,162 @@ private native Class<?>[] getNestMembersImpl();
 
 /**
  * Answers the host class of the receiver's nest.
- *
- * @return		the host class of the receiver.
+ * 
+ * @throws SecurityException if nestHost is not same as the current class, a security manager
+ *	is present, the classloader of the caller is not the same or an ancestor of nestHost
+ * 	class, and checkPackageAccess() denies access
+ * @return the host class of the receiver.
  */
-public Class<?> getNestHost() {
-	return getNestHostImpl();
+@CallerSensitive
+public Class<?> getNestHost() throws SecurityException {
+	if (nestHost == null) {
+		nestHost = getNestHostImpl();
+	}
+	/* The specification requires that if:
+	 *    - the returned class is not the current class
+	 *    - a security manager is present
+	 *    - the caller's class loader is not the same or an ancestor of the returned class
+	 *    - s.checkPackageAccess() disallows access to the package of the returned class
+	 * then throw a SecurityException.
+	 */
+	if (nestHost != this) {
+		SecurityManager securityManager = System.getSecurityManager();
+		if (securityManager != null) {
+			ClassLoader callerClassLoader = ClassLoader.getCallerClassLoader();
+			ClassLoader nestHostClassLoader = nestHost.internalGetClassLoader();
+			if (!doesClassLoaderDescendFrom(nestHostClassLoader, callerClassLoader)) {
+				String nestHostPackageName = nestHost.getPackageName();
+				if ((nestHostPackageName != null) && (nestHostPackageName != "")) {
+					securityManager.checkPackageAccess(nestHostPackageName);
+				}
+			}
+		}
+	}
+	return nestHost;
 }
 
 /**
  * Returns true if the class passed has the same nest top as this class.
- * The list of nest members in the classfile is permitted to contain
- * duplicates, or to explicitly include the nest host. It is not required
- * that an implementation of this method removes these duplicates.
  * 
- * @param		that		The class to compare
- * @return		true if class is a nestmate of this class; false otherwise.
+ * @param that The class to compare
+ * @return true if class is a nestmate of this class; false otherwise.
  *
  */
 public boolean isNestmateOf(Class<?> that) {
-	return this.getNestHost() == that.getNestHost();
+	Class<?> thisNestHost = this.nestHost;
+	if (thisNestHost == null) {
+		thisNestHost = this.getNestHostImpl();
+	}
+	Class<?> thatNestHost = that.nestHost;
+	if (thatNestHost == null) {
+		thatNestHost = that.getNestHostImpl();
+	}
+	return (thisNestHost == thatNestHost);
 }
 
 /**
  * Answers the nest member classes of the receiver's nest host.
  *
- * @return		the host class of the receiver.
+ * @throws SecurityException if a SecurityManager is present and package access is not allowed
+ * @throws LinkageError if there is any problem loading or validating a nest member or the nest host
+ * @throws SecurityException if a returned class is not the current class, a security manager is enabled,
+ *	the caller's class loader is not the same or an ancestor of that returned class, and the
+ * 	checkPackageAccess() denies access
+ * @return the host class of the receiver.
  */
-public Class<?>[] getNestMembers() {
-	return getNestMembersImpl();
+@CallerSensitive
+public Class<?>[] getNestMembers() throws LinkageError, SecurityException {
+	if (nestMembers == null) {
+		nestMembers = getNestMembersImpl();
+	}
+	SecurityManager securityManager = System.getSecurityManager();
+	if (securityManager != null) {
+		/* All classes in a nest must be in the same runtime package and therefore same classloader */
+		ClassLoader nestMemberClassLoader = this.internalGetClassLoader();
+		ClassLoader callerClassLoader = ClassLoader.getCallerClassLoader();
+		if (!doesClassLoaderDescendFrom(nestMemberClassLoader, callerClassLoader)) {
+			String nestMemberPackageName = this.getPackageName();
+			if ((nestMemberPackageName != null) && (nestMemberPackageName != "")) {
+				securityManager.checkPackageAccess(nestMemberPackageName);
+			}
+		}
+	}
+	return nestMembers;
 }
 /*[ENDIF] Java11 */
+
+/*[IF Java12]*/
+	/**
+	 * Create class of an array. The component type will be this Class instance.
+	 * 
+	 * @return array class where the component type is this Class instance
+	 */
+	public Class<?> arrayType() {
+		if (this == void.class) {
+			throw new IllegalArgumentException();
+		}
+		return arrayTypeImpl();
+	}
+
+	private native Class<?> arrayTypeImpl();
+
+	/**
+	 * Answers a Class object which represents the receiver's component type if the receiver 
+	 * represents an array type. The component type of an array type is the type of the elements 
+	 * of the array.
+	 *
+	 * @return the component type of the receiver. Returns null if the receiver does 
+	 * not represent an array.
+	 */
+	public Class<?> componentType() {
+		return getComponentType();
+	}
+
+	/**
+	 * Returns the nominal descriptor of this Class instance, or an empty Optional 
+	 * if construction is not possible.
+	 * 
+	 * @return Optional with a nominal descriptor of Class instance
+	 */
+	public Optional<ClassDesc> describeConstable() {
+		ClassDesc classDescriptor = ClassDesc.ofDescriptor(this.descriptorString());
+		return Optional.of(classDescriptor);
+	}
+
+	/**
+	 * Return field descriptor of Class instance.
+	 * 
+	 * @return field descriptor of Class instance
+	 */
+	public String descriptorString() {
+		/* see MethodType.getBytecodeStringName */
+
+		if (this.isPrimitive()) {
+			if (this == int.class) {
+				return "I"; //$NON-NLS-1$
+			} else if (this == long.class) {
+				return "J"; //$NON-NLS-1$
+			} else if (this == byte.class) {
+				return "B"; //$NON-NLS-1$
+			} else if (this == boolean.class) {
+				return "Z"; //$NON-NLS-1$
+			} else if (this == void.class) {
+				return "V"; //$NON-NLS-1$
+			} else if (this == char.class) {
+				return "C"; //$NON-NLS-1$
+			} else if (this == double.class) {
+				return "D"; //$NON-NLS-1$
+			} else if (this == float.class) {
+				return "F"; //$NON-NLS-1$
+			} else if (this == short.class) {
+				return "S"; //$NON-NLS-1$
+			}
+		}
+		String name = this.getName().replace('.', '/');
+		if (this.isArray()) {
+			return name;
+		}
+		return "L"+ name + ";"; //$NON-NLS-1$ //$NON-NLS-2$
+	}
+/*[ENDIF] Java12 */
 }

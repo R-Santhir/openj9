@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -26,12 +26,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Properties;
 
-import com.ibm.tools.attach.target.AttachHandler;
 
-@SuppressWarnings("nls")
 public class TargetVM {
 
-	public static final String WAITING_FOR_INITIALIZATION = "STATUS_WAIT_INITIALIZATION";
+	public static final String WAITING_FOR_INITIALIZATION = "STATUS_WAIT_INITIALIZATION"; //$NON-NLS-1$
 
 	/**
 	 * @param args
@@ -43,10 +41,10 @@ public class TargetVM {
 		System.err.println("starting");
 		long pid = 0;
 		try {
-			pid = AttachHandler.getProcessId();
+			pid = TargetManager.getProcessId();
 			System.out.println(TargetManager.PID_PREAMBLE + pid);
-			if (AttachHandler.waitForAttachApiInitialization()) {
-				System.out.println(TargetManager.VMID_PREAMBLE + AttachHandler.getVmId());
+			if (TargetManager.waitForAttachApiInitialization()) {
+				System.out.println(TargetManager.VMID_PREAMBLE + TargetManager.getVmId());
 				System.out.println(TargetManager.STATUS_PREAMBLE
 						+ TargetManager.STATUS_INIT_SUCESS);
 				System.out.flush();

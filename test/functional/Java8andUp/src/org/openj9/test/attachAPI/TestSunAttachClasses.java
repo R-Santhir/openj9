@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,12 +28,13 @@ import java.util.ArrayList;
 import java.util.Properties;
 
 import static org.testng.Assert.fail;
+
+import static org.openj9.test.util.PlatformInfo.getLibrarySuffix;
 import org.testng.AssertJUnit;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.ibm.tools.attach.target.AttachHandler;
 import com.sun.tools.attach.AgentInitializationException;
 import com.sun.tools.attach.AgentLoadException;
 import com.sun.tools.attach.AttachNotSupportedException;
@@ -48,7 +49,7 @@ public class TestSunAttachClasses extends AttachApiTest {
 	@Test
 	public void testAttachToSelf() {
 		logger.debug("starting " + testName);
-		String myVmid = com.ibm.tools.attach.target.AttachHandler.getVmId();
+		String myVmid = TargetManager.getVmId();
 		setVmOptions("-Dcom.ibm.tools.attach.logging=yes");
 		
 		try {
@@ -80,7 +81,7 @@ public class TestSunAttachClasses extends AttachApiTest {
 		String[] libDirs = lipPath.split(File.pathSeparator);
 		char fs = File.separatorChar;
 		String decoration = "lib";
-		String suffix = ".so";
+		String librarySuffix = getLibrarySuffix();
 		String errOutput = "";
 		String outOutput = "";
 		TargetManager target = new TargetManager(TestConstants.TARGET_VM_CLASS, null, vmArgs, null);
@@ -101,7 +102,7 @@ public class TestSunAttachClasses extends AttachApiTest {
 		}
 		for (String libElement: libDirs) {
 			try {
-				String libPath = libElement+fs+decoration+TestUtil.JVMTITST+suffix;
+				String libPath = libElement+fs+decoration+TestUtil.JVMTITST+librarySuffix;
 				logger.debug("trying to load "+ libPath);
 				File lib = new File(libPath);
 				if (!lib.exists()) {
@@ -145,7 +146,7 @@ public class TestSunAttachClasses extends AttachApiTest {
 	@BeforeMethod
 	protected void setUp(Method testMethod) {
 		testName = testMethod.getName();
-		if (!AttachHandler.waitForAttachApiInitialization()) {
+		if (!TargetManager.waitForAttachApiInitialization()) {
 			TargetManager.dumpLogs(true);
 			fail("main process did not initialize attach API");
 		}

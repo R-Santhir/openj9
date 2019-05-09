@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2017 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -383,7 +383,7 @@ exceptionHandlerSearch(J9VMThread *currentThread, J9StackWalkState *walkState)
 
 #ifdef J9VM_INTERP_NATIVE_SUPPORT
 					if (walkState->jitInfo != NULL) {
-						if (romMethod->modifiers & J9_JAVA_STATIC) {
+						if (romMethod->modifiers & J9AccStatic) {
 							J9Class *syncClass = walkState->constantPool->ramClass;
 
 							syncObject = J9VM_J9CLASS_TO_HEAPCLASS(syncClass);
@@ -691,7 +691,7 @@ sendConstructor:
 	cause = POP_OBJECT_IN_SPECIAL_FRAME(currentThread); /* cause */
 	if (currentThread->currentException == NULL) {
 		if (cause != NULL) {
-			sendInitCause(currentThread, (j9object_t) exception, cause, 0, 0);
+			sendInitCause(currentThread, (j9object_t) exception, cause);
 			exception = (j9object_t) currentThread->returnValue; /* initCause returns the receiver */
 		}
 	} else {

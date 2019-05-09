@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-Copyright (c) 2010, 2018 IBM Corp. and others
+Copyright (c) 2010, 2019 IBM Corp. and others
 
 This program and the accompanying materials are made available under
 the terms of the Eclipse Public License 2.0 which accompanies this
@@ -277,6 +277,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<makefilestubs>
 			<makefilestub data="UMA_EXE_POSTFIX_FLAGS+=-static">
 				<include-if condition="spec.linux_arm.*"/>
+				<include-if condition="spec.linux_aarch64.* and spec.flags.env_crossbuild" />
 			</makefilestub>
 			<makefilestub data="UMA_TREAT_WARNINGS_AS_ERRORS=1"/>
 			<makefilestub data="include ddr_cpp_headers.mk"/>
@@ -294,9 +295,11 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 
 			<library name="j9thrstatic" type="external">
 				<include-if condition="spec.linux_arm.*"/>
+				<include-if condition="spec.linux_aarch64.* and spec.flags.env_crossbuild" />
 			</library>
 			<library name="j9thr">
 				<exclude-if condition="spec.linux_arm.*"/>
+				<exclude-if condition="spec.linux_aarch64.* and spec.flags.env_crossbuild" />
 			</library>
 			<library name="j9portautoblob"/>
 			<library name="j9ddr_cppewautoblob"/>
@@ -308,7 +311,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<library name="j9ddrautoblob"/>
 			<library name="j9gcautoblob"/>
 			<library name="omrsig">
-				<include-if condition="spec.linux_ztpf.*"/>
+				<include-if condition="spec.flags.J9VM_PORT_OMRSIG_SUPPORT"/>
 			</library>
 
 			<!-- The following libs are needed to statically link the port library. -->
@@ -345,12 +348,16 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<commands>
 			<command line="cd $(UMA_PATH_TO_ROOT) &amp;&amp; ./j9ddrgen" type="all">
 				<exclude-if condition="spec.linux_arm.*"/>
+				<exclude-if condition="spec.linux_aarch64.* and spec.flags.env_crossbuild"/>
 				<exclude-if condition="spec.linux_ztpf.*"/>
 			</command>
 			<command line="cd $(UMA_PATH_TO_ROOT) &amp;&amp; qemu-arm -r '9' ./j9ddrgen" type="all">
 				<include-if condition="spec.linux_arm.*"/>
 			</command>
-			<command line="cd $(UMA_PATH_TO_ROOT); if [ -x ../build_j9ddrgen.sh ] &amp;&amp; [ ! -e ../j9ddrgen.completed ] ; then ../build_j9ddrgen.sh ; fi" type="all">
+			<command line="cd $(UMA_PATH_TO_ROOT) &amp;&amp; qemu-aarch64 -r '9' ./j9ddrgen" type="all">
+				<include-if condition="spec.linux_aarch64.* and spec.flags.env_crossbuild"/>
+			</command>
+			<command line="sleep 20;cd $(UMA_PATH_TO_ROOT); if [ -x ../build_j9ddrgen.sh ] &amp;&amp; [ ! -e ../j9ddrgen.completed ] ; then ../build_j9ddrgen.sh ; fi" type="all">
 				<include-if condition="spec.linux_ztpf.*"/>
 			</command>
 		</commands>
@@ -388,6 +395,9 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			</include>
 			<include path="j9gcvlhgc"/>
 			<include path="$(OMR_DIR)/include_core" type="relativepath"/>
+			<include path="$(OMR_DIR)/compiler" type="relativepath">
+				<include-if condition="spec.flags.J9VM_INTERP_NATIVE_SUPPORT"/>
+			</include>
 		</includes>
 		<makefilestubs>
 			<makefilestub data="CFLAGS += -femit-class-debug-always">
@@ -400,12 +410,16 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 				<include-if condition="spec.linux_ppc.*_gcc"/>
 				<include-if condition="spec.linux_x86.*"/>
 			</makefilestub>
+			<makefilestub data="UMA_DLL_LINK_FLAGS += -bexpall">
+				<include-if condition="spec.aix_ppc.*"/>
+			</makefilestub>
 		</makefilestubs>
 		<objects>
 			<object name="algorithm_versions"/>
 			<object name="gcddr"/>
 			<object name="jitflagsddr"/>
 			<object name="omrddr"/>
+			<object name="types"/>
 			<object name="vmddr"/>
 		</objects>
 	</artifact>

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,6 +23,7 @@
 #include "x/codegen/CallSnippet.hpp"
 
 #include "codegen/CodeGenerator.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/Relocation.hpp"
 #include "codegen/SnippetGCMap.hpp"
 #include "env/CompilerEnv.hpp"
@@ -39,17 +40,72 @@
 #include "il/symbol/StaticSymbol.hpp"
 #include "x/codegen/X86PrivateLinkage.hpp"
 
+bool TR::X86PicDataSnippet::shouldEmitJ2IThunkPointer()
+   {
+   if (!TR::Compiler->target.is64Bit())
+      return false; // no j2i thunks on 32-bit
+
+   if (!isInterface())
+      return unresolvedDispatch(); // invokevirtual could be private
+
+   // invokeinterface
+   if (forceUnresolvedDispatch())
+      return true; // forced to assume it could be private/Object
+
+   // Since interface method symrefs are always unresolved, check to see
+   // whether we know that it's a normal interface call. If we don't, then
+   // it could be private/Object.
+   uintptrj_t itableIndex = (uintptrj_t)-1;
+   int32_t cpIndex = _methodSymRef->getCPIndex();
+   TR_ResolvedMethod *owningMethod = _methodSymRef->getOwningMethod(comp());
+   TR_OpaqueClassBlock *interfaceClass =
+      owningMethod->getResolvedInterfaceMethod(cpIndex, &itableIndex);
+   return interfaceClass == NULL;
+   }
+
 uint8_t *TR::X86PicDataSnippet::encodeConstantPoolInfo(uint8_t *cursor)
    {
-   intptrj_t cpAddr = (intptrj_t)_methodSymRef->getOwningMethod(cg()->comp())->constantPool();
-   *(intptrj_t *)cursor = cpAddr;
+   uintptrj_t cpAddr = (uintptrj_t)_methodSymRef->getOwningMethod(cg()->comp())->constantPool();
+   *(uintptrj_t *)cursor = cpAddr;
 
-   if (_thunkAddress)
+   uintptr_t inlinedSiteIndex = (uintptr_t)-1;
+   if (_startOfPicInstruction->getNode() != NULL)
+      inlinedSiteIndex = _startOfPicInstruction->getNode()->getInlinedSiteIndex();
+
+   if (_hasJ2IThunkInPicData)
+      {
+      TR_ASSERT(
+         TR::Compiler->target.is64Bit(),
+         "expecting a 64-bit target for thunk relocations");
+
+      auto info =
+         (TR_RelocationRecordInformation *)comp()->trMemory()->allocateMemory(
+            sizeof (TR_RelocationRecordInformation),
+            heapAlloc);
+
+      int offsetToJ2IVirtualThunk = isInterface() ? 0x22 : 0x18;
+
+      info->data1 = cpAddr;
+      info->data2 = inlinedSiteIndex;
+      info->data3 = offsetToJ2IVirtualThunk;
+
+      cg()->addExternalRelocation(
+         new (cg()->trHeapMemory()) TR::ExternalRelocation(
+            cursor,
+            (uint8_t *)info,
+            NULL,
+            TR_J2IVirtualThunkPointer,
+            cg()),
+         __FILE__,
+         __LINE__,
+         _startOfPicInstruction->getNode());
+      }
+   else if (_thunkAddress)
       {
       TR_ASSERT(TR::Compiler->target.is64Bit(), "expecting a 64-bit target for thunk relocations");
       cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
                                                                              *(uint8_t **)cursor,
-                                                                             _startOfPicInstruction->getNode() ? (uint8_t *)_startOfPicInstruction->getNode()->getInlinedSiteIndex() : (uint8_t *)-1,
+                                                                             (uint8_t *)inlinedSiteIndex,
                                                                              TR_Thunks, cg()),
                              __FILE__,
                              __LINE__,
@@ -59,7 +115,7 @@ uint8_t *TR::X86PicDataSnippet::encodeConstantPoolInfo(uint8_t *cursor)
       {
       cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
                                                                                   (uint8_t *)cpAddr,
-                                                                                   _startOfPicInstruction->getNode() ? (uint8_t *)_startOfPicInstruction->getNode()->getInlinedSiteIndex() : (uint8_t *)-1,
+                                                                                   (uint8_t *)inlinedSiteIndex,
                                                                                    TR_ConstantPool,
                                                                                    cg()),
                              __FILE__,
@@ -69,17 +125,27 @@ uint8_t *TR::X86PicDataSnippet::encodeConstantPoolInfo(uint8_t *cursor)
 
    // DD/DQ cpIndex
    //
-   cursor += sizeof(intptrj_t);
+   cursor += sizeof(uintptrj_t);
    *(uintptrj_t *)cursor = (uintptrj_t)_methodSymRef->getCPIndexForVM();
-   cursor += sizeof(intptrj_t);
+   cursor += sizeof(uintptrj_t);
 
    return cursor;
    }
 
+uint8_t *TR::X86PicDataSnippet::encodeJ2IThunkPointer(uint8_t *cursor)
+   {
+   TR_ASSERT_FATAL(_hasJ2IThunkInPicData, "did not expect j2i thunk pointer");
+   TR_ASSERT_FATAL(_thunkAddress != NULL, "null virtual j2i thunk");
+
+   // DD/DQ j2iThunk
+   *(uintptrj_t *)cursor = (uintptrj_t)_thunkAddress;
+   cursor += sizeof(uintptrj_t);
+
+   return cursor;
+   }
 
 uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
    {
-   TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg()->fe());
    uint8_t *startOfSnippet = cg()->getBinaryBufferCursor();
 
    uint8_t *cursor = startOfSnippet;
@@ -97,7 +163,17 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       //
       // Slow interface lookup dispatch.
       //
-      getSnippetLabel()->setCodeLocation(startOfSnippet);
+
+      // Align the IPIC data to a pointer-sized boundary to ensure that the
+      // interface class and itable offset are naturally aligned.
+      uintptr_t offsetToIpicData = 10;
+      uintptr_t unalignedIpicDataStart = (uintptr_t)cursor + offsetToIpicData;
+      uintptr_t alignMask = sizeof (uintptrj_t) - 1;
+      uintptr_t alignedIpicDataStart =
+         (unalignedIpicDataStart + alignMask) & ~alignMask;
+      cursor += alignedIpicDataStart - unalignedIpicDataStart;
+
+      getSnippetLabel()->setCodeLocation(cursor);
 
       // Slow path lookup dispatch
       //
@@ -128,22 +204,34 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       // DD/DQ constantPool address
       // DD/DQ cpIndex
       //
-      if (_methodSymRef->isUnresolved())
+      if (unresolvedDispatch())
          {
          cursor = encodeConstantPoolInfo(cursor);
          }
       else
          {
-         TR_ASSERT(0, "Can't handle resolved IPICs here yet!");
+         TR_ASSERT_FATAL(0, "Can't handle resolved IPICs here yet!");
          }
 
-      // Reserve space for resolved interface class and itable index.
+      // Because the interface class and itable offset (immediately following)
+      // are written at runtime and might be read concurrently by another
+      // thread, they must be naturally aligned to guarantee that all accesses
+      // to them are atomic.
+      TR_ASSERT_FATAL(
+         ((uintptr_t)cursor & (sizeof(uintptrj_t) - 1)) == 0,
+         "interface class and itable offset IPIC data slots are unaligned");
+
+      // Reserve space for resolved interface class and itable offset.
       // These slots will be populated during interface class resolution.
+      // The itable offset slot doubles as a direct J9Method pointer slot.
       //
       // DD/DQ  0x00000000
       // DD/DQ  0x00000000
       //
-      cursor += (2 * sizeof(intptrj_t));
+      *(uintptrj_t*)cursor = 0;
+      cursor += sizeof(uintptrj_t);
+      *(uintptrj_t*)cursor = 0;
+      cursor += sizeof(uintptrj_t);
 
       if (TR::Compiler->target.is64Bit())
          {
@@ -152,6 +240,9 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
          uint16_t *slotPatchInstructionBytes = (uint16_t *)_slotPatchInstruction->getBinaryEncoding();
          *(uint16_t *)cursor = *slotPatchInstructionBytes;
          cursor += 2;
+
+         if (unresolvedDispatch() && _hasJ2IThunkInPicData)
+            cursor = encodeJ2IThunkPointer(cursor);
          }
       else
          {
@@ -178,13 +269,14 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       // DD/DQ constantPool address
       // DD/DQ cpIndex
       //
-      if (_methodSymRef->isUnresolved() || fej9->forceUnresolvedDispatch())
+      if (unresolvedDispatch())
          {
          // Align the real snippet entry point because it will be patched with
          // the vtable dispatch when the method is resolved.
          //
          intptrj_t entryPoint = ((intptrj_t)cursor +
-                                 ((2 * sizeof(intptrj_t)) +
+                                 ((3 * sizeof(uintptrj_t)) +
+                                  (hasJ2IThunkInPicData() ? sizeof(uintptrj_t) : 0) +
                                   (TR::Compiler->target.is64Bit() ? 4 : 1)));
 
          intptrj_t requiredEntryPoint =
@@ -193,11 +285,10 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
 
          cursor += (requiredEntryPoint - entryPoint);
 
-         // DD/DQ cpAddr
-         // DD/DQ cpIndex
-         //
-         cursor = encodeConstantPoolInfo(cursor);
-
+         // Put the narrow integers before the pointer-sized ones. This way,
+         // directMethod (which is mutable) will be aligned simply as a
+         // consequence of the alignment required for patching the code that
+         // immediately follows the VPIC data.
          if (TR::Compiler->target.is64Bit())
             {
             // REX prefix of MOVRegImm64 instruction
@@ -218,9 +309,6 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
             slotPatchInstructionBytes += 11;
             callModRMByte = (*slotPatchInstructionBytes & 7) + 0x90;
             *cursor++ = callModRMByte;
-
-            // SIB  49ff9424feffffff call    qword ptr [r12-2]
-
             }
          else
             {
@@ -229,10 +317,32 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
             uint8_t *slotPatchInstructionBytes = (uint8_t *)_slotPatchInstruction->getBinaryEncoding();
             *cursor++ = *(slotPatchInstructionBytes+1);
             }
+
+         // DD/DQ cpAddr
+         // DD/DQ cpIndex
+         //
+         cursor = encodeConstantPoolInfo(cursor);
+
+         // Because directMethod (immediately following) is written at runtime
+         // and might be read concurrently by another thread, it must be
+         // naturally aligned to ensure that all accesses to it are atomic.
+         TR_ASSERT_FATAL(
+            ((uintptr_t)cursor & (sizeof(uintptrj_t) - 1)) == 0,
+            "directMethod VPIC data slot is unaligned");
+
+         // DD/DQ directMethod (initially null)
+         *(uintptrj_t *)cursor = 0;
+         cursor += sizeof(uintptrj_t);
+
+         if (TR::Compiler->target.is64Bit())
+            {
+            // DD/DQ j2iThunk
+            cursor = encodeJ2IThunkPointer(cursor);
+            }
          }
       else
          {
-         TR_ASSERT(0, "Can't handle resolved VPICs here yet!");
+         TR_ASSERT_FATAL(0, "Can't handle resolved VPICs here yet!");
          }
 
       _dispatchSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_X86populateVPicVTableDispatch, false, false, false);
@@ -348,6 +458,8 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
    if (pOutFile == NULL)
       return;
 
+   TR_J9VMBase *fej9 = (TR_J9VMBase *)(_cg->fe());
+
    uint8_t *bufferPos = snippet->getSnippetLabel()->getCodeLocation();
 
    // Account for VPic data appearing before the actual entry label.
@@ -356,10 +468,14 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
       {
       // TODO: clean this up!
       //
-      if (TR::Compiler->target.is64Bit())
-         bufferPos -= (4 + 16);
-      else
-         bufferPos -= (1 + 8);
+      bufferPos -= TR::Compiler->target.is64Bit() ? 4 : 1;
+      bufferPos -= 2 * sizeof(uintptrj_t);
+      if (snippet->unresolvedDispatch())
+         {
+         bufferPos -= sizeof(uintptrj_t);
+         if (snippet->hasJ2IThunkInPicData())
+            bufferPos -= sizeof(uintptrj_t);
+         }
 
       uint32_t offset = bufferPos - _cg->getCodeStart();
       trfprintf(pOutFile, "\n\n" POINTER_PRINTF_FORMAT " %08x %*s", bufferPos, offset, 65, " <<< VPic Data >>>");
@@ -389,26 +505,46 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
       printLabelInstruction(pOutFile, "jmp", snippet->getDoneLabel());
       bufferPos += 5;
 
-      if (methodSymRef->isUnresolved())
+      if (methodSymRef->isUnresolved() || fej9->forceUnresolvedDispatch())
          {
-         const char *op = (sizeof(intptrj_t) == 4) ? "DD" : "DQ";
+         const char *op = (sizeof(uintptrj_t) == 4) ? "DD" : "DQ";
 
-         printPrefix(pOutFile, NULL, bufferPos, sizeof(intptrj_t));
-         trfprintf(pOutFile, "%s\t" POINTER_PRINTF_FORMAT "\t\t%s owning method cpAddr",
-                       op, (intptrj_t)methodSymRef->getOwningMethod(_comp)->constantPool(), commentString());
-         bufferPos += sizeof(intptrj_t);
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(
+            pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s owning method cpAddr",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString());
+         bufferPos += sizeof(uintptrj_t);
 
-         printPrefix(pOutFile, NULL, bufferPos, sizeof(intptrj_t));
-         trfprintf(pOutFile, "%s\t" POINTER_PRINTF_FORMAT "\t\t%s cpIndex", op, (intptrj_t)methodSymRef->getCPIndexForVM(), commentString());
-         bufferPos += sizeof(intptrj_t);
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(
+            pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s cpIndex",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString());
+         bufferPos += sizeof(uintptrj_t);
 
-         printPrefix(pOutFile, NULL, bufferPos, sizeof(intptrj_t));
-         trfprintf(pOutFile, "%s\t" POINTER_PRINTF_FORMAT "\t\t%s interface class", op, 0, commentString());
-         bufferPos += sizeof(intptrj_t);
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(
+            pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s interface class (initially null)",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString());
+         bufferPos += sizeof(uintptrj_t);
 
-         printPrefix(pOutFile, NULL, bufferPos, sizeof(intptrj_t));
-         trfprintf(pOutFile, "%s\t" POINTER_PRINTF_FORMAT "\t\t%s interface method index", op, 0, commentString());
-         bufferPos += sizeof(intptrj_t);
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(
+            pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s itable offset%s (initially zero)",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString(),
+            snippet->hasJ2IThunkInPicData() ? " or direct J9Method" : "");
+         bufferPos += sizeof(uintptrj_t);
 
          if (TR::Compiler->target.is64Bit())
             {
@@ -429,12 +565,24 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
                           *bufferPos,
                           commentString());
             bufferPos += 1;
+
+            if (snippet->hasJ2IThunkInPicData())
+               {
+               printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+               trfprintf(
+                  pOutFile,
+                  "%s\t" POINTER_PRINTF_FORMAT "\t\t%s j2i virtual thunk",
+                  op,
+                  (void*)*(uintptrj_t*)bufferPos,
+                  commentString());
+               bufferPos += sizeof(uintptrj_t);
+               }
             }
          else
             {
-            // REX+MOV of MOVRegImm64 instruction
+            // ModRM of CMPRegImm4
             //
-                    printPrefix(pOutFile, NULL, bufferPos, 1);
+            printPrefix(pOutFile, NULL, bufferPos, 1);
             trfprintf(pOutFile, "%s\t%s%02x%s\t\t\t\t\t\t\t\t%s ModRM of CMP",
                           dbString(),
                           hexPrefixString(),
@@ -449,20 +597,9 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
       {
       uint8_t callModRM = 0;
 
-      if (methodSymRef->isUnresolved())
+      if (snippet->unresolvedDispatch())
          {
-         const char *op = (sizeof(intptrj_t) == 4) ? "DD" : "DQ";
-
-         printPrefix(pOutFile, NULL, bufferPos, sizeof(intptrj_t));
-         trfprintf(pOutFile, "%s\t" POINTER_PRINTF_FORMAT "\t\t%s owning method cpAddr",
-                       op, (intptrj_t)methodSymRef->getOwningMethod(_comp)->constantPool(),
-                       commentString());
-         bufferPos += sizeof(intptrj_t);
-
-         printPrefix(pOutFile, NULL, bufferPos, sizeof(intptrj_t));
-         trfprintf(pOutFile, "%s\t" POINTER_PRINTF_FORMAT "\t\t%s cpIndex", op, (intptrj_t)methodSymRef->getCPIndexForVM(),
-                       commentString());
-         bufferPos += sizeof(intptrj_t);
+         const char *op = (sizeof(uintptrj_t) == 4) ? "DD" : "DQ";
 
          if (TR::Compiler->target.is64Bit())
             {
@@ -491,7 +628,7 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
             printPrefix(pOutFile, NULL, bufferPos, 1);
             trfprintf(pOutFile, "%s\t%02x\t\t\t\t\t\t\t\t%s ModRM for CALLMem",
                           dbString(),
-                          callModRM,
+                          *bufferPos,
                           commentString());
             bufferPos += 1;
             }
@@ -503,6 +640,44 @@ TR_Debug::print(TR::FILE *pOutFile, TR::X86PicDataSnippet *snippet)
                           *bufferPos,
                           commentString());
             bufferPos += 1;
+            }
+
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(
+            pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s owning method cpAddr",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString());
+         bufferPos += sizeof(uintptrj_t);
+
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(
+            pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s cpIndex",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString());
+         bufferPos += sizeof(uintptrj_t);
+
+         printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+         trfprintf(pOutFile,
+            "%s\t" POINTER_PRINTF_FORMAT "\t\t%s direct J9Method (initially null)",
+            op,
+            (void*)*(uintptrj_t*)bufferPos,
+            commentString());
+         bufferPos += sizeof(uintptrj_t);
+
+         if (TR::Compiler->target.is64Bit())
+            {
+            printPrefix(pOutFile, NULL, bufferPos, sizeof(uintptrj_t));
+            trfprintf(
+               pOutFile,
+               "%s\t" POINTER_PRINTF_FORMAT "\t\t%s j2i virtual thunk",
+               op,
+               (void*)*(uintptrj_t*)bufferPos,
+               commentString());
+            bufferPos += sizeof(uintptrj_t);
             }
          }
 
@@ -548,15 +723,19 @@ uint32_t TR::X86PicDataSnippet::getLength(int32_t estimatedSnippetStart)
       {
       return   5                                 // Lookup dispatch
              + 5                                 // JMP done
-             + (4 * sizeof(intptrj_t))           // Resolve slots
-             + (TR::Compiler->target.is64Bit() ? 2 : 1);  // ModRM or REX+MOV
+             + (4 * sizeof(uintptrj_t))          // Resolve slots
+             + (TR::Compiler->target.is64Bit() ? 2 : 1)   // ModRM or REX+MOV
+             + (_hasJ2IThunkInPicData ? sizeof(uintptrj_t) : 0) // j2i thunk pointer
+             + sizeof (uintptrj_t) - 1;          // alignment
       }
    else
       {
       return   6                                 // CALL [Mem] (pessimistically assume a SIB is needed)
              + (TR::Compiler->target.is64Bit() ? 2 : 0)   // REX for CALL + SIB for CALL (64-bit)
              + 5                                 // JMP done
-             + (2 * sizeof(intptrj_t))           // cpAddr, cpIndex
+             + (2 * sizeof(uintptrj_t))          // cpAddr, cpIndex
+             + (unresolvedDispatch() ? sizeof(uintptrj_t) : 0)  // directMethod
+             + (_hasJ2IThunkInPicData ? sizeof(uintptrj_t) : 0) // j2i thunk
 
              // 64-bit Data
              // -----------
@@ -595,92 +774,20 @@ TR::X86CallSnippet::alignCursorForCodePatching(
    }
 
 
-// Determine the appropriate interpreted dispatch helper based on the return
-// type of the target method.
-//
-TR_RuntimeHelper TR::X86CallSnippet::getInterpretedDispatchHelper(
-   TR::SymbolReference  *methodSymRef,
-   TR::DataType         type,
-   bool                  isSynchronized,
-   TR::CodeGenerator    *cg)
-   {
-   TR::MethodSymbol    *methodSymbol = methodSymRef->getSymbol()->castToMethodSymbol();
-
-   if (methodSymbol->isVMInternalNative() || methodSymbol->isJITInternalNative())
-      return TR_icallVMprJavaSendNativeStatic;
-
-   if (methodSymbol->isHelper() &&
-       methodSymRef == cg->symRefTab()->element(TR_induceOSRAtCurrentPC))
-      {
-      return TR_induceOSRAtCurrentPC;
-      }
-
-   TR_RuntimeHelper helper;
-
-   switch (type)
-      {
-      case TR::NoType:
-         helper = TR_X86interpreterVoidStaticGlue; break;
-
-      case TR::Int8:
-      case TR::Int16:
-      case TR::Int32:
-         helper = TR_X86interpreterIntStaticGlue; break;
-
-      case TR::Address:
-         helper = TR_X86interpreterAddressStaticGlue; break;
-
-      case TR::Int64:
-         helper = TR_X86interpreterLongStaticGlue; break;
-
-      case TR::Float:
-         helper = TR_X86interpreterFloatStaticGlue; break;
-
-      case TR::Double:
-         helper = TR_X86interpreterDoubleStaticGlue; break;
-
-      default:
-         TR_ASSERT(0, "Bad return data type for a call node.  DataType was %s\n",
-               cg->comp()->getDebug()->getName(type));
-         return (TR_RuntimeHelper)0;
-      }
-
-   if (isSynchronized)
-      {
-      // Choose the synchronized form of dispatch helper.
-      //
-      helper = (TR_RuntimeHelper)(((int32_t)helper)+1);
-      }
-
-   return helper;
-   }
-
-
-TR_RuntimeHelper
-TR::X86CallSnippet::getDirectToInterpreterHelper(
-   TR::MethodSymbol   *methodSymbol,
-   TR::DataType        type,
-   bool                synchronised)
-   {
-   return methodSymbol->getVMCallHelper();
-   }
-
-
 uint8_t *TR::X86CallSnippet::emitSnippetBody()
    {
-   TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg()->fe());
-   uint8_t            *cursor = cg()->getBinaryBufferCursor();
-   TR::SymbolReference *methodSymRef = _realMethodSymbolReference ? _realMethodSymbolReference : getNode()->getSymbolReference();
-   TR::MethodSymbol    *methodSymbol = methodSymRef->getSymbol()->castToMethodSymbol();
-   int32_t             disp32;
-   TR::Compilation *comp = cg()->comp();
+   TR::Compilation*     comp         = cg()->comp();
+   TR_J9VMBase*         fej9         = (TR_J9VMBase *)(cg()->fe());
+   TR::SymbolReference* methodSymRef = _realMethodSymbolReference ? _realMethodSymbolReference : getNode()->getSymbolReference();
+   TR::MethodSymbol*    methodSymbol = methodSymRef->getSymbol()->castToMethodSymbol();
+   uint8_t*             cursor       = cg()->getBinaryBufferCursor();
 
    bool needToSetCodeLocation = true;
-   bool isJitInduceOSRCall = false;
+   bool isJitInduceOSRCall    = false;
 
    if (TR::Compiler->target.is64Bit() &&
        methodSymbol->isHelper() &&
-       methodSymRef == cg()->symRefTab()->element(TR_induceOSRAtCurrentPC))
+       methodSymRef->isOSRInductionHelper())
       {
       isJitInduceOSRCall = true;
       }
@@ -694,38 +801,42 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       cursor = linkage->storeArguments(getNode(), cursor, false, NULL);
       needToSetCodeLocation = false;
 
-      if (comp->getCodeCacheSwitched() &&
+      if (cg()->hasCodeCacheSwitched() &&
           (methodSymRef->getReferenceNumber()>=TR_AMD64numRuntimeHelpers))
          {
          fej9->reserveTrampolineIfNecessary(comp, methodSymRef, true);
          }
       }
 
-   if (methodSymRef->isUnresolved() || fej9->forceUnresolvedDispatch())
+   bool forceUnresolvedDispatch = fej9->forceUnresolvedDispatch();
+   if (comp->getOption(TR_UseSymbolValidationManager))
+      forceUnresolvedDispatch = false;
+
+   if (methodSymRef->isUnresolved() || forceUnresolvedDispatch)
       {
       // Unresolved interpreted dispatch snippet shape:
       //
       // 64-bit
       // ======
       //       align 8
-      // (10)  call  interpreterUnresolved{Static|Special}Glue  ; replaced with "mov rdi, 0x0000aabbccddeeff"
-      // (5)   call  updateInterpreterDispatchGlueSite          ; replaced with "JMP disp32"
-      // (2)   dw    2-byte glue method helper index
-      // (8)   dq    cpAddr
-      // (4)   dd    cpIndex
+      // (10)  CALL  interpreterUnresolved{Static|Special}Glue  ; replaced with "mov rdi, 0x0000aabbccddeeff"
+      // (5)   JMP   interpreterStaticAndSpecialGlue
+      // (2)   DW    2-byte glue method helper index
+      // (8)   DQ    cpAddr
+      // (4)   DD    cpIndex
       //
       // 32-bit
       // ======
       //       align 8
-      // (5)   call  interpreterUnresolved{Static|Special}Glue  ; replaced with "mov edi, 0xaabbccdd"
+      // (5)   CALL  interpreterUnresolved{Static|Special}Glue  ; replaced with "mov edi, 0xaabbccdd"
       // (3)   NOP
-      // (5)   call  updateInterpreterDispatchGlueSite          ; replaced with "JMP disp32"
-      // (2)   dw    2-byte glue method helper index
-      // (4)   dd    cpAddr
-      // (4)   dd    cpIndex
+      // (5)   JMP   interpreterStaticAndSpecialGlue
+      // (2)   DW    2-byte glue method helper index
+      // (4)   DD    cpAddr
+      // (4)   DD    cpIndex
       //
 
-      TR_ASSERT(!isJitInduceOSRCall || !fej9->forceUnresolvedDispatch(), "calling jitInduceOSR is not supported yet under AOT\n");
+      TR_ASSERT(!isJitInduceOSRCall || !forceUnresolvedDispatch, "calling jitInduceOSR is not supported yet under AOT\n");
       cursor = alignCursorForCodePatching(cursor, TR::Compiler->target.is64Bit());
 
       if (comp->getOption(TR_EnableHCR))
@@ -738,7 +849,7 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
          getSnippetLabel()->setCodeLocation(cursor);
          }
 
-      TR_ASSERT((methodSymbol->isStatic() || methodSymbol->isSpecial() || fej9->forceUnresolvedDispatch()), "Unexpected unresolved dispatch");
+      TR_ASSERT((methodSymbol->isStatic() || methodSymbol->isSpecial() || forceUnresolvedDispatch), "Unexpected unresolved dispatch");
 
       // CALL interpreterUnresolved{Static|Special}Glue
       //
@@ -748,14 +859,13 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       TR::SymbolReference *helperSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(resolutionHelper, false, false, false);
 
       *cursor++ = 0xe8;    // CALL
-      disp32 = cg()->branchDisplacementToHelperOrTrampoline(cursor+4, helperSymRef);
-      *(int32_t *)cursor = disp32;
+      *(int32_t *)cursor = cg()->branchDisplacementToHelperOrTrampoline(cursor + 4, helperSymRef);
 
-      cg()->addExternalRelocation(new (cg()->trHeapMemory())
-         TR::ExternalRelocation(cursor,
-                                    (uint8_t *)helperSymRef,
-                                    TR_HelperAddress,
-                                    cg()),  __FILE__, __LINE__, getNode());
+      cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
+                                                                                    (uint8_t *)helperSymRef,
+                                                                                    TR_HelperAddress,
+                                                                                    cg()),
+                                  __FILE__, __LINE__, getNode());
       cursor += 4;
 
       if (TR::Compiler->target.is64Bit())
@@ -773,25 +883,22 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
          cursor = cg()->generatePadding(cursor, 3);
          }
 
-      // CALL updateInterpreterDispatchGlueSite
+      // JMP interpreterStaticAndSpecialGlue
       //
-      helperSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_X86updateInterpreterDispatchGlueSite, false, false, false);
+      helperSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_X86interpreterStaticAndSpecialGlue, false, false, false);
 
-      *cursor++ = 0xe8;    // CALL
-      disp32 = cg()->branchDisplacementToHelperOrTrampoline(cursor+4, helperSymRef);
-      *(int32_t *)cursor = disp32;
+      *cursor++ = 0xe9;    // JMP
+      *(int32_t *)cursor = cg()->branchDisplacementToHelperOrTrampoline(cursor + 4, helperSymRef);
 
-      cg()->addExternalRelocation(new (cg()->trHeapMemory())
-         TR::ExternalRelocation(cursor,
-                                    (uint8_t *)helperSymRef,
-                                    TR_HelperAddress,
-                                    cg()),  __FILE__, __LINE__, getNode());
+      cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
+                                                                                    (uint8_t*)helperSymRef,
+                                                                                    TR_HelperAddress,
+                                                                                    cg()),
+                                  __FILE__, __LINE__, getNode());
       cursor += 4;
 
       // DW dispatch helper index for the method's return type.
-      //
-      TR_RuntimeHelper dispatchHelper = getInterpretedDispatchHelper(methodSymRef, getNode()->getDataType(), false, cg());
-      *(uint16_t *)cursor = (uint16_t)dispatchHelper;
+      // this argument is not in use and hence will be cleaned-up in a subsequent changeset.
       cursor += 2;
 
       // DD/DQ cpAddr
@@ -799,16 +906,12 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       intptrj_t cpAddr = (intptrj_t)methodSymRef->getOwningMethod(comp)->constantPool();
       *(intptrj_t *)cursor = cpAddr;
 
-      TR::Relocation *relocation;
-
-      relocation = new (cg()->trHeapMemory()) TR::ExternalRelocation(
-            cursor,
-            *(uint8_t **)cursor,
-             getNode() ? (uint8_t *)getNode()->getInlinedSiteIndex() : (uint8_t *)-1,
-            TR_ConstantPool,
-            cg());
-
-      cg()->addExternalRelocation(relocation, __FILE__, __LINE__, getNode());
+      cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
+                                                                                    *(uint8_t **)cursor,
+                                                                                    getNode() ? (uint8_t *)(uintptr_t)getNode()->getInlinedSiteIndex() : (uint8_t *)-1,
+                                                                                    TR_ConstantPool,
+                                                                                    cg()),
+                                  __FILE__, __LINE__, getNode());
       cursor += sizeof(intptrj_t);
 
       // DD cpIndex
@@ -824,13 +927,13 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       // ======
 
       // (10)  MOV rdi, 0x0000aabbccddeeff                      ; load RAM method
-      // (5)   JMP interpreter{*}StaticGlue
+      // (5)   JMP interpreterStaticAndSpecialGlue
       //
       // 32-bit
       // ======
       //
-      // (5)   mov edi, 0xaabbccdd                              ; load RAM method
-      // (5)   JMP interpreter{*}StaticGlue
+      // (5)   MOV edi, 0xaabbccdd                              ; load RAM method
+      // (5)   JMP interpreterStaticAndSpecialGlue
       //
 
       if (needToSetCodeLocation)
@@ -861,6 +964,16 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
 
          *(intptrj_t *)cursor = ramMethod;
 
+         if (comp->getOption(TR_UseSymbolValidationManager))
+            {
+            cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
+                                                                                          (uint8_t *)ramMethod,
+                                                                                          (uint8_t *)TR::SymbolType::typeMethod,
+                                                                                          TR_SymbolFromManager,
+                                                                                          cg()),
+                                        __FILE__, __LINE__, getNode());
+            }
+
          // HCR in TR::X86CallSnippet::emitSnippetBody register the method address
          //
          if (comp->getOption(TR_EnableHCR))
@@ -869,28 +982,22 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
          cursor += sizeof(intptrj_t);
          }
 
-      // JMP imm32
+      // JMP interpreterStaticAndSpecialGlue
       //
       *cursor++ = 0xe9;
 
-      TR_RuntimeHelper dispatchHelper;
+      TR::SymbolReference* dispatchSymRef =
+          methodSymbol->isHelper() && methodSymRef->isOSRInductionHelper() ? methodSymRef :
+                                                                             cg()->symRefTab()->findOrCreateRuntimeHelper(TR_X86interpreterStaticAndSpecialGlue, false, false, false);
 
-      dispatchHelper = getInterpretedDispatchHelper(
-         methodSymRef,
-         getNode()->getDataType(),
-         methodSymbol->isSynchronised(),
-         cg());
-      TR::SymbolReference *dispatchSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(dispatchHelper, false, false, false);
-
-      disp32 = cg()->branchDisplacementToHelperOrTrampoline(cursor+4, dispatchSymRef);
-      *(int32_t *)cursor = disp32;
+      *(int32_t *)cursor = cg()->branchDisplacementToHelperOrTrampoline(cursor + 4, dispatchSymRef);
 
       cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
-                                                            (uint8_t *)dispatchSymRef,
-                                                            TR_HelperAddress,
-                                                            cg()),  __FILE__, __LINE__, getNode());
+                                                                                    (uint8_t *)dispatchSymRef,
+                                                                                    TR_HelperAddress,
+                                                                                    cg()),
+                                  __FILE__, __LINE__, getNode());
       cursor += 4;
-
       }
 
    return cursor;
@@ -914,7 +1021,12 @@ uint32_t TR::X86CallSnippet::getLength(int32_t estimatedSnippetStart)
       length += codeSize;
       }
 
-   if (methodSymRef->isUnresolved() || fej9->forceUnresolvedDispatch())
+   TR::Compilation *comp = cg()->comp();
+   bool forceUnresolvedDispatch = fej9->forceUnresolvedDispatch();
+   if (comp->getOption(TR_UseSymbolValidationManager))
+      forceUnresolvedDispatch = false;
+
+   if (methodSymRef->isUnresolved() || forceUnresolvedDispatch)
       {
       // +7 accounts for maximum length alignment padding.
       //
@@ -932,96 +1044,4 @@ uint32_t TR::X86CallSnippet::getLength(int32_t estimatedSnippetStart)
       }
 
    return length;
-   }
-
-
-uint8_t *TR::X86UnresolvedVirtualCallSnippet::emitSnippetBody()
-   {
-   TR_ASSERT(TR::Compiler->target.is32Bit(), "TR::X86UnresolvedVirtualCallSnippet only available on 32-bit");
-   TR::Compilation *comp = cg()->comp();
-   uint8_t *cursor = cg()->getBinaryBufferCursor();
-   getSnippetLabel()->setCodeLocation(cursor);
-
-   // Preserve edx
-   //
-   *cursor++ = 0x52;    // PUSH edx to preserve
-
-   // Call the runtime helper
-   //
-   *cursor++ = 0xe8;    // CALL resolveAndPopulateVTableDispatch
-
-   TR::SymbolReference *glueSymRef =
-      cg()->symRefTab()->findOrCreateRuntimeHelper(TR_IA32interpreterUnresolvedVTableSlotGlue, false, false, false);
-   uint8_t *glueAddress = (uint8_t *)glueSymRef->getMethodAddress();
-   cg()->addExternalRelocation(new (comp->trHeapMemory()) TR::ExternalRelocation(cursor,
-                                                                                     (uint8_t *)glueSymRef,
-                                                                                     TR_HelperAddress,
-                                                                                     cg()),
-                             __FILE__, __LINE__, getNode());
-
-   *(int32_t *)cursor = (int32_t)((uint8_t *)glueAddress - cursor - 4);
-   cursor += 4;
-
-   // needs a stack map at this location because populateAndResolveVTableSlot provides this address as the return
-   // address in this frame
-   gcMap().registerStackMap(cursor, cg());
-
-   // Lay down constant pool and cpindex for jitResolveVirtualMethod helper to use
-   //
-   uintptrj_t cpAddr = (uintptrj_t)_methodSymRef->getOwningMethod(comp)->constantPool();
-   *(intptrj_t *)cursor = cpAddr;
-   cg()->addExternalRelocation(
-      new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor,
-                                                            (uint8_t *)cpAddr,
-                                                            getNode() ? (uint8_t *)getNode()->getInlinedSiteIndex() : (uint8_t *)-1,
-                                                            TR_ConstantPool,
-                                                            cg()),
-                 __FILE__, __LINE__, getNode());
-
-
-   cursor += sizeof(intptrj_t);
-   *(uintptrj_t *)cursor = (uintptrj_t)_methodSymRef->getCPIndexForVM();
-   cursor += sizeof(intptrj_t);
-
-   // Squirrel away the first two encoded bytes of the original call instruction.
-   //
-   uint8_t *callInstruction = _callInstruction->getBinaryEncoding();
-   *cursor++ = *(callInstruction);
-   *cursor++ = *(callInstruction+1);
-
-   // Write a call to this snippet over the original call instruction.
-   //
-   *callInstruction = 0xe8;     // CALLImm4
-   *(uint32_t *)(callInstruction+1) = (uint32_t)(cg()->getBinaryBufferCursor() - (callInstruction + 5));
-
-   return cursor;
-   }
-
-
-void
-TR_Debug::print(TR::FILE *pOutFile, TR::X86UnresolvedVirtualCallSnippet *snippet)
-   {
-   if (pOutFile == NULL)
-      return;
-
-   uint8_t *bufferPos = snippet->getSnippetLabel()->getCodeLocation();
-
-   printSnippetLabel(pOutFile, snippet->getSnippetLabel(), bufferPos, getName(snippet));
-   printPrefix(pOutFile, NULL, bufferPos, snippet->getLength(bufferPos - (uint8_t*)0));
-   trfprintf(pOutFile, "\t\t\t\t%s mysterious new unresolved virtual call snippet code",
-                 commentString());
-   return;
-
-   }
-
-
-
-uint32_t TR::X86UnresolvedVirtualCallSnippet::getLength(int32_t estimatedSnippetStart)
-   {
-   return
-        1   // push EDX
-      + 5   // CALL resolveAndPopulateVTableDispatch
-      + 4   // cpAddr
-      + 4   // cpIndex
-      + 2;  // CALL opcode + modRM
    }

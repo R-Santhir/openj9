@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,6 +22,7 @@
 
 #include "codegen/X86HelperLinkage.hpp"
 
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/Machine.hpp"
 #include "codegen/Register.hpp"
 #include "codegen/RegisterDependency.hpp"
@@ -224,7 +225,7 @@ TR::Register* TR::X86HelperCallSite::BuildCall()
       traceMsg(cg()->comp(), "X86 HelperCall: [%04d] %s\n", _SymRef->getReferenceNumber(), cg()->getDebug()->getName(_SymRef));
       }
    RealRegisterManager RealRegisters(cg());
-   TR::RealRegister*   ESP = cg()->machine()->getX86RealRegister(TR::RealRegister::esp);
+   TR::RealRegister*   ESP = cg()->machine()->getRealRegister(TR::RealRegister::esp);
 
    // Preserve caller saved registers
    for (size_t i = 0;

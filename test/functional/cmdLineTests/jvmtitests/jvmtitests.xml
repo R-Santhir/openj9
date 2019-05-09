@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 
 <!--
-  Copyright (c) 2004, 2018 IBM Corp. and others
+  Copyright (c) 2004, 2019 IBM Corp. and others
 
   This program and the accompanying materials are made available under
   the terms of the Eclipse Public License 2.0 which accompanies this
@@ -224,8 +224,18 @@
 		<return type="success" value="0"/>
 	</test>
 
+ 	<test id="gomsdi002">
+		<command>$EXE$ $JVM_OPTS$ $AGENTLIB$=test:gomsdi002 -Xint -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
+		<return type="success" value="0"/>
+	</test>
+
  	<test id="gomi001">
 		<command>$EXE$ $JVM_OPTS$ $AGENTLIB$=test:gomi001 -Xint -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
+		<return type="success" value="0"/>
+	</test>
+
+ 	<test id="gomi002">
+		<command>$EXE$ $JVM_OPTS$ $AGENTLIB$=test:gomi002 -Xint -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
 		<return type="success" value="0"/>
 	</test>
 
@@ -315,7 +325,7 @@
 	</test>
 
 	<test id="vgc001">
-		<command>$EXE$ $JVM_OPTS$ $AGENTLIB$=test:vgc001 -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
+		<command>$EXE$ -Xmx512m $JVM_OPTS$ $AGENTLIB$=test:vgc001 -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
 		<return type="success" value="0"/>
 	</test>
 
@@ -401,5 +411,15 @@
 	<test id="Cleanup any shared cache left behind" modeHints="HINT_SHARECLASSES">
  		<command>$EXE$ $JVM_OPTS$ -Xshareclasses:destroyAll</command>
 		<return type="success" value="1"/>
+	</test>
+
+	<test id="soae001">
+		<command>$EXE$ $JVM_OPTS$ $AGENTLIB$=test:soae001 -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
+		<return type="success" value="1"/>
+	</test>
+
+	<test id="gsp001">
+		<command>$EXE$ $JVM_OPTS$ $AGENTLIB$=test:gsp001 -cp $Q$$JAR$$Q$ $TESTRUNNER$</command>
+		<return type="success" value="0"/>
 	</test>
 </suite>

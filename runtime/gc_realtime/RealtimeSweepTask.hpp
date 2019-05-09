@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2014 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,9 +23,8 @@
 #if !defined(REALTIMESWEEPTASK_HPP_)
 #define REALTIMESWEEPTASK_HPP_
 
-#include "j9.h"
-#include "j9cfg.h"
-#include "j9modron.h"
+#include "omr.h"
+#include "omrcfg.h"
 
 #include "IncrementalParallelTask.hpp"
 
@@ -47,7 +45,7 @@ private:
 
 /* Methods */
 public:
-	virtual UDATA getVMStateID() { return J9VMSTATE_GC_SWEEP; };
+	virtual UDATA getVMStateID() { return OMRVMSTATE_GC_SWEEP; };
 	
 	virtual void run(MM_EnvironmentBase *env);
 	virtual void setup(MM_EnvironmentBase *env);

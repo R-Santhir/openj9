@@ -28,21 +28,26 @@ import java.lang.reflect.*;
 import java.security.cert.Certificate;
 
 /*[IF Sidecar19-SE]
+import java.lang.reflect.Modifier;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.StreamSupport;
 import jdk.internal.module.ServicesCatalog;
+/*[IF Java12]*/
+import jdk.internal.access.SharedSecrets;
+/*[ELSE]
 import jdk.internal.misc.SharedSecrets;
+/*[ENDIF]*/
 import java.util.concurrent.ConcurrentHashMap;
 import jdk.internal.reflect.CallerSensitive;
 import jdk.internal.loader.ClassLoaders;
 import jdk.internal.loader.BootLoader;
-/*[ELSE]*/
+/*[ELSE]
 import sun.reflect.CallerSensitive;
 /*[ENDIF]*/
 
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -255,6 +260,12 @@ public abstract class ClassLoader {
 		
 		/*[IF Sidecar19-SE]*/
 		jdk.internal.misc.VM.initLevel(1);
+		/* 
+		 * Following code ensures that the field jdk.internal.reflect.langReflectAccess 
+		 * is initialized before any usage references. This is a workaround.
+		 * More details are at https://github.com/eclipse/openj9/issues/3399#issuecomment-459004840.
+		 */
+		Modifier.isPublic(Modifier.PUBLIC);
 		/*[IF Java10]*/
 		try {
 		/*[ENDIF]*/
@@ -267,12 +278,18 @@ public abstract class ClassLoader {
 		/*[ENDIF]*/
 		jdk.internal.misc.VM.initLevel(2);
 		String javaSecurityManager = System.internalGetProperties().getProperty("java.security.manager"); //$NON-NLS-1$
-		if (null != javaSecurityManager) {
-			if (javaSecurityManager.isEmpty() || "default".equals(javaSecurityManager)) {
+		if ((javaSecurityManager != null) 
+		/*[IF Java12]*/
+			/* See the SecurityManager javadoc for details about special tokens. */
+			&& !javaSecurityManager.equals("disallow") //$NON-NLS-1$ /* special token to disallow SecurityManager */
+			&& !javaSecurityManager.equals("allow") //$NON-NLS-1$ /* special token to allow SecurityManager */
+			/*[ENDIF] Java12 */
+		) {
+			if (javaSecurityManager.isEmpty() || "default".equals(javaSecurityManager)) { //$NON-NLS-1$
 				System.setSecurityManager(new SecurityManager());
 			} else {
 				try {
-					System.setSecurityManager((SecurityManager)Class.forName(javaSecurityManager, true, applicationClassLoader).newInstance());
+					System.setSecurityManager((SecurityManager)Class.forName(javaSecurityManager, true, applicationClassLoader).getDeclaredConstructor().newInstance());
 				} catch (Throwable e) {
 					/*[MSG "K0631", "JVM can't set custom SecurityManager due to {0}"]*/
 					throw new Error(com.ibm.oti.util.Msg.getString("K0631", e.toString()), e); //$NON-NLS-1$
@@ -389,11 +406,7 @@ private ClassLoader(Void staticMethodHolder, String classLoaderName, ClassLoader
 			VM.initializeClassLoader(this, VM.J9_CLASSLOADER_TYPE_OTHERS, isParallelCapable);
 		}
 /*[IF Sidecar19-SE]*/
-/*[IF Sidecar19-SE-OpenJ9]
 		unnamedModule = new Module(this);
-/*[ELSE]*/
-		unnamedModule = SharedSecrets.getJavaLangReflectModuleAccess().defineUnnamedModule(this);
-/*[ENDIF]*/
 /*[ENDIF]*/
 	} 
 /*[IF Sidecar19-SE]*/	
@@ -407,11 +420,7 @@ private ClassLoader(Void staticMethodHolder, String classLoaderName, ClassLoader
 			// Assuming the second classloader initialized is platform classloader
 			VM.initializeClassLoader(this, VM.J9_CLASSLOADER_TYPE_PLATFORM, false);
 			specialLoaderInited = true;
-/*[IF Sidecar19-SE-OpenJ9]
 			unnamedModule = new Module(this);
-/*[ELSE]*/
-			unnamedModule = SharedSecrets.getJavaLangReflectModuleAccess().defineUnnamedModule(this);
-/*[ENDIF]*/
 		}
 	}
 	this.classLoaderName = classLoaderName;
@@ -521,6 +530,18 @@ protected final Class<?> defineClass (
 		ProtectionDomain protectionDomain) 
 		throws java.lang.ClassFormatError 
 {
+	return defineClassInternal(className, classRep, offset, length, protectionDomain, false /* allowNullProtectionDomain */);
+}
+
+final Class<?> defineClassInternal(
+		final String className, 
+		final byte[] classRep, 
+		final int offset, 
+		final int length, 
+		ProtectionDomain protectionDomain,
+		boolean allowNullProtectionDomain)
+		throws java.lang.ClassFormatError 
+{
 	Certificate[] certs = null; 
 	if (protectionDomain != null) {
 		final CodeSource cs = protectionDomain.getCodeSource();
@@ -538,7 +559,7 @@ protected final Class<?> defineClass (
 		throw new ArrayIndexOutOfBoundsException();
 	}
 
-	if (protectionDomain == null)	{
+	if ((protectionDomain == null) && !allowNullProtectionDomain) {
 		protectionDomain = getDefaultProtectionDomain();
 	}
 	

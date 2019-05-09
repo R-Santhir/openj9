@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -34,7 +34,7 @@
 #include "env/j9method.h"
 #include "runtime/HWProfiler.hpp"
 #include "env/VMJ9.h"
-#include "env/J9CPU.hpp" // for TR_ProcessorFeatureFlags
+#include "env/J9CPU.hpp"
 
 namespace TR { class CompilationInfo; }
 class TR_RelocationRecord;
@@ -79,6 +79,7 @@ typedef enum TR_AOTFeatureFlags
    TR_FeatureFlag_SIMDEnabled                   = 0x00000200,     //set and tested for s390
    TR_FeatureFlag_AsyncCompilation              = 0x00000400,     //async compilation - switch to interpreter code NOT generated
    TR_FeatureFlag_ConcurrentScavenge            = 0x00000800,
+   TR_FeatureFlag_SoftwareReadBarrier           = 0x00001000,
    TR_FeatureFlag_SanityCheckEnd                = 0x80000000
    } TR_AOTFeatureFlags;
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -110,9 +110,9 @@ static void abortHandler (int sig);
 static void initRasDumpGlobalStorage(J9JavaVM *vm);
 static void freeRasDumpGlobalStorage(J9JavaVM *vm);
 static void hookVmInitialized PROTOTYPE((J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData));
-#ifdef LINUX
+#if defined(LINUX)
 static void appendSystemInfoFromFile(J9JavaVM *vm, U_32 key, const char *fileName );
-#endif
+#endif /* defined(LINUX) */
 #ifdef J9ZOS390
 static IDATA processZOSDumpOptions(J9JavaVM *vm, J9RASdumpOption* agentOpts, int optIndex);
 static void triggerAbend(void);
@@ -577,7 +577,42 @@ configureDumpAgents(J9JavaVM *vm)
 		}
 		if ( IS_CONSUMABLE(j9vm_args, xdumpIndex) && !IS_CONSUMED(j9vm_args, xdumpIndex) )
 		{
-			GET_OPTION_VALUE(xdumpIndex, ':', &optionString);
+			BOOLEAN isMappedToolDump = FALSE;
+			/* Handle mapped tool dump options */
+			if (HAS_MAPPING(j9vm_args, xdumpIndex)) {
+				char *mappingJ9Name = MAPPING_J9NAME(j9vm_args, xdumpIndex);
+				char *toolString = ":tool:";
+				char *toolCursor = strstr(mappingJ9Name, toolString);
+				if (NULL != toolCursor) {
+					char *optionValue = NULL;
+					/* The mapped option specifies the tool command to run after the equals */
+					GET_OPTION_VALUE(xdumpIndex, '=', &optionValue);
+					
+					/* Move toolCursor past ":tool:" */
+					toolCursor += strlen(toolString);
+
+					if (NULL != optionValue) {
+						size_t toolCursorLength = strlen(toolCursor);
+						size_t optionValueLength = strlen(optionValue);
+						size_t optionStringMemAlloc = toolCursorLength + optionValueLength + 1;
+
+						/* Construct optionString by combining the J9 tool dump command with the mapped option */
+						optionString = (char *) j9mem_allocate_memory(optionStringMemAlloc, OMRMEM_CATEGORY_VM);
+						
+						if (NULL != optionString) {
+							strcpy(optionString, toolCursor);
+							strcat(optionString + toolCursorLength, optionValue);
+							isMappedToolDump = TRUE;
+						} else {
+							char *mappingMapName = MAPPING_MAPNAME(j9vm_args, xdumpIndex);
+							j9tty_err_printf(PORTLIB, "Unable to map %s to J9 %s - Could not allocate the requested size of memory %zu for optionString\n", mappingMapName, mappingJ9Name, optionStringMemAlloc);
+							return J9VMDLLMAIN_FAILED;
+						}
+					}
+				}
+			} else {
+				GET_OPTION_VALUE(xdumpIndex, ':', &optionString);
+			}
 			if (!optionString) {
 				/* ... silent option ... */
 			} else if( strncmp(optionString, "none", strlen("none") ) == 0 ){
@@ -589,6 +624,13 @@ configureDumpAgents(J9JavaVM *vm)
 					agentOpts[agentNum].pass = J9RAS_DUMP_OPTS_PASS_ONE;
 					agentNum++;
 				}
+			} else if (isMappedToolDump) {
+				char * toolString = "tool";
+				agentOpts[agentNum].kind = scanDumpType(&toolString);
+				agentOpts[agentNum].flags = J9RAS_DUMP_OPT_ARGS_ALLOC;
+				agentOpts[agentNum].args = optionString;
+				agentOpts[agentNum].pass = J9RAS_DUMP_OPTS_PASS_ONE;
+				agentNum++;
 			} else {
 				char *typeString = optionString;
 
@@ -1206,9 +1248,9 @@ JVM_OnUnload(JavaVM *vm, void *reserved)
 }
 
 /**
- * On Linux the first call to get a backtrace can cause some initialisation work.
- * If this is called in a signal handler with other threads paused then one of
- * those can hold a lock required for the initialisation to complete. This causes
+ * On Linux and OSX the first call to get a backtrace can cause some initialization
+ * work. If this is called in a signal handler with other threads paused then one of
+ * those can hold a lock required for the initialization to complete. This causes
  * a hang. Therefore we do one redundant call to backtrace at startup to prevent
  * java dumps hanging the VM.
  * 
@@ -1217,7 +1259,7 @@ JVM_OnUnload(JavaVM *vm, void *reserved)
 static void
 initBackTrace(J9JavaVM *vm)
 {
-#ifdef LINUX
+#if defined(LINUX) || defined(OSX)
 	J9PlatformThread threadInfo;
 	J9Heap *heap;
 	char backingStore[8096];
@@ -1229,7 +1271,7 @@ initBackTrace(J9JavaVM *vm)
 	if( j9introspect_backtrace_thread(&threadInfo, heap, NULL) != 0 ) {
 		j9introspect_backtrace_symbols(&threadInfo, heap);
 	}
-#endif
+#endif /* defined(LINUX) || defined(OSX) */
 }
 
 /**
@@ -1268,7 +1310,7 @@ initSystemInfo(J9JavaVM *vm)
 		}
 	}
 
-#ifdef LINUX
+#if defined(LINUX)
 	/* On Linux, store the startup value of /proc/sys/kernel/sched_compat_yield if it's set */
 	{
 		char schedCompatYieldValue = j9util_sched_compat_yield_value(vm);
@@ -1287,11 +1329,11 @@ initSystemInfo(J9JavaVM *vm)
 	}
 	appendSystemInfoFromFile(vm, J9RAS_SYSTEMINFO_CORE_PATTERN, J9RAS_CORE_PATTERN_FILE);
 	appendSystemInfoFromFile(vm, J9RAS_SYSTEMINFO_CORE_USES_PID, J9RAS_CORE_USES_PID_FILE);
-#endif
+#endif /* defined(LINUX) */
 }
 
 /**
- * We need to read the -Xdump:directory option before we start initialising the
+ * We need to read the -Xdump:directory option before we start initializing the
  * default dump agents.
  */
 static omr_error_t
@@ -1325,7 +1367,7 @@ initDumpDirectory(J9JavaVM *vm)
 	return retVal;
 }
 
-
+#if defined(LINUX)
 /* Adds a J9RASSystemInfo to the end of the system info list using the key
  * specified as the key and the data from the specified file in /proc if
  * it exists.
@@ -1382,7 +1424,7 @@ appendSystemInfoFromFile(J9JavaVM *vm, U_32 key, const char *fileName )
 		j9file_close(fd);
 	}
 }
-
+#endif /* defined(LINUX) */
 
 IDATA
 J9VMDllMain(J9JavaVM *vm, IDATA stage, void *reserved)

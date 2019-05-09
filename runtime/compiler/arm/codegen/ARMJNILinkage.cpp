@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2016 IBM Corp. and others
+ * Copyright (c) 2016, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,9 +24,12 @@
 
 #include "arm/codegen/ARMInstruction.hpp"
 #include "codegen/CallSnippet.hpp"
+#include "codegen/CodeGenerator.hpp"
+#include "codegen/CodeGeneratorUtils.hpp"
 #include "codegen/GCStackAtlas.hpp"
 #include "codegen/GCStackMap.hpp"
 #include "codegen/GenerateInstructions.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/Machine.hpp"
 #include "codegen/RealRegister.hpp"
 #include "codegen/Register.hpp"
@@ -164,7 +167,7 @@ printf("JNI: offset %d\n", offset); fflush(stdout);
 #endif
    const TR::ARMLinkageProperties &jniLinkageProperties = getProperties();
    int32_t                spOffset = offset + jniLinkageProperties.getOffsetToFirstParm();
-   TR::RealRegister    *sp       = cg()->machine()->getARMRealRegister(jniLinkageProperties.getStackPointerRegister());
+   TR::RealRegister    *sp       = cg()->machine()->getRealRegister(jniLinkageProperties.getStackPointerRegister());
    TR::MemoryReference *result   = new (trHeapMemory()) TR::MemoryReference(sp, spOffset, cg());
    memArg.argRegister = argReg;
    memArg.argMemory   = result;
@@ -362,7 +365,7 @@ int32_t TR::ARMJNILinkage::buildJNIArgs(TR::Node *callNode,
 #ifdef DEBUG_ARM_LINKAGE
 printf("subtracting %d slots from SP\n", numStackParmSlots); fflush(stdout);
 #endif
-      TR::RealRegister *sp = codeGen->machine()->getARMRealRegister(jniLinkageProperties.getStackPointerRegister());
+      TR::RealRegister *sp = codeGen->machine()->getRealRegister(jniLinkageProperties.getStackPointerRegister());
       uint32_t base, rotate;
       if (constantIsImmed8r(numStackParmSlots, &base, &rotate))
          {
@@ -438,7 +441,7 @@ printf("subtracting %d slots from SP\n", numStackParmSlots); fflush(stdout);
                   }
                else
                   {
-                  addDependency(dependencies, reg, jniLinkageProperties.getIntegerArgumentRegister(numIntegerArgRegIndex), TR_GPR, codeGen);
+                  TR::addDependency(dependencies, reg, jniLinkageProperties.getIntegerArgumentRegister(numIntegerArgRegIndex), TR_GPR, codeGen);
                   }
                }
             else
@@ -608,7 +611,7 @@ printf("pushing 64-bit JNI arg %d %d %d\n", numIntegerArgs, memArg, totalSize); 
                   dependencies->addPostCondition(resultReg, TR::RealRegister::fp0);
                   }
                else
-                  addDependency(dependencies, reg, jniLinkageProperties.getFloatArgumentRegister(numFloatArgRegIndex), TR_FPR, codeGen);
+                  TR::addDependency(dependencies, reg, jniLinkageProperties.getFloatArgumentRegister(numFloatArgRegIndex), TR_FPR, codeGen);
                }
             else
                {
@@ -642,7 +645,7 @@ printf("pushing 64-bit JNI arg %d %d %d\n", numIntegerArgs, memArg, totalSize); 
             }
          else
             {
-            addDependency(dependencies, NULL, realReg, TR_GPR, codeGen);
+            TR::addDependency(dependencies, NULL, realReg, TR_GPR, codeGen);
             }
          }
       }
@@ -666,7 +669,7 @@ printf("pushing 64-bit JNI arg %d %d %d\n", numIntegerArgs, memArg, totalSize); 
                }
             else
                {
-               addDependency(dependencies, NULL, realReg, TR_FPR, codeGen);
+               TR::addDependency(dependencies, NULL, realReg, TR_FPR, codeGen);
                }
             }
          }
@@ -675,7 +678,7 @@ printf("pushing 64-bit JNI arg %d %d %d\n", numIntegerArgs, memArg, totalSize); 
    // add dependencies for other volatile registers; for virtual calls,
    // dependencies on gr11 and gr14 have already been added above
 #ifndef LOCK_R14
-   addDependency(dependencies, NULL, TR::RealRegister::gr14, TR_GPR, codeGen);
+   TR::addDependency(dependencies, NULL, TR::RealRegister::gr14, TR_GPR, codeGen);
 #endif
 
    for (i = 0; i < numMemArgs; i++)
@@ -724,12 +727,12 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
 
    // kill all values in non-volatile registers so that the
    // values will be in a stack frame in case GC looks for them
-   addDependency(deps, NULL, TR::RealRegister::gr4, TR_GPR, codeGen);
-   addDependency(deps, NULL, TR::RealRegister::gr5, TR_GPR, codeGen);
-   addDependency(deps, NULL, TR::RealRegister::gr6, TR_GPR, codeGen);
-   addDependency(deps, NULL, TR::RealRegister::gr9, TR_GPR, codeGen);
-   addDependency(deps, NULL, TR::RealRegister::gr10, TR_GPR, codeGen);
-   addDependency(deps, NULL, TR::RealRegister::gr11, TR_GPR, codeGen);
+   TR::addDependency(deps, NULL, TR::RealRegister::gr4, TR_GPR, codeGen);
+   TR::addDependency(deps, NULL, TR::RealRegister::gr5, TR_GPR, codeGen);
+   TR::addDependency(deps, NULL, TR::RealRegister::gr6, TR_GPR, codeGen);
+   TR::addDependency(deps, NULL, TR::RealRegister::gr9, TR_GPR, codeGen);
+   TR::addDependency(deps, NULL, TR::RealRegister::gr10, TR_GPR, codeGen);
+   TR::addDependency(deps, NULL, TR::RealRegister::gr11, TR_GPR, codeGen);
 
    // set up dependency for the return register
    TR::Register *gr0Reg = deps->searchPreConditionRegister(TR::RealRegister::gr0);
@@ -763,7 +766,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
                {
                gr0Reg = codeGen->allocateRegister();
                returnRegister = gr0Reg;
-               addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
+               TR::addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
                }
             else
                {
@@ -781,7 +784,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
             if (!gr0Reg)
                {
                gr0Reg = codeGen->allocateRegister();
-               addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
+               TR::addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
                highReg = gr0Reg;
                }
             else
@@ -795,7 +798,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
             if (!gr0Reg)
                {
                 gr0Reg = codeGen->allocateRegister();
-                addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
+                TR::addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
                 lowReg = gr0Reg;
                }
             else
@@ -814,7 +817,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
          if (!gr0Reg)
             {
             gr0Reg = codeGen->allocateRegister();
-            addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
+            TR::addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
             }
          break;
 #endif
@@ -822,7 +825,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
           if (!gr0Reg)
              {
              gr0Reg = codeGen->allocateRegister();
-             addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
+             TR::addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
              }
          returnRegister = NULL;
          break;
@@ -830,7 +833,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
           if (!gr0Reg)
              {
              gr0Reg = codeGen->allocateRegister();
-             addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
+             TR::addDependency(deps, gr0Reg, TR::RealRegister::gr0, TR_GPR, codeGen);
              }
          returnRegister = NULL;
          TR_ASSERT(0, "Unknown direct call opode.\n");
@@ -843,9 +846,9 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
 
    TR::Machine      *machine  = codeGen->machine();
    TR::RealRegister *metaReg  = codeGen->getMethodMetaDataRegister();
-   TR::RealRegister *stackPtr = machine->getARMRealRegister(privateLinkageProperties.getStackPointerRegister());//JavaSP
-   TR::RealRegister *instrPtr = machine->getARMRealRegister(TR::RealRegister::gr15);
-   TR::RealRegister *gr13Reg  = machine->getARMRealRegister(TR::RealRegister::gr13);
+   TR::RealRegister *stackPtr = machine->getRealRegister(privateLinkageProperties.getStackPointerRegister());//JavaSP
+   TR::RealRegister *instrPtr = machine->getRealRegister(TR::RealRegister::gr15);
+   TR::RealRegister *gr13Reg  = machine->getRealRegister(TR::RealRegister::gr13);
    TR::Register        *gr4Reg   = deps->searchPreConditionRegister(TR::RealRegister::gr4);
    TR::Register        *gr5Reg   = deps->searchPreConditionRegister(TR::RealRegister::gr5);
 
@@ -987,7 +990,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
          {
          case TR::Float:
             {
-            TR::RealRegister *fpReg   = machine->getARMRealRegister(jniLinkageProperties.getFloatReturnRegister());
+            TR::RealRegister *fpReg   = machine->getRealRegister(jniLinkageProperties.getFloatReturnRegister());
             fpReg->setAssignedRegister(fpReg);
             tempMR = new (trHeapMemory()) TR::MemoryReference(metaReg, fej9->thisThreadGetFloatTemp1Offset(), codeGen);
             generateMemSrc1Instruction(codeGen, ARMOp_fsts, callNode, tempMR, fpReg);
@@ -996,7 +999,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
             }
          case TR::Double:
             {
-            TR::RealRegister *fdReg   = machine->getARMRealRegister(jniLinkageProperties.getDoubleReturnRegister());
+            TR::RealRegister *fdReg   = machine->getRealRegister(jniLinkageProperties.getDoubleReturnRegister());
             fdReg->setAssignedRegister(fdReg);
             TR_ASSERT(fej9->thisThreadGetFloatTemp2Offset() - fej9->thisThreadGetFloatTemp1Offset() == 4,"floatTemp1 and floatTemp2 not contiguous");
             tempMR = new (trHeapMemory()) TR::MemoryReference(metaReg, fej9->thisThreadGetFloatTemp1Offset(), codeGen);
@@ -1013,7 +1016,7 @@ TR::Register *TR::ARMJNILinkage::buildDirectDispatch(TR::Node *callNode)
    // restore the system stack pointer (r13)
    if (spSize > 0)
       {
-      TR::RealRegister *sp = machine->getARMRealRegister(jniLinkageProperties.getStackPointerRegister());
+      TR::RealRegister *sp = machine->getRealRegister(jniLinkageProperties.getStackPointerRegister());
       uint32_t base, rotate;
       if (constantIsImmed8r(spSize, &base, &rotate))
          {

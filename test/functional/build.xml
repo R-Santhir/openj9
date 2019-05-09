@@ -40,7 +40,7 @@
 	
 	<target name="build_functional" depends="dist_functional">
 		<if>
-			<equals arg1="${JAVA_VERSION}" arg2="Panama"/>
+			<equals arg1="${JDK_VERSION}" arg2="Panama"/>
 			<then>
 				<subant target="">
 					<fileset dir="./">
@@ -48,21 +48,10 @@
 					</fileset>
 				</subant>
 			</then>
-			<elseif>
-				<equals arg1="${JAVA_VERSION}" arg2="Valhalla"/>
-				<then>
-					<subant target="">
-						<fileset dir="./">
-							<include name="Valhalla/build.xml" />
-						</fileset>
-					</subant>
-				</then>
-			</elseif>
 			<else>
 				<subant target="">
 					<fileset dir="." includes="*/build.xml" >
 						<exclude name="Panama/build.xml" />
-						<exclude name="Valhalla/build.xml" />
 					</fileset>
 				</subant>
 			</else>

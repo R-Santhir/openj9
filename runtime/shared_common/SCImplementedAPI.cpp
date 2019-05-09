@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2017 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,7 +24,7 @@ extern "C"
 {
 #endif
 #include "shrinit.h"
-#include "verbose.h"
+#include "verbose_api.h"
 #include "j2sever.h"
 #include "ut_j9shr.h"
 #ifdef __cplusplus
@@ -473,7 +473,7 @@ j9shr_classStoreTransaction_start(void * tobj, J9VMThread* currentThread, J9Clas
 		IDATA helperID = 0;
 		U_16 cpType = CP_TYPE_CLASSPATH;
 
-		if ((J2SE_VERSION(vm) >= J2SE_19)
+		if ((J2SE_VERSION(vm) >= J2SE_V11)
 			|| ((NULL != classPathEntries) && (-1 != obj->entryIndex))
 		) {
 			/* For class loaded from modules that entryIndex is -1. classPathEntries can be NULL. */
@@ -489,7 +489,7 @@ j9shr_classStoreTransaction_start(void * tobj, J9VMThread* currentThread, J9Clas
 			if (!classpath && !infoFound) {
 				UDATA pathEntryCount = cpEntryCount;
 
-				if (J2SE_VERSION(vm) >= J2SE_19) {
+				if (J2SE_VERSION(vm) >= J2SE_V11) {
 					if (classloader == vm->systemClassLoader) {
 						if (J9_ARE_NO_BITS_SET(localRuntimeFlags, J9SHR_RUNTIMEFLAG_ENABLE_CACHEBOOTCLASSES)) {
 							/* User specified noBootclasspath - do not continue */
@@ -843,16 +843,16 @@ j9shr_classStoreTransaction_createSharedClass(void * tobj, const J9RomClassRequi
 	
 	/*ROM Class size must be doubled aligned*/
 	if (0 != (sizes->romClassSizeFullSize & (sizeof(U_64) - 1))) {
-		Trc_SHR_Assert_True(0 != (sizes->romClassSizeFullSize & (sizeof(U_64) - 1)));
 		Trc_SHR_API_j9shr_createSharedClass_DblAlign_Event(currentThread);
+		Trc_SHR_Assert_ShouldNeverHappen();
 		retval = -1;
 		goto done;
 	}
 
 	/*ROM Class size must be doubled aligned*/
 	if (0 != (sizes->romClassMinimalSize & (sizeof(U_64) - 1))) {
-		Trc_SHR_Assert_True(0 != (sizes->romClassMinimalSize & (sizeof(U_64) - 1)));
 		Trc_SHR_API_j9shr_createSharedClass_DblAlign_Event(currentThread);
+		Trc_SHR_Assert_ShouldNeverHappen();
 		retval = -1;
 		goto done;
 	}

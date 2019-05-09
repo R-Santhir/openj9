@@ -1,4 +1,4 @@
-# Copyright (c) 2000, 2018 IBM Corp. and others
+# Copyright (c) 2000, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -89,42 +89,21 @@ RULE.s=$(eval $(DEF_RULE.s))
 ##### START X SPECIFIC RULES #####
 ifeq ($(HOST_ARCH),x)
 
-# TODO - Fix MASM2GAS to have a little more sane output file behavior
 #
-# Compile .asm file into .o file
-# (By changing it to a .s file and then assembling it)
+# Compile .nasm file into .o file
 #
-define DEF_RULE.asm
-$(1).s: $(2) | jit_createdirs
-	$$(PERL) $$(ASM_SCRIPT) $$(ASM_FLAGS) $$(patsubst %,-I'%',$$(ASM_INCLUDES)) -o$$(dir $$@) $$<
-	-mv $$(dir $$@)$$(notdir $$(basename $$<).s) $$@ || true
+define DEF_RULE.nasm
+$(1): $(2) | jit_createdirs
+	$$(NASM_CMD) $$(NASM_OBJ_FORMAT) $$(patsubst %,-D%=1,$$(NASM_DEFINES)) $$(patsubst %,-I'%/',$$(NASM_INCLUDES)) -o $$@ $$<
 
 JIT_DIR_LIST+=$(dir $(1))
 
 jit_cleanobjs::
-	rm -f $(1).s
+	rm -f $(1)
 
-$(call RULE.s,$(1),$(1).s)
-endef # DEF_RULE.asm
+endef # DEF_RULE.nasm
 
-RULE.asm=$(eval $(DEF_RULE.asm))
-
-#
-# Compile .pasm file into .o file
-#
-define DEF_RULE.pasm
-$(1).asm: $(2) | jit_createdirs
-	$$(PASM_CMD) $$(PASM_FLAGS) $$(patsubst %,-I'%',$$(PASM_INCLUDES)) -o $$@ -x assembler-with-cpp -E -P $$<
-
-JIT_DIR_LIST+=$(dir $(1))
-
-jit_cleanobjs::
-	rm -f $(1).asm
-
-$(call RULE.asm,$(1),$(1).asm)
-endef # DEF_RULE.pasm
-
-RULE.pasm=$(eval $(DEF_RULE.pasm))
+RULE.nasm=$(eval $(DEF_RULE.nasm))
 
 endif # ($(HOST_ARCH),x)
 ##### END X SPECIFIC RULES #####
@@ -233,3 +212,26 @@ RULE.spp=$(eval $(DEF_RULE.spp))
 
 endif # ($(HOST_ARCH),arm)
 ##### END ARM SPECIFIC RULES #####
+
+##### START AARCH64 SPECIFIC RULES #####
+ifeq ($(HOST_ARCH),aarch64)
+
+#
+# Preprocess .spp file into .s file
+#
+define DEF_RULE.spp
+$(1).s: $(2) | jit_createdirs
+	$$(SPP_CMD) $$(SPP_FLAGS) $$(patsubst %,-D%,$$(SPP_DEFINES)) $$(patsubst %,-I'%',$$(SPP_INCLUDES)) -o $$@ -x assembler-with-cpp -E -P $$<
+
+JIT_DIR_LIST+=$(dir $(1))
+
+jit_cleanobjs::
+	rm -f $(1).s
+
+$(call RULE.s,$(1),$(1).s)
+endef # DEF_RULE.spp
+
+RULE.spp=$(eval $(DEF_RULE.spp))
+
+endif # ($(HOST_ARCH),aarch64)
+##### END AARCH64 SPECIFIC RULES #####

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -89,7 +89,7 @@ isPrivilegedFrameIterator(J9VMThread * currentThread, J9StackWalkState * walkSta
 	J9JNIMethodID *doPrivilegedWithContextMethodID2 = (J9JNIMethodID *) vm->doPrivilegedWithContextMethodID2;
 	J9Method *currentMethod = walkState->method;
 
-	if (J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(currentMethod)->modifiers, J9_JAVA_METHOD_FRAME_ITERATOR_SKIP)) {
+	if (J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(currentMethod)->modifiers, J9AccMethodFrameIteratorSkip)) {
 		/* Skip methods with java.lang.invoke.FrameIteratorSkip annotation */
 		return J9_STACKWALK_KEEP_ITERATING;
 	}
@@ -187,7 +187,7 @@ Java_java_lang_Class_getStackClasses(JNIEnv *env, jclass jlHeapClass, jint maxDe
 		J9Method *currentMethod = (J9Method *)*cacheContents;
 		J9Class *currentClass = J9_CLASS_FROM_METHOD(currentMethod);
 
-		if ( J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(currentMethod)->modifiers, J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) ||
+		if ( J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(currentMethod)->modifiers, J9AccMethodFrameIteratorSkip) ||
 			 (vm->jliArgumentHelper && instanceOfOrCheckCast(currentClass, J9VM_J9CLASS_FROM_JCLASS(vmThread, vm->jliArgumentHelper))) ||
 			 (vm->srMethodAccessor && vmFuncs->instanceOfOrCheckCast(currentClass, J9VM_J9CLASS_FROM_HEAPCLASS(vmThread, *((j9object_t*) vm->srMethodAccessor)))) ||
 			 (vm->srConstructorAccessor && vmFuncs->instanceOfOrCheckCast(currentClass, J9VM_J9CLASS_FROM_HEAPCLASS(vmThread, *((j9object_t*) vm->srConstructorAccessor))))
@@ -894,15 +894,16 @@ Java_java_lang_Class_getMethodImpl(JNIEnv *env, jobject recv, jobject name, jobj
 	J9InternalVMFunctions *vmFuncs = vm->internalVMFunctions;
 	j9object_t resultObject = NULL;
 	vmFuncs->internalEnterVMFromJNI(currentThread);
-	J9Class *clazz = J9VM_J9CLASS_FROM_HEAPCLASS(currentThread, J9_JNI_UNWRAP_REFERENCE(recv));
 
 	PORT_ACCESS_FROM_VMC(currentThread);
 	if ((NULL == name) || (NULL == partialSignature)) {
 		vmFuncs->setCurrentExceptionUTF(currentThread, J9VMCONSTANTPOOL_JAVALANGNULLPOINTEREXCEPTION, NULL);
 	} else {
+		J9Class *clazz = J9VM_J9CLASS_FROM_HEAPCLASS(currentThread, J9_JNI_UNWRAP_REFERENCE(recv));
 		J9ROMClass *romClass = clazz->romClass;
-		/* primitives/arrays don't have local methods */
-		if (!J9ROMCLASS_IS_PRIMITIVE_OR_ARRAY(romClass)) {
+
+		/* primitives doesn't have local methods */
+		if (!J9ROMCLASS_IS_PRIMITIVE_TYPE(romClass)) {
 			J9Method *currentMethod = NULL;
 			j9object_t nameObject = J9_JNI_UNWRAP_REFERENCE(name);
 			j9object_t signatureObject = J9_JNI_UNWRAP_REFERENCE(partialSignature);
@@ -1233,7 +1234,7 @@ isPrivilegedFrameIteratorGetAccSnapshot(J9VMThread * currentThread, J9StackWalkS
 	J9JNIMethodID *doPrivilegedWithContextPermissionMethodID2 = (J9JNIMethodID *) vm->doPrivilegedWithContextPermissionMethodID2;
 	J9Method *currentMethod = walkState->method;
 
-	if (J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(currentMethod)->modifiers, J9_JAVA_METHOD_FRAME_ITERATOR_SKIP)) {
+	if (J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(currentMethod)->modifiers, J9AccMethodFrameIteratorSkip)) {
 		/* Skip methods with java.lang.invoke.FrameIteratorSkip annotation */
 		return J9_STACKWALK_KEEP_ITERATING;
 	}
@@ -1658,7 +1659,7 @@ _walkStateUninitialized:
 static UDATA
 isPrivilegedFrameIteratorGetCallerPD(J9VMThread * currentThread, J9StackWalkState * walkState)
 {
-	if (J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers, J9_JAVA_METHOD_FRAME_ITERATOR_SKIP)) {
+	if (J9_ARE_ALL_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers, J9AccMethodFrameIteratorSkip)) {
 		/* Skip methods with java.lang.invoke.FrameIteratorSkip annotation */
 		return J9_STACKWALK_KEEP_ITERATING;
 	}
@@ -1839,16 +1840,13 @@ Java_java_lang_Class_getNestMembersImpl(JNIEnv *env, jobject recv)
 	J9Class *arrayClass = NULL;
 	J9Class *nestMember = NULL;
 
-	IDATA nestLoadStatus = J9_VISIBILITY_ALLOWED;
-
 	vmFuncs->internalEnterVMFromJNI(currentThread);
 
 	J9Class *clazz = J9VM_J9CLASS_FROM_HEAPCLASS(currentThread, J9_JNI_UNWRAP_REFERENCE(recv));
 	J9Class *nestHost = clazz->nestHost;
 
 	if (NULL == nestHost) {
-		nestLoadStatus = vmFuncs->loadAndVerifyNestHost(currentThread, clazz, 0);
-		if (J9_VISIBILITY_ALLOWED != nestLoadStatus) {
+		if (J9_VISIBILITY_ALLOWED != vmFuncs->loadAndVerifyNestHost(currentThread, clazz, 0)) {
 			nestMember = clazz;
 			goto _done;
 		}
@@ -1894,13 +1892,12 @@ Java_java_lang_Class_getNestMembersImpl(JNIEnv *env, jobject recv)
 				 */
 				goto _done;
 			} else if (NULL == nestMember->nestHost) {
-				nestLoadStatus = vmFuncs->loadAndVerifyNestHost(currentThread, nestMember, 0);
-				if (J9_VISIBILITY_ALLOWED != nestLoadStatus) {
+				if (J9_VISIBILITY_ALLOWED != vmFuncs->loadAndVerifyNestHost(currentThread, nestMember, 0)) {
 					goto _done;
 				}
 			}
 			if (nestMember->nestHost != nestHost) {
-				nestLoadStatus = J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR;
+				vmFuncs->setNestmatesError(currentThread, nestMember, nestHost, J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR);
 				goto _done;
 			}
 			J9JAVAARRAYOFOBJECT_STORE(currentThread, resultObject, i + 1, J9VM_J9CLASS_TO_HEAPCLASS(nestMember));

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -25,6 +25,7 @@
 #include "codegen/CodeGenerator_inlines.hpp"
 #include "codegen/Machine.hpp"
 #include "codegen/Linkage.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "compile/Compilation.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
@@ -40,7 +41,7 @@
 #include "runtime/CodeCacheExceptions.hpp"
 #include "runtime/CodeCacheManager.hpp"
 #include "runtime/CodeCacheTypes.hpp"
-#include "runtime/Runtime.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "x/codegen/CallSnippet.hpp"
 #include "x/codegen/X86Recompilation.hpp"
 #include "x/codegen/FPTreeEvaluator.hpp"
@@ -59,6 +60,11 @@ J9::X86::CodeGenerator::CodeGenerator() :
    TR_ResolvedMethod * jittedMethod = methodSymbol->getResolvedMethod();
 
    cg->setAheadOfTimeCompile(new (cg->trHeapMemory()) TR::AheadOfTimeCompile(cg));
+
+   if (!TR::Compiler->om.canGenerateArraylets())
+      {
+      cg->setSupportsReferenceArrayCopy();
+      }
 
    if (comp->requiresSpineChecks())
       {
@@ -79,8 +85,8 @@ J9::X86::CodeGenerator::CodeGenerator() :
    cg->setSupportsPartialInlineOfMethodHooks();
    cg->setSupportsInliningOfTypeCoersionMethods();
    cg->setSupportsNewInstanceImplOpt();
-   if (cg->getX86ProcessorInfo().supportsSSE4_1() && 
-       !comp->getOption(TR_DisableSIMDStringCaseConv) && 
+   if (cg->getX86ProcessorInfo().supportsSSE4_1() &&
+       !comp->getOption(TR_DisableSIMDStringCaseConv) &&
        !TR::Compiler->om.canGenerateArraylets())
       cg->setSupportsInlineStringCaseConversion();
 
@@ -120,20 +126,9 @@ J9::X86::CodeGenerator::CodeGenerator() :
       comp->setOption(TR_DisableWriteBarriersRangeCheck);
       }
 
-   // Enable copy propagation of floats if using SSE.
+   // Enable copy propagation of floats.
    //
-   if (cg->useSSEForDoublePrecision())
-      {
-      cg->setSupportsJavaFloatSemantics();
-      }
-   else
-      {
-      static char *commonFPAcrossBranches = feGetEnv("TR_commonFPAcrossBranches");
-      if (commonFPAcrossBranches)
-         {
-         cg->setSupportsJavaFloatSemantics();
-         }
-      }
+   cg->setSupportsJavaFloatSemantics();
 
    /*
     * "Statically" initialize the FE-specific tree evaluator functions.
@@ -165,10 +160,10 @@ J9::X86::CodeGenerator::CodeGenerator() :
          returnInfo = TR::Compiler->target.is64Bit() ? TR_ObjectReturn : TR_IntReturn;
          break;
       case TR::Float:
-         returnInfo = cg->useSSEForDoublePrecision() ? TR_FloatXMMReturn : TR_FloatReturn;
+         returnInfo = TR_FloatXMMReturn;
          break;
       case TR::Double:
-         returnInfo = cg->useSSEForDoublePrecision()? TR_DoubleXMMReturn : TR_DoubleReturn;
+         returnInfo = TR_DoubleXMMReturn;
          break;
       }
     comp->setReturnInfo(returnInfo);
@@ -318,7 +313,7 @@ J9::X86::CodeGenerator::generateSwitchToInterpreterPrePrologue(
       }
 
    startLabel = generateLabelSymbol(self());
-   prev = generateLabelInstruction(prev, LABEL, startLabel, true, self());
+   prev = generateLabelInstruction(prev, LABEL, startLabel, self());
    self()->setSwitchToInterpreterLabel(startLabel);
 
    TR::RegisterDependencyConditions  *deps =
@@ -326,12 +321,7 @@ J9::X86::CodeGenerator::generateSwitchToInterpreterPrePrologue(
    deps->addPreCondition(ediRegister, TR::RealRegister::edi, self());
 
    TR::SymbolReference *helperSymRef =
-      self()->symRefTab()->findOrCreateRuntimeHelper(
-         TR::X86CallSnippet::getDirectToInterpreterHelper(
-            methodSymbol,
-            methodSymbol->getMethod()->returnType(),
-            methodSymbol->isSynchronised()),
-         false, false, false);
+      self()->symRefTab()->findOrCreateRuntimeHelper(TR_j2iTransition, false, false, false);
 
    if (TR::Compiler->target.is64Bit())
       {
@@ -422,7 +412,7 @@ J9::X86::CodeGenerator::reserveNTrampolines(int32_t numTrampolines)
    bool hadClassUnloadMonitor;
    bool hadVMAccess = fej9->releaseClassUnloadMonitorAndAcquireVMaccessIfNeeded(comp, &hadClassUnloadMonitor);
 
-   TR::CodeCache *curCache = comp->getCurrentCodeCache();
+   TR::CodeCache *curCache = self()->getCodeCache();
    TR::CodeCache *newCache = curCache;
    OMR::CodeCacheErrorCode::ErrorCode status = OMR::CodeCacheErrorCode::ERRORCODE_SUCCESS;
 
@@ -430,7 +420,7 @@ J9::X86::CodeGenerator::reserveNTrampolines(int32_t numTrampolines)
 
    if (!fej9->isAOT_DEPRECATED_DO_NOT_USE())
       {
-      status = curCache->reserveNTrampolines(numTrampolines);
+      status = curCache->reserveSpaceForTrampoline_bridge(numTrampolines);
       if (status != OMR::CodeCacheErrorCode::ERRORCODE_SUCCESS)
          {
          // Current code cache is no good. Must unreserve
@@ -441,8 +431,13 @@ J9::X86::CodeGenerator::reserveNTrampolines(int32_t numTrampolines)
             newCache = TR::CodeCacheManager::instance()->getNewCodeCache(comp->getCompThreadID());
             if (newCache)
                {
-               status = newCache->reserveNTrampolines(numTrampolines);
-               TR_ASSERT(status == OMR::CodeCacheErrorCode::ERRORCODE_SUCCESS, "Failed to reserve trampolines in fresh code cache.");
+               status = newCache->reserveSpaceForTrampoline_bridge(numTrampolines);
+
+               if (status != OMR::CodeCacheErrorCode::ERRORCODE_SUCCESS)
+                  {
+                  TR_ASSERT(0, "Failed to reserve trampolines in fresh code cache.");
+                  newCache->unreserve();
+                  }
                }
             }
          }
@@ -459,20 +454,14 @@ J9::X86::CodeGenerator::reserveNTrampolines(int32_t numTrampolines)
       {
       // We keep track of number of IPIC trampolines that are present in the current code cache
       // If the code caches have been switched we have to reset this number, the setCodeCacheSwitched helper called
-      // in switchCodeCache resets the count
+      // in switchCodeCacheTo resets the count
       // If we are in binaryEncoding we will kill this compilation anyway
-
-      comp->switchCodeCache(newCache);
-
-      // If the old CC had pre-loaded code, the current compilation may have initialized it and will therefore depend on it
-      // so we should initialize it in the new CC as well
-      // XXX: We could avoid this if we knew for sure that this compile wasn't the one who initialized it
-      if (newCache && curCache->isCCPreLoadedCodeInitialized())
-         newCache->getCCPreLoadedCodeAddress(TR_numCCPreLoadedCode, self());
+      //
+      self()->switchCodeCacheTo(newCache);
       }
    else
       {
-      comp->setNumReservedIPICTrampolines(comp->getNumReservedIPICTrampolines() + numTrampolines);
+      self()->setNumReservedIPICTrampolines(self()->getNumReservedIPICTrampolines() + numTrampolines);
       }
 
    TR_ASSERT(newCache->isReserved(), "New CodeCache is not reserved");

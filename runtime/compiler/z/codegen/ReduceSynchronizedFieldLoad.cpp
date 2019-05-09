@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,20 +22,21 @@
 
 #include "codegen/ReduceSynchronizedFieldLoad.hpp"
 
-#include <stddef.h>                    // for NULL
-#include <stdint.h>                    // for int64_t
+#include <stddef.h>
+#include <stdint.h>
 #include "j9.h"
 #include "j9cfg.h"
 #include "j9consts.h"
 #include "codegen/CodeGenerator.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/TreeEvaluator.hpp"
 #include "env/VMJ9.h"
-#include "il/ILOps.hpp"                // for ILOpCode
-#include "il/ILOpCodes.hpp"            // for ILOpCodes::pdSetSign, etc
-#include "il/Node_inlines.hpp"         // for Node::getType, etc
-#include "il/TreeTop.hpp"              // for TreeTop
-#include "il/TreeTop_inlines.hpp"      // for TreeTop::getNode, etc
-#include "infra/Assert.hpp"            // for TR_ASSERT
+#include "il/ILOps.hpp"
+#include "il/ILOpCodes.hpp"
+#include "il/Node_inlines.hpp"
+#include "il/TreeTop.hpp"
+#include "il/TreeTop_inlines.hpp"
+#include "infra/Assert.hpp"
 #include "z/codegen/S390Evaluator.hpp"
 #include "z/codegen/S390GenerateInstructions.hpp"
 #include "z/codegen/S390Instruction.hpp"
@@ -327,10 +328,10 @@ ReduceSynchronizedFieldLoad::performOnTreeTops(TR::TreeTop* startTreeTop, TR::Tr
                      // When concurrent scavenge is enabled we need to load the object reference using a read barrier however
                      // there is no guarded load alternative for the LPD instruction. As such this optimization cannot be carried
                      // out for object reference loads under concurrent scavenge.
-                     if (TR::Compiler->om.shouldGenerateReadBarriersForFieldLoads() && loadNode->getDataType().isAddress())
+                     if (TR::Compiler->om.readBarrierType() != gc_modron_readbar_none && loadNode->getDataType().isAddress())
                         {
                         TR::DebugCounter::incStaticDebugCounter(cg->comp(), TR::DebugCounter::debugCounterName(cg->comp(), "codegen/z/ReduceSynchronizedFieldLoad/failure/read-barrier/%s", cg->comp()->signature()));
-                        
+
                         break;
                         }
 
@@ -444,7 +445,7 @@ ReduceSynchronizedFieldLoad::findLoadInSynchornizedRegion(TR::TreeTop* startTree
 
       if (opcode.hasSymbolReference() || opcode.isBranch())
          {
-         if (loadNode == NULL && 
+         if (loadNode == NULL &&
             opcode.isLoadIndirect() && (opcode.isRef() || opcode.isInt() || opcode.isLong()) &&
             currentNode->getFirstChild() == synchronizedObjectNode)
             {

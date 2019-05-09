@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,20 +23,20 @@
 #ifndef ESCAPEANALYSIS_INCL
 #define ESCAPEANALYSIS_INCL
 
-#include <stddef.h>                            // for NULL
-#include <stdint.h>                            // for int32_t
-#include "compile/Compilation.hpp"             // for Compilation
-#include "env/TRMemory.hpp"                    // for TR_Memory, etc
-#include "il/DataTypes.hpp"                    // for DataTypes
-#include "il/ILOpCodes.hpp"                    // for ILOpCodes
-#include "il/Node.hpp"                         // for Node, rcount_t
-#include "infra/BitVector.hpp"                 // for TR_BitVector
-#include "infra/Flags.hpp"                     // for flags32_t
-#include "infra/Link.hpp"                      // for TR_Link, TR_LinkHead
-#include "infra/List.hpp"                      // for TR_ScratchList, etc
-#include "optimizer/Optimization.hpp"          // for Optimization
+#include <stddef.h>
+#include <stdint.h>
+#include "compile/Compilation.hpp"
+#include "env/TRMemory.hpp"
+#include "il/DataTypes.hpp"
+#include "il/ILOpCodes.hpp"
+#include "il/Node.hpp"
+#include "infra/BitVector.hpp"
+#include "infra/Flags.hpp"
+#include "infra/Link.hpp"
+#include "infra/List.hpp"
+#include "optimizer/Optimization.hpp"
 #include "optimizer/Optimization_inlines.hpp"
-#include "optimizer/OptimizationManager.hpp"   // for OptimizationManager
+#include "optimizer/OptimizationManager.hpp"
 
 class TR_EscapeAnalysis;
 class TR_OpaqueClassBlock;
@@ -461,6 +461,27 @@ class TR_EscapeAnalysis : public TR::Optimization
    bool     checkOtherDefsOfLoopAllocation(TR::Node *useNode, Candidate *candidate, bool isImmediateUse);
    bool     checkOverlappingLoopAllocation(TR::Node *useNode, Candidate *candidate);
    bool     checkOverlappingLoopAllocation(TR::Node *node, TR::Node *useNode, TR::Node *allocNode, rcount_t &numReferences);
+
+   /**
+    * Visit nodes in the subtree, keeping track of those visited in
+    * @ref _visitedNodes
+    * @param[in] node The subtree that is to be visited
+    */
+   void     visitTree(TR::Node *node);
+
+   /**
+    * Collect aliases of an allocation node in the specified subtree
+    * in @ref _aliasesOfOtherAllocNode
+    * Nodes in the subtree that are visited are tracked in
+    * @ref _visitedNodes, and those that have been marked as already visited
+    * are skipped.
+    * @param[in] node The subtree that is to be visited
+    * @param[in] allocNode The allocation node whose aliases are to be collected
+    */
+   void     collectAliasesOfAllocations(TR::Node *node, TR::Node *allocNode);
+
+   bool     checkAllNewsOnRHSInLoop(TR::Node *defNode, TR::Node *useNode, Candidate *candidate);
+   bool     checkAllNewsOnRHSInLoopWithAliasing(int32_t defIndex, TR::Node *useNode, Candidate *candidate);
    bool     usesValueNumber(Candidate *candidate, int32_t valueNumber);
    Candidate *findCandidate(int32_t valueNumber);
 
@@ -563,11 +584,34 @@ class TR_EscapeAnalysis : public TR::Optimization
    TR_UseDefInfo             *_useDefInfo;
    bool                      _invalidateUseDefInfo;
    TR_BitVector              *_otherDefsForLoopAllocation;
-   TR_BitVector              *_localObjectsValueNumbers;
+   TR_BitVector              *_nonColdLocalObjectsValueNumbers;
+   TR_BitVector              *_allLocalObjectsValueNumbers;
    TR_BitVector              *_notOptimizableLocalObjectsValueNumbers;
    TR_BitVector              *_notOptimizableLocalStringObjectsValueNumbers;
    TR_BitVector              *_blocksWithFlushOnEntry;
    TR_BitVector              *_visitedNodes;
+
+   /**
+    * Contains sym refs that are just aliases for a fresh allocation
+    * i.e., it is used to track allocations in cases such as
+    * ...
+    * a = new A()
+    * ...
+    * b = a
+    * ...
+    * c = b
+    *
+    * In this case a, b and c will all be considered aliases of an alloc node
+    * and so a load of any of those sym refs will be treated akin to how the
+    * fresh allocation would be treated
+    */
+   TR_BitVector              *_aliasesOfAllocNode;
+
+   /**
+    * Contains sym refs that are just aliases for a second fresh allocation
+    * that is under consideration, as with @ref _aliasesOfAllocNode
+    */
+   TR_BitVector              *_aliasesOfOtherAllocNode;
    TR_ValueNumberInfo        *_valueNumberInfo;
    TR_LinkHead<Candidate>     _candidates;
    TR_Array<TR::Node*>        *_parms;
@@ -597,6 +641,7 @@ class TR_EscapeAnalysis : public TR::Optimization
 #endif
    bool                       _repeatAnalysis;
    bool                       _somethingChanged;
+   bool                       _doLoopAllocationAliasChecking;
    TR_ScratchList<TR_DependentAllocations> _dependentAllocations;
    TR_BitVector *             _vnTemp;
    TR_BitVector *             _vnTemp2;

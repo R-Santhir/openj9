@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -60,6 +60,7 @@ bool enableCompiledMethodLoadHookOnly = false;
 // -----------------------------------------------------------------------------
 
 bool J9::Options::_doNotProcessEnvVars = false; // set through XX options in Java
+bool J9::Options::_reportByteCodeInfoAtCatchBlock = false;
 int32_t J9::Options::_samplingFrequencyInIdleMode = 1000; // ms
 int32_t J9::Options::_samplingFrequencyInDeepIdleMode = 100000; // ms
 int32_t J9::Options::_resetCountThreshold = 0; // Disable the feature
@@ -235,7 +236,7 @@ size_t J9::Options::_scratchSpaceLimitKBWhenLowVirtualMemory = 64*1024; // 64MB;
 
 int32_t J9::Options::_scratchSpaceFactorWhenJSR292Workload = JSR292_SCRATCH_SPACE_FACTOR;
 int32_t J9::Options::_lowVirtualMemoryMBThreshold = 300; // Used on 32 bit Windows, Linux, 31 bit z/OS, Linux
-int32_t J9::Options::_safeReservePhysicalMemoryValue = 50 << 20;  // 50 MB
+int32_t J9::Options::_safeReservePhysicalMemoryValue = 32 << 20;  // 32 MB
 
 int32_t J9::Options::_numDLTBufferMatchesToEagerlyIssueCompReq = 8; //a value of 1 or less disables the DLT tracking mechanism
 int32_t J9::Options::_dltPostponeThreshold = 2;
@@ -303,7 +304,7 @@ qualifiedSize(UDATA *byteSize, char **qualifier)
 bool
 J9::Options::useCompressedPointers()
    {
-#if defined(J9VM_GC_COMPRESSED_POINTERS)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
    return true;
 #else
    return false;
@@ -727,9 +728,9 @@ TR::OptionTable OMR::Options::_feOptions[] = {
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_cpuUtilThresholdForStarvation , 0, "F%d", NOT_IN_SUBSET},
    {"data=",                          "C<nnn>\tdata cache size, in KB",
         TR::Options::setJitConfigNumericValue, offsetof(J9JITConfig, dataCacheKB), 0, " %d (KB)"},
-   {"dataCacheMinQuanta=",            "I<nnn>\tMinimum number of quantums per data cache allocation", 
+   {"dataCacheMinQuanta=",            "I<nnn>\tMinimum number of quantums per data cache allocation",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_dataCacheMinQuanta, 0, " %d", NOT_IN_SUBSET},
-   {"dataCacheQuantumSize=",          "I<nnn>\tLargest guaranteed common byte multiple of data cache allocations.  This value will be rounded up for pointer alignment.", 
+   {"dataCacheQuantumSize=",          "I<nnn>\tLargest guaranteed common byte multiple of data cache allocations.  This value will be rounded up for pointer alignment.",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_dataCacheQuantumSize, 0, " %d", NOT_IN_SUBSET},
    {"datatotal=",              "C<nnn>\ttotal data memory limit, in KB",
         TR::Options::setJitConfigNumericValue, offsetof(J9JITConfig, dataCacheTotalKB), 0, " %d (KB)"},
@@ -860,12 +861,12 @@ TR::OptionTable OMR::Options::_feOptions[] = {
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_largeTranslationTime, 0, "F%d", NOT_IN_SUBSET},
    {"limit=",             "D<xxx>\tonly compile methods beginning with xxx", TR::Options::limitOption, 0, 0, "P%s"},
    {"limitfile=",         "D<filename>\tfilter method compilation as defined in filename.  "
-                          "Use limitfile=(filename,firstLine,lastLine) to limit lines considered from firstLine to lastLine", 
+                          "Use limitfile=(filename,firstLine,lastLine) to limit lines considered from firstLine to lastLine",
         TR::Options::limitfileOption, 0, 0, "F%s"},
    {"loadExclude=",           "D<xxx>\tdo not relocate AOT methods beginning with xxx", TR::Options::loadLimitOption, 1, 0, "P%s"},
    {"loadLimit=",             "D<xxx>\tonly relocate AOT methods beginning with xxx", TR::Options::loadLimitOption, 0, 0, "P%s"},
    {"loadLimitFile=",         "D<filename>\tfilter AOT method relocation as defined in filename.  "
-                          "Use loadLimitfile=(filename,firstLine,lastLine) to limit lines considered from firstLine to lastLine", 
+                          "Use loadLimitfile=(filename,firstLine,lastLine) to limit lines considered from firstLine to lastLine",
         TR::Options::loadLimitfileOption, 0, 0, "P%s"},
    {"localCSEFrequencyThreshold=", "O<nnn>\tBlocks with frequency lower than the threshold will not be considered by localCSE",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_localCSEFrequencyThreshold, 0, "F%d", NOT_IN_SUBSET },
@@ -944,11 +945,8 @@ TR::OptionTable OMR::Options::_feOptions[] = {
    {"smallMethodBytecodeSizeThresholdForCold=", "O<nnn> Threshold for determining small methods at cold\t "
                                          "(measured in number of bytecodes)",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_smallMethodBytecodeSizeThresholdForCold, 0, "F%d", NOT_IN_SUBSET},
-   {"stack=",             "C<nnn>\tcompilation thread stack size in KB", 
+   {"stack=",             "C<nnn>\tcompilation thread stack size in KB",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_stackSize, 0, " %d", NOT_IN_SUBSET},
-#ifdef DEBUG
-   {"stats",              "L\tdump statistics at end of run", SET_JITCONFIG_RUNTIME_FLAG(J9JIT_DUMP_STATS) },
-#endif
    {"testMode",           "D\tcompile but do not run the compiled code",  SET_JITCONFIG_RUNTIME_FLAG(J9JIT_TESTMODE) },
 #if defined(TR_HOST_X86) || defined(TR_HOST_POWER)
    {"tlhPrefetchBoundaryLineCount=",    "O<nnn>\tallocation prefetch boundary line for allocation prefetch",
@@ -980,13 +978,13 @@ TR::OptionTable OMR::Options::_feOptions[] = {
    {"verbose=",           "L{regex}\tlist of verbose output to write to vlog or stdout",
         TR::Options::setVerboseBitsInJitPrivateConfig, offsetof(J9JITConfig, privateConfig), 0, "F"},
    {"version",            "L\tdisplay the jit build version",
-        TR::Options::versionOption, 0, 0},
+        TR::Options::versionOption, 0, 0, "F"},
    {"veryHotSampleThreshold=",          "R<nnn>\tThe maximum number of global samples taken during a sample interval for which the method will be recompiled at hot with normal priority",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_veryHotSampleThreshold, 0, " %d", NOT_IN_SUBSET},
    {"vlog=",              "L<filename>\twrite verbose output to filename",
         TR::Options::setString,  offsetof(J9JITConfig,vLogFileName), 0, "F%s"},
    {"vmState=",           "L<vmState>\tdecode a given vmState",
-        TR::Options::vmStateOption, 0, 0},
+        TR::Options::vmStateOption, 0, 0, "F"},
    {"waitTimeToEnterDeepIdleMode=",  "M<nnn>\tTime spent in idle mode (ms) after which we enter deep idle mode sampling",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_waitTimeToEnterDeepIdleMode, 0, "F%d", NOT_IN_SUBSET},
    {"waitTimeToEnterIdleMode=",      "M<nnn>\tIdle time (ms) after which we enter idle mode sampling",
@@ -1093,31 +1091,15 @@ J9::Options::fePreProcess(void * base)
    TR::Compiler->host.setSMP(true);
    TR::Compiler->target.setSMP(true);
 
-   TR_WriteBarrierKind wrtbarMode = TR_WrtbarOldCheck;
-
    J9MemoryManagerFunctions * mmf = vm->memoryManagerFunctions;
+#if defined(J9VM_GC_HEAP_CARD_TABLE)
    if (!fe->isAOT_DEPRECATED_DO_NOT_USE())
       {
-      switch (mmf->j9gc_modron_getWriteBarrierType(vm))
-         {
-         case j9gc_modron_wrtbar_none:                   wrtbarMode = TR_WrtbarNone; break;
-         case j9gc_modron_wrtbar_always:                 wrtbarMode = TR_WrtbarAlways; break;
-         case j9gc_modron_wrtbar_oldcheck:               wrtbarMode = TR_WrtbarOldCheck; break;
-         case j9gc_modron_wrtbar_cardmark:               wrtbarMode = TR_WrtbarCardMark; break;
-         case j9gc_modron_wrtbar_cardmark_and_oldcheck:  wrtbarMode = TR_WrtbarCardMarkAndOldCheck; break;
-         case j9gc_modron_wrtbar_cardmark_incremental:   wrtbarMode = TR_WrtbarCardMarkIncremental; break;
-         case j9gc_modron_wrtbar_realtime:               wrtbarMode = TR_WrtbarRealTime; break;
-         }
-
-#if defined(J9VM_GC_HEAP_CARD_TABLE)
       self()->setGcCardSize(mmf->j9gc_concurrent_getCardSize(vm));
       self()->setHeapBase(mmf->j9gc_concurrent_getHeapBase(vm));
       self()->setHeapTop(mmf->j9gc_concurrent_getHeapBase(vm) + mmf->j9gc_get_initial_heap_size(vm));
-#endif
-
       }
-
-   self()->setGcMode(wrtbarMode);
+#endif
 
    uintptr_t value;
 
@@ -1132,16 +1114,6 @@ J9::Options::fePreProcess(void * base)
 
    value = mmf->j9gc_modron_getConfigurationValueForKey(vm, j9gc_modron_configuration_heapAddressToCardAddressShift, &value) ? value : 0;
    self()->setHeapAddressToCardAddressShift(value);
-
-#if 0
-// DMDM: MOVED TO ObjectModel
-   uintptr_t result = mmf->j9gc_modron_getConfigurationValueForKey(vm, j9gc_modron_configuration_discontiguousArraylets, &value);
-   if (result == 0)
-      self()->setUsesDiscontiguousArraylets(false);
-   else
-      self()->setUsesDiscontiguousArraylets((value == 1) ? true : false);
-#endif
-
 
    // Pull the constant heap parameters from a VMThread (it doesn't matter which one).
    //
@@ -1345,35 +1317,30 @@ J9::Options::fePreProcess(void * base)
          if (OPTION_OK == returnCode)
             {
             ccTotalSize >>= 10; // convert to KB
-            // Restriction: total size can only grow
-            // The following check will also prevent us from doing the computation twice fro JIT and AOT
-            if (jitConfig->codeCacheTotalKB < ccTotalSize)
-               {
-               // Restriction: total size must be a multiple of the size of one code cache
-               UDATA fragmentSize = ccTotalSize % jitConfig->codeCacheKB;
-               if (fragmentSize > 0)   // TODO: do we want a message here?
-                  ccTotalSize += jitConfig->codeCacheKB - fragmentSize; // round-up
 
-               // Proportionally increase the data cache as well
-               // Use 'double' to avoid truncation/overflow
-               UDATA dcTotalSize = (double)ccTotalSize/(double)(jitConfig->codeCacheTotalKB) *
-                  (double)(jitConfig->dataCacheTotalKB);
+            // Impose a minimum value of 2 MB
+            if (ccTotalSize < 2048)
+               ccTotalSize = 2048;
 
-               // Round up to a multiple of the data cache size
-               fragmentSize = dcTotalSize % jitConfig->dataCacheKB;
-               if (fragmentSize > 0)
-                  dcTotalSize += jitConfig->dataCacheKB - fragmentSize;
-               // Now write the values in jitConfig
-               jitConfig->codeCacheTotalKB = ccTotalSize;
-               // Make sure that the new value for dataCacheTotal doesn't shrink the default
-               if (dcTotalSize > jitConfig->dataCacheTotalKB)
-                  jitConfig->dataCacheTotalKB = dcTotalSize;
-               }
-            else // codeCacheTotal is not allowed to shrink
-               {
-               // TODO: do we want a message here?
-               // If so, we need to avoid the message when the IF condition is evaluated a second time (for JIT and AOT)
-               }
+            // Restriction: total size must be a multiple of the size of one code cache
+            UDATA fragmentSize = ccTotalSize % jitConfig->codeCacheKB;
+            if (fragmentSize > 0)   // TODO: do we want a message here?
+               ccTotalSize += jitConfig->codeCacheKB - fragmentSize; // round-up
+
+            // Proportionally increase the data cache as well
+            // Use 'double' to avoid truncation/overflow
+            UDATA dcTotalSize = (double)ccTotalSize / (double)(jitConfig->codeCacheTotalKB) *
+               (double)(jitConfig->dataCacheTotalKB);
+
+            // Round up to a multiple of the data cache size
+            fragmentSize = dcTotalSize % jitConfig->dataCacheKB;
+            if (fragmentSize > 0)
+               dcTotalSize += jitConfig->dataCacheKB - fragmentSize;
+            // Now write the values in jitConfig
+            jitConfig->codeCacheTotalKB = ccTotalSize;
+            // Make sure that the new value for dataCacheTotal doesn't shrink the default
+            if (dcTotalSize > jitConfig->dataCacheTotalKB)
+               jitConfig->dataCacheTotalKB = dcTotalSize;
             }
          else // Error with the option
             {
@@ -1885,8 +1852,11 @@ J9::Options::fePreProcess(void * base)
       {
       self()->setOption(TR_InlineVeryLargeCompiledMethods);
       }
+
+   // Disable zNext support until it has been gone through several rounds of functional stress testing
+   self()->setOption(TR_DisableZ15);
 #endif
- 
+
    // On big machines we can afford to spend more time compiling
    // (but not on zOS where customers care about CPU or on Xquickstart
    // which should be skimpy on compilation resources).
@@ -1923,6 +1893,19 @@ J9::Options::fePreProcess(void * base)
    // Setting number of onsite cache slots for instanceOf node to 4 on IBM Z
    self()->setMaxOnsiteCacheSlotForInstanceOf(4);
 #endif
+   // Set a value for _safeReservePhysicalMemoryValue that is proportional
+   // to the amount of free physical memory at boot time
+   // The user can still override it with a command line option
+   bool incomplete = false;
+   uint64_t phMemAvail = compInfo->computeAndCacheFreePhysicalMemory(incomplete);
+   if (phMemAvail != OMRPORT_MEMINFO_NOT_AVAILABLE && !incomplete)
+      {
+      const uint64_t reserveLimit = 32 * 1024 * 1024;
+      uint64_t proposed = phMemAvail >> 6; // 64 times less
+      if (proposed > reserveLimit)
+         proposed = reserveLimit;
+      J9::Options::_safeReservePhysicalMemoryValue = (int32_t)proposed;
+      }
 
    // Process the deterministic mode
    if (TR::Options::_deterministicMode == -1) // not yet set
@@ -1939,6 +1922,10 @@ J9::Options::fePreProcess(void * base)
             }
          }
       }
+
+#if (defined(TR_HOST_X86) || defined(TR_HOST_S390) || defined(TR_HOST_POWER)) && defined(TR_TARGET_64BIT)
+   self()->setOption(TR_EnableSymbolValidationManager);
+#endif
 
    return true;
    }
@@ -1989,14 +1976,16 @@ J9::Options::fePostProcessJIT(void * base)
    //
    if (_numUsableCompilationThreads <= 0)
       {
-#ifdef LINUX
-      // For linux we may want to create more threads to overcome thread
-      // starvation due to lack of priorities
-      //
-      if (!TR::Options::getCmdLineOptions()->getOption(TR_DisableRampupImprovements) &&
-          !TR::Options::getAOTCmdLineOptions()->getOption(TR_DisableRampupImprovements))
-         _numUsableCompilationThreads = MAX_USABLE_COMP_THREADS;
-#endif // LINUX
+      _useCPUsToDetermineMaxNumberOfCompThreadsToActivate = true;
+      if (TR::Compiler->target.isLinux())
+         {
+         // For linux we may want to create more threads to overcome thread
+         // starvation due to lack of priorities
+         //
+         if (!TR::Options::getCmdLineOptions()->getOption(TR_DisableRampupImprovements) &&
+            !TR::Options::getAOTCmdLineOptions()->getOption(TR_DisableRampupImprovements))
+            _numUsableCompilationThreads = MAX_USABLE_COMP_THREADS;
+         }
       if (_numUsableCompilationThreads <= 0)
          {
          // Determine the number of compilation threads based on number of online processors
@@ -2004,7 +1993,6 @@ J9::Options::fePostProcessJIT(void * base)
          //
          uint32_t numOnlineCPUs = j9sysinfo_get_number_CPUs_by_type(J9PORT_CPU_ONLINE);
          _numUsableCompilationThreads = numOnlineCPUs > 1 ? std::min((numOnlineCPUs - 1), static_cast<uint32_t>(MAX_USABLE_COMP_THREADS)) : 1;
-         _useCPUsToDetermineMaxNumberOfCompThreadsToActivate = true;
          }
       }
 
@@ -2151,8 +2139,7 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
        (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_PUT_FIELD) ||
        (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_GET_STATIC_FIELD) ||
        (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_PUT_STATIC_FIELD) ||
-       (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_SINGLE_STEP) ||
-       (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_EXCEPTION_CATCH))
+       (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_SINGLE_STEP))
       {
         static bool TR_DisableFullSpeedDebug = feGetEnv("TR_DisableFullSpeedDebug")?1:0;
       #if defined(J9VM_JIT_FULL_SPEED_DEBUG)
@@ -2174,10 +2161,20 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
       #endif
       }
 
-   if ((*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_EXCEPTION_CATCH) ||
-       (*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_EXCEPTION_THROW))
+   bool exceptionEventHooked = false;
+   if ((*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_EXCEPTION_CATCH))
+      {
+      jitConfig->jitExceptionCaught = jitExceptionCaught;
+      exceptionEventHooked = true;
+      }
+   if ((*vmHooks)->J9HookDisable(vmHooks, J9HOOK_VM_EXCEPTION_THROW))
+      {
+      exceptionEventHooked = true;
+      }
+   if (exceptionEventHooked)
       {
       self()->setOption(TR_DisableThrowToGoto);
+      self()->setReportByteCodeInfoAtCatchBlock();
       doAOT = false;
       }
 
@@ -2291,6 +2288,12 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
       self()->setOption(TR_DisableNextGenHCR);
       }
 
+#if !defined(TR_HOST_X86)
+   //The bit is set when -XX:+JITInlineWatches is specified
+   if (J9_ARE_ANY_BITS_SET(javaVM->extendedRuntimeFlags, J9_EXTENDED_RUNTIME_JIT_INLINE_WATCHES))
+      TR_ASSERT_FATAL(false, "this platform doesn't support JIT inline field watch");
+#endif
+
    // GCR and JProfiling are disabled under FSD for a number of reasons
    // First, there is confusion between the VM and the JIT as to whether a call to jitRetranslateCallerWithPreparation is a decompilation point.
    // Having the JIT agree with the VM could not be done by simply marking the symbol canGCandReturn, as this would affect other parts of the JIT
@@ -2299,10 +2302,11 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
    //
    if (self()->getOption(TR_FullSpeedDebug))
       {
+      self()->setReportByteCodeInfoAtCatchBlock();
       self()->setOption(TR_DisableGuardedCountingRecompilations);
       self()->setOption(TR_EnableJProfiling, false);
       //might move around asyn checks and clone the OSRBlock which are not safe under the current OSR infrastructure
-      self()->setOption(TR_DisableProfiling); 
+      self()->setOption(TR_DisableProfiling);
       //the VM side doesn't support fsd for this event yet
       self()->setOption(TR_DisableNewInstanceImplOpt);
       //the following 2 opts might insert async checks at new bytecode index where the OSR infrastructures doesn't exist
@@ -2416,6 +2420,17 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
             self()->getOption(TR_DisablePackedDecimalIntrinsics))
       {
       self()->setOption(TR_DisableIntrinsics);
+      }
+
+   /* Temporary (until SVM is the default)
+    *
+    * If the SVM is not enabled, use the old _coldUpgradeSampleThreshold
+    * for AGGRESSIVE_AOT
+    */
+   if (!self()->getOption(TR_EnableSymbolValidationManager)
+       && TR::Options::_aggressivenessLevel == TR::Options::AGGRESSIVE_AOT)
+      {
+      TR::Options::_coldUpgradeSampleThreshold = 10;
       }
 
    return true;

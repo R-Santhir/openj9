@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2017, 2018 IBM Corp. and others
+ * Copyright (c) 2017, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -43,7 +43,9 @@ def get_source() {
             OMR_BRANCH_OPTION = (OMR_BRANCH != "")? "-omr-branch=${OMR_BRANCH}" : ""
             OMR_SHA_OPTION = (OMR_SHA != "") ? "-omr-sha=${OMR_SHA}" : ""
 
-            if (USER_CREDENTIALS_ID != '') {
+            // use sshagent with Jenkins credentials ID for all platforms except zOS
+            // on zOS use the user's ssh key
+            if (!SPEC.contains('zos') && (USER_CREDENTIALS_ID != '')) {
                 get_sources_with_authentication()
             } else {
                 get_sources()
@@ -59,29 +61,48 @@ def get_sources_with_authentication() {
 }
 
 def get_sources() {
-    checkout changelog: false,
-            poll: false,
-            scm: [$class: 'GitSCM',
-                branches: [[name: "${OPENJDK_BRANCH}"]],
-                doGenerateSubmoduleConfigurations: false,
-                extensions: [[$class: 'CheckoutOption', timeout: 30],
-                            [$class: 'CloneOption',
-                                depth: 0,
-                                noTags: false,
-                                reference: "${OPENJDK_REFERENCE_REPO}",
-                                shallow: false,
-                                timeout: 30]],
-                submoduleCfg: [],
-                userRemoteConfigs: [[credentialsId: "${USER_CREDENTIALS_ID}",
-                                    url: "${OPENJDK_REPO}"]]]
+    // Temp workaround for Windows clones
+    // See #3633 and JENKINS-54612
+    if (NODE_LABELS.contains("windows") || NODE_LABELS.contains("zos")) {
+        cleanWs()
+        CLONE_CMD = "git clone --reference ${OPENJDK_REFERENCE_REPO} -b ${OPENJDK_BRANCH} ${OPENJDK_REPO} ."
+        if (USER_CREDENTIALS_ID && NODE_LABELS.contains("windows")) {
+            sshagent(credentials:["${USER_CREDENTIALS_ID}"]) {
+                sh "${CLONE_CMD}"
+            }
+        } else {
+            sh "${CLONE_CMD}"
+        }
+    } else {
+        def remote_config_parameters = [url: "${OPENJDK_REPO}"]
+        if (USER_CREDENTIALS_ID) {
+            remote_config_parameters.put('credentialsId', "${USER_CREDENTIALS_ID}")
+        }
+
+        checkout changelog: false,
+                poll: false,
+                scm: [$class: 'GitSCM',
+                    branches: [[name: "${OPENJDK_BRANCH}"]],
+                    doGenerateSubmoduleConfigurations: false,
+                    extensions: [[$class: 'CheckoutOption', timeout: 30],
+                                [$class: 'CloneOption',
+                                    depth: 0,
+                                    noTags: false,
+                                    reference: "${OPENJDK_REFERENCE_REPO}",
+                                    shallow: false,
+                                    timeout: 30]],
+                    submoduleCfg: [],
+                    userRemoteConfigs: [remote_config_parameters]]
+    }
 
     // Check if this build is a PR
-    if (params.ghprbGhRepository) {
+    // Only PR builds (old and new) pass ghprbPullId
+    if (params.ghprbPullId) {
         // Look for dependent changes and checkout PR(s)
         checkout_pullrequest()
     } else {
         sh "git checkout ${OPENJDK_SHA}"
-        sh "bash ./get_source.sh ${OPENJ9_REPO_OPTION} ${OPENJ9_BRANCH_OPTION} ${OPENJ9_SHA_OPTION} ${OMR_REPO_OPTION} ${OMR_BRANCH_OPTION} ${OMR_SHA_OPTION}"
+        sh "bash ./get_source.sh ${EXTRA_GETSOURCE_OPTIONS} ${OPENJ9_REPO_OPTION} ${OPENJ9_BRANCH_OPTION} ${OPENJ9_SHA_OPTION} ${OMR_REPO_OPTION} ${OMR_BRANCH_OPTION} ${OMR_SHA_OPTION}"
     }
 }
 
@@ -89,7 +110,7 @@ def checkout_pullrequest() {
     echo 'Look for Dependent Changes'
 
     def KEYWORD = "depends"
-    def COMMENT = ghprbCommentBody.toLowerCase(Locale.US);
+    def COMMENT = params.ghprbCommentBody.toLowerCase(Locale.US);
     def OPENJDK_PR
     def OMR_PR
     def OPENJ9_PR
@@ -97,6 +118,7 @@ def checkout_pullrequest() {
     def omr_upstream = false
     def openjdk_bool = false
     def openj9_bool = false
+    def JDK_REPO_SUFFIX = ""
 
     // Determine source repo of PR
     // Cannot depend on a change from the same repo as the source repo
@@ -166,10 +188,12 @@ def checkout_pullrequest() {
                     // eg. Cannot checkout a JDK8 PR for a JDK9 build
                     echo "SDK: ${SDK_VERSION}"
                     echo "REPO: ${REPO}"
-
+                    if (SDK_VERSION != "next") {
+                        JDK_REPO_SUFFIX = SDK_VERSION
+                    }
                     // For SDK 8/9/10, the Repo has the SDK version in the name
-                    if (REPO != "openj9-openjdk-jdk${SDK_VERSION}") {
-                        error "Trying to build SDK${SDK_VERSION} with a dependent change from repo '${REPO}' is not possible"
+                    if (REPO != "openj9-openjdk-jdk${JDK_REPO_SUFFIX}") {
+                        error "Trying to build SDK${JDK_REPO_SUFFIX} with a dependent change from repo '${REPO}' is not possible"
                     }
                     break
                 default:
@@ -179,14 +203,13 @@ def checkout_pullrequest() {
     }
 
     if (openjdk_bool) {
-        def REPO_SUFFIX = ""
         if (SDK_VERSION != "next") {
-            REPO_SUFFIX = SDK_VERSION
+            JDK_REPO_SUFFIX = SDK_VERSION
         }
-        checkout_pullrequest(OPENJDK_PR, "ibmruntimes/openj9-openjdk-jdk${REPO_SUFFIX}")
+        checkout_pullrequest(OPENJDK_PR, "ibmruntimes/openj9-openjdk-jdk${JDK_REPO_SUFFIX}")
     }
 
-    sh "bash ./get_source.sh"
+    sh "bash ./get_source.sh ${EXTRA_GETSOURCE_OPTIONS}"
 
     // Checkout dependent PRs, if any were specified
     if (openj9_bool) {
@@ -246,14 +269,21 @@ def checkoutRef (REF) {
 def build() {
     stage('Compile') {
         timestamps {
+            // 'all' target dependencies broken for zos, use 'images test-image-openj9'
+            def make_target = SPEC.contains('zos') ? 'images test-image-openj9' : 'all'
+            OPENJDK_CLONE_DIR = "${env.WORKSPACE}/${OPENJDK_CLONE_DIR}"
             withEnv(BUILD_ENV_VARS_LIST) {
-                sh "${BUILD_ENV_CMD} bash configure --with-freemarker-jar='$FREEMARKER' --with-boot-jdk='$BOOT_JDK' $EXTRA_CONFIGURE_OPTIONS && make $EXTRA_MAKE_OPTIONS all"
+                dir(OPENJDK_CLONE_DIR) {
+                    sh "${BUILD_ENV_CMD} bash configure --with-freemarker-jar='$FREEMARKER' --with-boot-jdk='$BOOT_JDK' $EXTRA_CONFIGURE_OPTIONS && make $EXTRA_MAKE_OPTIONS ${make_target}"
+                }
             }
         }
     }
     stage('Java Version') {
         timestamps {
-            sh "build/$RELEASE/images/$JDK_FOLDER/bin/java -version"
+            dir(OPENJDK_CLONE_DIR) {
+                sh "build/$RELEASE/images/$JDK_FOLDER/bin/java -version"
+            }
         }
     }
 }
@@ -261,28 +291,64 @@ def build() {
 def archive() {
     stage('Archive') {
         timestamps {
-              sh "tar -C build/${RELEASE}/images/ -zcvf ${SDK_FILENAME} ${JDK_FOLDER}"
-              if (ARTIFACTORY_SERVER) {
-                def server = Artifactory.server ARTIFACTORY_SERVER
-                // if the archive location is modified the definition of CUSTOMIZED_SDK_URL will also need to be updated
-                def uploadSpec = """{
-                  "files":[
-                    {
-                      "pattern": "${env.WORKSPACE}/${SDK_FILENAME}",
-                      "target": "${ARTIFACTORY_REPO}/${env.JOB_NAME}/${env.BUILD_ID}/"
-                    }
-                  ]
-                }"""
+            def buildDir = "build/${RELEASE}/images/"
+            def testDir = "test/openj9"
 
-                def buildInfo = Artifactory.newBuildInfo()
-                // hardcoded to 30 for now, this need follow up for usage on per platform level or across all jobs
-                buildInfo.retention maxBuilds: 30, deleteBuildArtifacts: true
-                server.upload spec: uploadSpec, buildInfo: buildInfo
-                server.publishBuildInfo buildInfo
-              } else {
-                echo "ARTIFACTORY server is not set saving artifacts on jenkins."
-                archiveArtifacts artifacts: "**/${SDK_FILENAME}", fingerprint: true, onlyIfSuccessful: true
-              }
+            dir(OPENJDK_CLONE_DIR) {
+                sh "tar -C ${buildDir} -zcvf ${SDK_FILENAME} ${JDK_FOLDER}"
+                // test if the test natives directory is present, only in JDK11+
+                if (fileExists("${buildDir}${testDir}")) {
+                    if (SPEC.contains('zos')) {
+                        // Note: to preserve the files ACLs set _OS390_USTAR=Y env variable (see variable files)
+                        sh "pax  -wvz -s#${buildDir}${testDir}#native-test-libs#g -f ${TEST_FILENAME} ${buildDir}${testDir}"
+                    } else {
+                        sh "tar -C ${buildDir} -zcvf ${TEST_FILENAME} ${testDir} --transform 's,${testDir},native-test-libs,'"
+                    }
+                }
+                if (ARTIFACTORY_SERVER) {
+                    def server = Artifactory.server ARTIFACTORY_SERVER
+                    // set connection timeout to 10 mins to avoid timeout on slow platforms
+                    server.connection.timeout = 600
+                    def artifactory_upload_dir = "${ARTIFACTORY_REPO}/${JOB_NAME}/${BUILD_ID}/"
+                    def uploadSpec = """{
+                        "files":[
+                            {
+                                "pattern": "${OPENJDK_CLONE_DIR}/${SDK_FILENAME}",
+                                "target": "${artifactory_upload_dir}",
+                                "props": "build.buildIdentifier=${BUILD_IDENTIFIER}"
+                            },
+                            {
+                                "pattern": "${OPENJDK_CLONE_DIR}/${TEST_FILENAME}",
+                                "target": "${artifactory_upload_dir}",
+                                "props": "build.buildIdentifier=${BUILD_IDENTIFIER}"
+                            }
+                        ]
+                    }"""
+
+                    def buildInfo = Artifactory.newBuildInfo()
+                    buildInfo.retention maxBuilds: ARTIFACTORY_NUM_ARTIFACTS, deleteBuildArtifacts: true
+                    // Add BUILD_IDENTIFIER to the buildInfo. The UploadSpec adds it to the Artifact info
+                    buildInfo.env.filter.addInclude("BUILD_IDENTIFIER")
+                    buildInfo.env.capture = true
+                    server.upload spec: uploadSpec, buildInfo: buildInfo
+                    server.publishBuildInfo buildInfo
+                    // Write URL to env so that we can pull it from the upstream pipeline job
+                    ARTIFACTORY_URL = server.getUrl()
+                    SDK_URL = "${ARTIFACTORY_URL}/${artifactory_upload_dir}${SDK_FILENAME}"
+                    env.CUSTOMIZED_SDK_URL = SDK_URL
+                    currentBuild.description += "<br><a href=${SDK_URL}>${SDK_FILENAME}</a>"
+                    if (fileExists("${TEST_FILENAME}")) {
+                        TEST_LIB_URL = "${ARTIFACTORY_URL}/${artifactory_upload_dir}${TEST_FILENAME}"
+                        env.CUSTOMIZED_SDK_URL += " " + TEST_LIB_URL
+                        currentBuild.description += "<br><a href=${TEST_LIB_URL}>${TEST_FILENAME}</a>"
+                    }
+                    echo "CUSTOMIZED_SDK_URL:'${CUSTOMIZED_SDK_URL}'"
+                    echo "ARTIFACTORY_CREDS:'${ARTIFACTORY_CREDS}'"
+                } else {
+                    echo "ARTIFACTORY server is not set saving artifacts on jenkins."
+                    archiveArtifacts artifacts: "**/${SDK_FILENAME},**/${TEST_FILENAME}", fingerprint: false, onlyIfSuccessful: true
+                }
+            }
         }
     }
 }
@@ -300,19 +366,10 @@ def build_all() {
             add_node_to_description()
             get_source()
             build()
-            // Do not archive in compile only pr jobs
-            // ghprbPullId is the PullRequest ID which only shows up in Pull Requests
-            if (!params.ghprbPullId) {
-                archive()
-            }
+            archive()
         } finally {
-            try {
-		cleanWs()
-	    } catch(e) {
-		echo e.toString()
-		echo e.printStackTrace()
-		sh "ps -ef"
-	    }
+            // disableDeferredWipeout also requires deleteDirs. See https://issues.jenkins-ci.org/browse/JENKINS-54225
+            cleanWs notFailBuild: true, disableDeferredWipeout: true, deleteDirs: true
         }
     }
 }

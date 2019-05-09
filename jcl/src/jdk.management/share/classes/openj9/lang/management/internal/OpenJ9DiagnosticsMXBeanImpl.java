@@ -1,6 +1,6 @@
 /*[INCLUDE-IF Sidecar17]*/
 /*******************************************************************************
- * Copyright (c) 2018, 2018 IBM Corp. and others
+ * Copyright (c) 2018, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -25,13 +25,8 @@
 package openj9.lang.management.internal;
 
 /*[IF Sidecar19-SE]*/
-/*[IF Sidecar19-SE-OpenJ9]*/
 import java.lang.Module;
 import java.lang.ModuleLayer;
-/*[ELSE]
-import java.lang.reflect.Module;
-import java.lang.reflect.Layer;
-/*[ENDIF]*/
 /*[ENDIF]*/
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -79,11 +74,7 @@ public final class OpenJ9DiagnosticsMXBeanImpl implements OpenJ9DiagnosticsMXBea
 	static {
 /*[IF Sidecar19-SE]*/
 		try {
-/*[IF Sidecar19-SE-OpenJ9]*/
 			Module openj9_jvm = ModuleLayer.boot().findModule("openj9.jvm").get(); //$NON-NLS-1$
-/*[ELSE]
-			Module openj9_jvm = Layer.boot().findModule("openj9.jvm").get(); //$NON-NLS-1$
-/*[ENDIF]*/
 			Class<?>[] classes = AccessController.doPrivileged((PrivilegedAction<Class<?>[]>)
 				() -> new Class[] {
 					Class.forName(openj9_jvm, "com.ibm.jvm.Dump"), //$NON-NLS-1$

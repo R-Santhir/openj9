@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,13 +22,13 @@
 
 #include "il/J9SymbolReference.hpp"
 
-#include <stdint.h>                    // for uint32_t
-#include "compile/Compilation.hpp"     // for Compilation
+#include <stdint.h>
+#include "compile/Compilation.hpp"
 #include "env/CompilerEnv.hpp"
-#include "env/VMAccessCriticalSection.hpp" // for VMAccessCriticalSection
-#include "il/Symbol.hpp"               // for Symbol
-#include "il/SymbolReference.hpp"      // for SymbolReference
-#include "il/symbol/StaticSymbol.hpp"  // for StaticSymbol
+#include "env/VMAccessCriticalSection.hpp"
+#include "il/Symbol.hpp"
+#include "il/SymbolReference.hpp"
+#include "il/symbol/StaticSymbol.hpp"
 #include "il/symbol/ParameterSymbol.hpp"
 #include "env/KnownObjectTable.hpp"
 #include "runtime/RuntimeAssumptions.hpp"
@@ -180,6 +180,7 @@ const char *
 SymbolReference::getTypeSignature(int32_t & len, TR_AllocationKind allocKind, bool *isFixed)
    {
    TR::Compilation * comp = TR::comp();
+   bool allowForAOT = comp->getOption(TR_UseSymbolValidationManager);
 
    TR_PersistentClassInfo * persistentClassInfo = NULL;
    switch (_symbol->getKind())
@@ -190,7 +191,7 @@ SymbolReference::getTypeSignature(int32_t & len, TR_AllocationKind allocKind, bo
       case TR::Symbol::IsShadow:
           persistentClassInfo =
              (comp->getPersistentInfo()->getPersistentCHTable() == NULL) ? NULL :
-             comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(comp->getCurrentMethod()->containingClass(), comp);
+             comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(comp->getCurrentMethod()->containingClass(), comp, allowForAOT);
           if (persistentClassInfo &&
               persistentClassInfo->getFieldInfo() &&
               persistentClassInfo->getFieldInfo()->getFirst() &&
@@ -241,12 +242,12 @@ SymbolReference::getTypeSignature(int32_t & len, TR_AllocationKind allocKind, bo
                {
                TR::StaticSymbol * symbol = _symbol->castToStaticSymbol();
                TR::DataType type = symbol->getDataType();
-               TR_OpaqueClassBlock * classOfStatic = self()->getOwningMethod(comp)->classOfStatic(_cpIndex);
+               TR_OpaqueClassBlock * classOfStatic = self()->getOwningMethod(comp)->classOfStatic(_cpIndex, allowForAOT);
 
                bool isClassInitialized = false;
                TR_PersistentClassInfo * classInfo =
                   (comp->getPersistentInfo()->getPersistentCHTable() == NULL) ? NULL :
-                  comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(classOfStatic, comp);
+                  comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(classOfStatic, comp, allowForAOT);
                if (classInfo && classInfo->isInitialized())
                   {
                   if (classInfo->getFieldInfo() && !classInfo->cannotTrustStaticFinal())
@@ -255,7 +256,6 @@ SymbolReference::getTypeSignature(int32_t & len, TR_AllocationKind allocKind, bo
 
               if ((classOfStatic != comp->getSystemClassPointer() &&
                   isClassInitialized &&
-                  !comp->getOption(TR_AOT) &&
                    (type == TR::Address)))
                  {
                  TR::VMAccessCriticalSection vmAccessCriticalSection(comp->fej9(),
@@ -320,6 +320,14 @@ SymbolReference::getTypeSignature(int32_t & len, TR_AllocationKind allocKind, bo
             len = 23;
             return "Ljava/lang/invoke/MethodHandle;";
             }
+         if (_symbol->isConstantDynamic())
+            {
+            TR::StaticSymbol * symbol = _symbol->castToStaticSymbol();
+            int32_t condySigLength;
+            char *returnType = symbol->getConstantDynamicClassSignature(condySigLength);
+            len = condySigLength;
+            return returnType;
+            }
          if (_symbol->isConst())
             {
             len = 1;
@@ -328,7 +336,7 @@ SymbolReference::getTypeSignature(int32_t & len, TR_AllocationKind allocKind, bo
 
          persistentClassInfo =
             (comp->getPersistentInfo()->getPersistentCHTable() == NULL) ? NULL :
-             comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(comp->getCurrentMethod()->containingClass(), comp);
+             comp->getPersistentInfo()->getPersistentCHTable()->findClassInfoAfterLocking(comp->getCurrentMethod()->containingClass(), comp, allowForAOT);
          if (persistentClassInfo &&
              persistentClassInfo->getFieldInfo() &&
              persistentClassInfo->getFieldInfo()->getFirst() &&

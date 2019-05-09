@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -70,7 +70,8 @@ enum S390SupportsArchitectures
    S390SupportsZEC12       = 6,
    S390SupportsZ13         = 7,
    S390SupportsZ14         = 8,
-   S390SupportsZNext       = 9,
+   S390SupportsZ15         = 9,
+   S390SupportsZNext       = 10,
    S390SupportsLatestArch  = S390SupportsZNext
    };
 
@@ -83,7 +84,7 @@ enum // flags
    SupportsScaledIndexAddressing            = 0x00000080,
    S390SupportsDFP                          = 0x00000100,
    S390SupportsFPE                          = 0x00000200,
-   S390SupportsHPRDebug                     = 0x00001000,
+   S390SupportsHPR                          = 0x00001000,
    IsInZOSSupervisorState                   = 0x00008000,
    S390SupportsTM                           = 0x00010000,
    S390SupportsRI                           = 0x00020000,
@@ -91,6 +92,9 @@ enum // flags
    S390SupportsVectorPackedDecimalFacility  = 0x00080000,
    S390SupportsGuardedStorageFacility       = 0x00100000,
    S390SupportsSideEffectAccessFacility     = 0x00200000,
+   S390SupportsMIE3                         = 0x00400000,
+   S390SupportsVectorFacilityEnhancement2   = 0x00800000,
+   S390SupportsVectorPDEnhancementFacility  = 0x01000000,
    DummyLastFlag
    };
 
@@ -143,11 +147,14 @@ public:
    bool getS390SupportsZ14() {return getS390SupportsArch(S390SupportsZ14);}
    void setS390SupportsZ14() { setS390SupportsArch(S390SupportsZ14);}
 
+   bool getS390SupportsZ15() {return getS390SupportsArch(S390SupportsZ15);}
+   void setS390SupportsZ15() { setS390SupportsArch(S390SupportsZ15);}
+
    bool getS390SupportsZNext() {return getS390SupportsArch(S390SupportsZNext);}
    void setS390SupportsZNext() { setS390SupportsArch(S390SupportsZNext);}
 
-   bool getS390SupportsHPRDebug() {return _flags.testAny(S390SupportsHPRDebug);}
-   void setS390SupportsHPRDebug() { _flags.set(S390SupportsHPRDebug);}
+   bool getS390SupportsHPR() {return _flags.testAny(S390SupportsHPR);}
+   void setS390SupportsHPR() { _flags.set(S390SupportsHPR);}
 
    bool getS390SupportsDFP() {return _flags.testAny(S390SupportsDFP);}
    void setS390SupportsDFP() { _flags.set(S390SupportsDFP);}
@@ -167,6 +174,17 @@ public:
    bool getS390SupportsVectorPackedDecimalFacility();
    void setS390SupportsVectorPackedDecimalFacility() { _flags.set(S390SupportsVectorPackedDecimalFacility); }
 
+   bool getS390SupportsMIE3();
+   void setS390SupportsMIE3() { _flags.set(S390SupportsMIE3); }
+
+   bool getS390SupportsVectorFacilityEnhancement2();
+   void setS390SupportsVectorFacilityEnhancement2() { _flags.set(S390SupportsVectorFacilityEnhancement2); }
+
+   bool getS390SupportsVectorPDEnhancement();
+   void setS390SupportsVectorPDEnhancement() { _flags.set(S390SupportsVectorPDEnhancementFacility); }
+
+   bool hasPopulationCountInstruction() { return getS390SupportsMIE3(); }
+
    /** \brief
     *     Determines whether the guarded storage facility is available on the current processor.
     *
@@ -178,22 +196,16 @@ public:
    void setS390SupportsGuardedStorageFacility() { _flags.set(S390SupportsGuardedStorageFacility);
                                                   _flags.set(S390SupportsSideEffectAccessFacility);}
 
-   static TR_S390MachineType TO_PORTLIB_get390zLinuxMachineType();
-   static TR_S390MachineType TO_PORTLIB_get390zOSMachineType();
+   static int32_t TO_PORTLIB_get390MachineId();
    static bool TO_PORTLIB_get390_supportsZNext();
+   static bool TO_PORTLIB_get390_supportsZ15();
    static bool TO_PORTLIB_get390_supportsZ14();
    static bool TO_PORTLIB_get390_supportsZ13();
    static bool TO_PORTLIB_get390_supportsZ6();
    static bool TO_PORTLIB_get390_supportsZGryphon();
    static bool TO_PORTLIB_get390_supportsZHelix();
-   static bool TO_PORTLIB_get390zOS_N3Support();
-   static bool TO_PORTLIB_get390zOS_ZArchSupport();
-   static bool TO_PORTLIB_get390zOS_TrexSupport();
-   static bool TO_PORTLIB_get390zOS_GoldenEagleSupport();
-   static bool TO_PORTLIB_get390zOS_supportsStoreExtendedFacilityList();
 
-   void initializeS390zLinuxProcessorFeatures();
-   void initializeS390zOSProcessorFeatures();
+   void initializeS390ProcessorFeatures();
 
    TR_ProcessorFeatureFlags getProcessorFeatureFlags();
    bool isCompatible(TR_Processor processorSignature, TR_ProcessorFeatureFlags processorFeatureFlags);

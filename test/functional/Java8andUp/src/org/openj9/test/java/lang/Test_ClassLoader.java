@@ -1,5 +1,3 @@
-package org.openj9.test.java.lang;
-
 /*******************************************************************************
  * Copyright (c) 1998, 2018 IBM Corp. and others
  *
@@ -21,6 +19,7 @@ package org.openj9.test.java.lang;
  *
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
+package org.openj9.test.java.lang;
 
 import org.testng.annotations.Test;
 import org.openj9.test.support.resource.Support_Resources;
@@ -469,7 +468,7 @@ public class Test_ClassLoader {
 			 * not already loaded by another classloader. If it starts failing,
 			 * find another library to load.
 			 */
-			loader2.loadLibrary("attach");
+			loader2.loadLibrary("unpack");
 		} catch (UnsatisfiedLinkError e) {
 			e.printStackTrace();
 			Assert.fail("expected to find library");

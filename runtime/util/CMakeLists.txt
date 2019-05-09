@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017, 2018 IBM Corp. and others
+# Copyright (c) 2017, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -26,12 +26,8 @@ add_tracegen(vmutil.tdf j9vmutil)
 add_tracegen(module.tdf)
 add_tracegen(srphashtable.tdf)
 
+j9vm_gen_asm(fpusup.m4)
 
-add_custom_command(
-	OUTPUT fpusup.s
-	DEPENDS fpusup.m4 run_constgen
-	COMMAND m4 -I${CMAKE_CURRENT_SOURCE_DIR}/../oti ${CMAKE_CURRENT_SOURCE_DIR}/fpusup.m4 > fpusup.s
-)
 add_library(j9util STATIC
 	alignedmemcpy.c
 	annhelp.c
@@ -39,7 +35,6 @@ add_library(j9util STATIC
 	argcount.c
 	bcdump.c
 	bcnames.c
-	bcsizes.c
 	binarysup.c
 	checkcast.cpp
 	cphelp.c
@@ -109,10 +104,13 @@ add_library(j9util STATIC
 	${CMAKE_CURRENT_BINARY_DIR}/ut_j9vmutil.c
 	${CMAKE_CURRENT_BINARY_DIR}/ut_module.c
 	${CMAKE_CURRENT_BINARY_DIR}/ut_srphashtable.c
-
-	#TODO this is platform specific
-	linux/osinfo.c
 )
+
+if(OMR_OS_LINUX)
+	target_sources(j9util PRIVATE linux/osinfo.c)
+elseif(OMR_OS_WINDOWS)
+	target_sources(j9util PRIVATE win32/openlibrary.c)
+endif()
 
 if(OMR_ARCH_X86)
 	target_sources(j9util
@@ -133,32 +131,5 @@ target_link_libraries(j9util
 		j9vm_gc_includes
 
 		j9simplepool
+		j9stackmap
 )
-
-add_library(j9util_b156 STATIC
-	modularityHelper.c
-	hshelp.c
-	superclass.c
-	fieldutil.c
-	tracehelp.c
-	propsfile.c
-	vmihelp.c
-	vmargs.c
-	${CMAKE_CURRENT_BINARY_DIR}/ut_j9util.c
-	${CMAKE_CURRENT_BINARY_DIR}/ut_j9vmutil.c
-	${CMAKE_CURRENT_BINARY_DIR}/ut_module.c
-	${CMAKE_CURRENT_BINARY_DIR}/ut_j9hshelp.h
-)
-
-target_include_directories(j9util_b156
-	PUBLIC
-	${CMAKE_CURRENT_BINARY_DIR}
-	.
-)
-target_link_libraries(j9util_b156
-	PRIVATE
-		j9vm_interface
-		j9vm_gc_includes
-)
-
-target_compile_definitions(j9util_b156 PRIVATE -DJ9VM_JAVA9_BUILD=156)

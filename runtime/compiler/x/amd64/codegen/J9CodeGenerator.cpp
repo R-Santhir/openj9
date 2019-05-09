@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,6 +28,7 @@
 #include "codegen/AMD64PrivateLinkage.hpp"
 #include "codegen/AMD64JNILinkage.hpp"
 #include "codegen/AMD64J9SystemLinkage.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
 #include "env/CompilerEnv.hpp"
@@ -66,7 +67,7 @@ J9::X86::AMD64::CodeGenerator::createLinkage(TR_LinkageConventions lc)
             systemLinkage = new (self()->trHeapMemory()) TR::AMD64J9Win64FastCallLinkage(self());
             linkage = new (self()->trHeapMemory()) TR::AMD64JNILinkage(systemLinkage, self());
             }
-         else if (TR::Compiler->target.isLinux())
+         else if (TR::Compiler->target.isLinux() || TR::Compiler->target.isOSX())
             {
             systemLinkage = new (self()->trHeapMemory()) TR::AMD64J9ABILinkage(self());
             linkage = new (self()->trHeapMemory()) TR::AMD64JNILinkage(systemLinkage, self());
@@ -84,7 +85,7 @@ J9::X86::AMD64::CodeGenerator::createLinkage(TR_LinkageConventions lc)
             {
             linkage = new (self()->trHeapMemory()) TR::AMD64J9Win64FastCallLinkage(self());
             }
-         else if (TR::Compiler->target.isLinux())
+         else if (TR::Compiler->target.isLinux() || TR::Compiler->target.isOSX())
             {
             linkage = new (self()->trHeapMemory()) TR::AMD64J9ABILinkage(self());
             }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -1402,6 +1402,14 @@ printBytecodePairs(J9JavaVM *vm);
 #endif /* COUNT_BYTECODE_PAIRS */
 
 /**
+ * @brief Queries whether valueTypes are enable on the JVM
+ * @param vm A handle to the J9JavaVM
+ * @return TRUE if valueTypes are enabled, FALSE otherwise
+ */
+BOOLEAN
+areValueTypesEnabled(J9JavaVM *vm);
+
+/**
 * @brief
 * @param vmThread
 * @param rc
@@ -1775,12 +1783,28 @@ findClassLocationForClass(J9VMThread *currentThread, J9Class *clazz);
 /* ---------------- ModularityHashTables.c ---------------- */
 
 /**
- * @brief Create the module definition hash table
+ * Used by classLoader->moduleHashTable which doesn't allow multiple modules with same module name.
+ * Create a new J9HashTable with hashFn (moduleNameHashFn) and hashEqualFn (moduleNameHashEqualFn).
+ * Using module name as the key can determine if two modules are same based on their module names.
+ *
+ * @param javaVM A java VM 
  * @param initialSize initial size
- * @return Pointer to new hash table
+ * @return an initialized J9HashTable on success, otherwise NULL.
  */
 J9HashTable *
-hashModuleTableNew(J9JavaVM *javaVM, U_32 initialSize);
+hashModuleNameTableNew(J9JavaVM *javaVM, U_32 initialSize);
+
+/**
+ * Used by J9Package->exportsHashTable, J9Module->readAccessHashTable, and J9Module->removeAccessHashTable
+ * which might contain modules loaded by different classloader but with same module names.
+ * Create a new J9HashTable with hashFn (modulePointerHashFn) and hashEqualFn (modulePointerHashEqualFn).
+ * Using J9Module pointer as the key can differentiate modules loaded by different classloader with same module name.
+ * @param javaVM A java VM 
+ * @param initialSize initial size
+ * @return an initialized J9HashTable on success, otherwise NULL.
+ */
+J9HashTable *
+hashModulePointerTableNew(J9JavaVM *javaVM, U_32 initialSize);
 
 /**
  * @brief Create the package definition hash table
@@ -2166,15 +2190,20 @@ instanceFieldOffsetWithSourceClass(J9VMThread *vmStruct, J9Class *clazz, U_8 *fi
 
 /**
 * @brief Iterate over fields of the specified class in JVMTI order.
-* @param vm[in]			pointer to the J9JavaVM
-* @param romClass[in]	the ROM class whose fields will be iterated
-* @param superClazz[in] the RAM super class of the class whose fields will be iterated
-* @param state[in/out]  the walk state that can subsequently be passed to fieldOffsetsNextDo()
-* @param flags[in]		J9VM_FIELD_OFFSET_WALK_* flags
+* @param vm[in]					pointer to the J9JavaVM
+* @param romClass[in]			the ROM class whose fields will be iterated
+* @param superClazz[in]			the RAM super class of the class whose fields will be iterated
+* @param state[in/out]			the walk state that can subsequently be passed to fieldOffsetsNextDo()
+* @param flags[in]				J9VM_FIELD_OFFSET_WALK_* flags
+* @param flattenedClassCache[in]	A table of all flattened instance field types
 * @return J9ROMFieldOffsetWalkResult *
 */
 J9ROMFieldOffsetWalkResult *
+#ifdef J9VM_OPT_VALHALLA_VALUE_TYPES
+fieldOffsetsStartDo(J9JavaVM *vm, J9ROMClass *romClass, J9Class *superClazz, J9ROMFieldOffsetWalkState *state, U_32 flags, J9FlattenedClassCache *flattenedClassCache);
+#else
 fieldOffsetsStartDo(J9JavaVM *vm, J9ROMClass *romClass, J9Class *superClazz, J9ROMFieldOffsetWalkState *state, U_32 flags);
+#endif
 
 /**
 * @brief Iterate over fields of the specified class in JVMTI order.
@@ -2202,6 +2231,32 @@ fullTraversalFieldOffsetsStartDo(J9JavaVM *vm, J9Class *clazz, J9ROMFullTraversa
 */
 J9ROMFieldShape *
 fullTraversalFieldOffsetsNextDo(J9ROMFullTraversalFieldOffsetWalkState *state);
+
+#ifdef J9VM_OPT_VALHALLA_VALUE_TYPES
+/**
+ * @brief Search for ramClass in flattened class cache
+ *
+ * @param flattenedClassCache[in]	A table of flattend instance field types
+ * @param className[in]				Name of class to search
+ * @param classNameLength[in]		Length of class name to search
+ *
+ * @return J9Class if found NULL otherwise
+ */
+J9Class *
+findJ9ClassInFlattenedClassCache(J9FlattenedClassCache *flattenedClassCache, U_8 *className, UDATA classNameLength);
+
+/**
+ * @brief Search for index of field in flattened class cache
+ *
+ * @param flattenedClassCache[in]	A table of flattend instance field types
+ * @param nameAndSignature[in]		The name and signature of field to look for
+ *
+ * @return index if found 0 otherwise
+ */
+UDATA
+findIndexInFlattenedClassCache(J9FlattenedClassCache *flattenedClassCache, J9ROMNameAndSignature *nameAndSignature);
+#endif /* J9VM_OPT_VALHALLA_VALUE_TYPES */
+
 
 /**
 * @brief
@@ -3070,6 +3125,20 @@ trace(J9VMThread *vmStruct);
  */
 UDATA
 loadAndVerifyNestHost(J9VMThread *vmThread, J9Class *clazz, UDATA options);
+
+/**
+ * Sets the nestmates error based on the errorCode
+ *
+ * @param vmThread vmthread token
+ * @param nestMember the j9lass requesting the nesthost
+ * @param nestHost the actual nest host, this may be NULL
+ * @param errorCode the error code represting the exception to throw
+ * 	J9_VISIBILITY_NEST_HOST_LOADING_FAILURE_ERROR
+ * 	J9_VISIBILITY_NEST_HOST_DIFFERENT_PACKAGE_ERROR
+ * 	J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR
+ */
+void
+setNestmatesError(J9VMThread *vmThread, J9Class *nestMember, J9Class *nestHost, IDATA errorCode);
 #endif /* J9VM_OPT_VALHALLA_NESTMATES */
 
 /* ---------------- VMAccess.cpp ---------------- */
@@ -3829,13 +3898,12 @@ J9ROMClass *
 * @param vmThread
 * @param romClass
 * @param methodPC
-* @param offset
 * @return J9ROMMethod
 *
 * Returns the method, or NULL on failure.
 */
 J9ROMMethod * 
-	findROMMethodInROMClass(J9VMThread *vmThread, J9ROMClass *romClass, UDATA methodPC, UDATA *offset);
+	findROMMethodInROMClass(J9VMThread *vmThread, J9ROMClass *romClass, UDATA methodPC);
 
 /**
 * @brief Finds the rom class given a PC.  Also returns the classloader it belongs to.

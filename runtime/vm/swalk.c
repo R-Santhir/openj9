@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -446,7 +446,7 @@ UDATA walkFrame(J9StackWalkState * walkState)
 		if (walkState->flags & J9_STACKWALK_HIDE_EXCEPTION_FRAMES) {
 			J9ROMMethod * romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method);
 
-			if (!(romMethod->modifiers & J9_JAVA_STATIC)) {
+			if (!(romMethod->modifiers & J9AccStatic)) {
 				if (J9UTF8_DATA(J9ROMMETHOD_GET_NAME(UNTAGGED_METHOD_CP(walkState->method)->ramClass->romClass, romMethod))[0] == '<') {
 					if (*walkState->arg0EA == (UDATA) walkState->restartException) {
 						return J9_STACKWALK_KEEP_ITERATING;
@@ -626,7 +626,7 @@ static void walkObjectPushes(J9StackWalkState * walkState)
 static void walkDescribedPushes(J9StackWalkState * walkState, UDATA * highestSlot, UDATA slotCount, U_32 * descriptionSlots, UDATA argCount)
 {
 	UDATA descriptionBitsRemaining = 0;
-	U_32 description;
+	U_32 description = 0;
 
 	while (slotCount) {
 		if (!descriptionBitsRemaining) {
@@ -1198,7 +1198,7 @@ static void walkPushedJNIRefs(J9StackWalkState * walkState)
 static void walkIndirectDescribedPushes(J9StackWalkState * walkState, UDATA * highestIndirectSlot, UDATA slotCount, U_32 * descriptionSlots)
 {
 	UDATA descriptionBitsRemaining = 0;
-	U_32 description;
+	U_32 description = 0;
 
 	while (slotCount) {
 		if (!descriptionBitsRemaining) {

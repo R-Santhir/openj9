@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -584,13 +584,16 @@ ROMClassBuilder::prepareAndLaydown( BufferManager *bufferManager, ClassFileParse
 			sizeRequirements.romClassMinimalSize =
 					U_32(sizeInformation.rcWithOutUTF8sSize
 					+ sizeInformation.utf8sSize + sizeInformation.rawClassDataSize + sizeInformation.varHandleMethodTypeLookupTableSize);
+			/* round up to sizeof(U_64) */
+			sizeRequirements.romClassMinimalSize += (sizeof(U_64) - 1);
+			sizeRequirements.romClassMinimalSize &= ~(sizeof(U_64) - 1);
 
 			sizeRequirements.romClassSizeFullSize =
 					U_32(sizeRequirements.romClassMinimalSize
 					+ sizeInformation.lineNumberSize
 					+ sizeInformation.variableInfoSize);
 			/* round up to sizeof(U_64) */
-			sizeRequirements.romClassSizeFullSize += sizeof(U_64);
+			sizeRequirements.romClassSizeFullSize += (sizeof(U_64) - 1);
 			sizeRequirements.romClassSizeFullSize &= ~(sizeof(U_64)-1);
 
 
@@ -1024,6 +1027,9 @@ ROMClassBuilder::finishPrepareAndLaydown(
 	 * Record the romSize as the final size of the ROMClass with interned strings space removed.
 	 */
 	U_32 romSize = U_32(sizeInformation->rcWithOutUTF8sSize + sizeInformation->utf8sSize + sizeInformation->rawClassDataSize + sizeInformation->varHandleMethodTypeLookupTableSize);
+	/* round up to sizeof(U_64) */
+	romSize += (sizeof(U_64) - 1);
+	romSize &= ~(sizeof(U_64) - 1);
 
 	/*
 	 * update the SRP Offset Table with the base addresses for main ROMClass section (RC_TAG),
@@ -1064,7 +1070,7 @@ ROMClassBuilder::finishPrepareAndLaydown(
  *                             + UNUSED
  *                            + UNUSED
  *                           + UNUSED
- *                          + AccClassAnonClass;
+ *                          + AccClassAnonClass
  *
  *                        + AccSynthetic (matches Oracle modifier position)
  *                       + AccClassUseBisectionSearch
@@ -1078,10 +1084,10 @@ ROMClassBuilder::finishPrepareAndLaydown(
  *
  *              + AccClassBytecodesModified
  *             + AccClassHasEmptyFinalize
- *            + UNUSED
+ *            + AccClassIsUnmodifiable
  *           + AccClassHasVerifyData
  *
- *         + J9AccClassIsContended
+ *         + AccClassIsContended
  *        + AccClassHasFinalFields
  *       + AccClassHasClinit
  *      + AccClassHasNonStaticNonAbstractMethods
@@ -1125,6 +1131,10 @@ ROMClassBuilder::computeExtraModifiers(ClassFileOracle *classFileOracle, ROMClas
 
 	if ( classFileOracle->isClassContended() ) {
 		modifiers |= J9AccClassIsContended;
+	}
+
+	if ( classFileOracle->isClassUnmodifiable() ) {
+		modifiers |= J9AccClassIsUnmodifiable;
 	}
 
 	U_32 classNameindex = classFileOracle->getClassNameIndex();

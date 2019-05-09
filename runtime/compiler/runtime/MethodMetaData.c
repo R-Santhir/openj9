@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -1421,11 +1421,9 @@ void walkJITFrameSlotsForInternalPointers(J9StackWalkState * walkState,  U_8 ** 
 #endif
             tempJitDescriptionCursorForRegs = (U_8 *)stackMap;
 
-#ifdef TR_HOST_S390
-            tempJitDescriptionCursorForRegs += 12; /*skip register map, register save description word and HighWordRegisterMap word */
-#else
+            /* Skip the register map and register save description */
             tempJitDescriptionCursorForRegs += 8;
-#endif
+
             if (((walkState->jitInfo->endPC - walkState->jitInfo->startPC) >= 65535) || (alignStackMaps))
                {
                tempJitDescriptionCursorForRegs += 8;
@@ -1614,15 +1612,6 @@ U_32 getJitRegisterMap(J9TR_MethodMetaData * methodMetaData, void * stackMap)
    return *((U_32*)GET_REGISTER_MAP_CURSOR(HAS_FOUR_BYTE_OFFSET(methodMetaData), stackMap));
    }
 
-U_32 getJitHighWordRegisterMap(J9TR_MethodMetaData * methodMetaData, void * stackMap)
-   {
-#ifdef TR_HOST_S390
-   return *((U_32*)GET_HIGHWORD_REGISTER_MAP_CURSOR(HAS_FOUR_BYTE_OFFSET(methodMetaData), stackMap));
-#else
-   return 0;
-#endif
-   }
-
 U_8 * getJitStackSlots(J9TR_MethodMetaData * metaData, void * stackMap)
    {
    U_8 * cursor = GET_REGISTER_MAP_CURSOR(HAS_FOUR_BYTE_OFFSET(metaData), stackMap);
@@ -1672,13 +1661,11 @@ void jitAddSpilledRegisters(J9StackWalkState * walkState, void * stackMap)
    UDATA savedGPRs = 0, saveOffset = 0, * saveCursor = 0, lowestRegister = 0;
    UDATA ** mapCursor = (UDATA **) &(walkState->registerEAs);
    J9TR_MethodMetaData * md = walkState->jitInfo;
-   UDATA registerSaveDescription = getJitRegisterSaveDescription(walkState, stackMap);
+   UDATA registerSaveDescription = walkState->jitInfo->registerSaveDescription;
 
 #if defined(TR_HOST_X86)
    UDATA prologuePushes = (UDATA) getJitProloguePushes(walkState->jitInfo);
    U_8 i = 1;
-   UDATA registersShrinkWrapped = md->registerSaveDescription;
-   registersShrinkWrapped &= 0xFFFF;
 
    if (prologuePushes)
       {
@@ -1691,29 +1678,14 @@ void jitAddSpilledRegisters(J9StackWalkState * walkState, void * stackMap)
             {
             *mapCursor = saveCursor++;
             }
-         else if ((md->registerSaveDescription & 0xFFFF0000) == (J9TR_SHRINK_WRAP & 0xFFFFFFFF)) /* mask for 32-bit compare */
-            {
-            /* preserved registers:
-             * rbx [2], r9-r15 [10-16] on 64-bit
-             * ebx [2], ecx [3], esi [6] on 32-bit
-             */
 
-            /* make sure the stack slots are checked in lockstep
-             * and bump the saveCursor only if the register is marked
-             */
-            if (registersShrinkWrapped & 1)
-               ++saveCursor;
-            }
          ++i;
          ++mapCursor;
          registerSaveDescription >>= 1;
-         registersShrinkWrapped >>= 1;
          }
       while (registerSaveDescription);
       }
 #elif defined(TR_HOST_POWER)
-
-#if 1 /*defined(TR_SHRINK_WRAP)*/
    /*
     * see PPCLinkage for a description of the RSD
     * the save offset is located from bits 18-32
@@ -1723,11 +1695,6 @@ void jitAddSpilledRegisters(J9StackWalkState * walkState, void * stackMap)
    savedGPRs = registerSaveDescription & 0x1FFFF;
    saveOffset = (registerSaveDescription >> 17) & 0x7FFF;
    lowestRegister = 15; /* gpr15 is the first saved GPR, so move 15 spaces */
-#else
-   savedGPRs = registerSaveDescription & 31;
-   saveOffset = registerSaveDescription >> 11;
-   lowestRegister = 32 - savedGPRs;
-#endif
 
    saveCursor = (UDATA *) (((U_8 *) walkState->bp) - saveOffset);
 
@@ -1736,18 +1703,10 @@ void jitAddSpilledRegisters(J9StackWalkState * walkState, void * stackMap)
    do
       {
       if (savedGPRs & 1)
-         *mapCursor = saveCursor++;
-
-      /* get the first preserved register thats saved in the prologue
-       * this information is encoded as the last byte of the rsd
-       * hung off the method's metadata (1 byte = 256 registers)
-       * */
-      else if ((md->registerSaveDescription & 0xFFFF0000) == (J9TR_SHRINK_WRAP & 0xFFFFFFFF))
          {
-         /* check the stack slots in lockstep */
-         if (i >= (md->registerSaveDescription & 0xFF) && i <= 32)
-            ++saveCursor;
+         *mapCursor = saveCursor++;
          }
+
       ++i;
       ++mapCursor;
       savedGPRs >>= 1;
@@ -1769,17 +1728,16 @@ void jitAddSpilledRegisters(J9StackWalkState * walkState, void * stackMap)
             {
             *mapCursor = saveCursor++;
             }
-         else if ((md->registerSaveDescription & 0xFFFF0000) == (J9TR_SHRINK_WRAP & 0xFFFFFFFF))
-            {
-            if (i >= (md->registerSaveDescription & 0xFF) && i <= 13)
-               ++saveCursor;
-            }
+
          ++i;
          ++mapCursor;
          savedGPRs >>= 1;
          }
       while (savedGPRs != 0);
       }
+#elif defined(TR_HOST_ARM64)
+   // TODO: Implement this
+   assert(0);
 #else
 #error Unknown TR_HOST type
 #endif
@@ -1848,31 +1806,6 @@ JITINLINE U_16 getJitNumberOfExceptionRanges(J9TR_MethodMetaData * md)
 JITINLINE I_32 getJitExceptionTableSize(J9TR_MethodMetaData * md)
    {
    return md->size;
-   }
-
-UDATA getJitRegisterSaveDescription(J9StackWalkState * walkState, void * stackMap)
-   {
-   J9TR_MethodMetaData * md = walkState->jitInfo;
-   UDATA registerSaveDescription = md->registerSaveDescription;
-   if ((registerSaveDescription & 0xFFFF0000) == (J9TR_SHRINK_WRAP & 0xFFFFFFFF))
-      {
-      if (stackMap == NULL)
-         {
-         U_8 * searchPC = walkState->pc;
-         stackMap = getStackMapFromJitPC(walkState->walkThread->javaVM, md, (UDATA) searchPC);
-
-         /* This is an edge case where there's NPE location early in a method and we
-            don't have a map for the instruction. We don't need a map if the NPE is not
-            caught inside the method where it's thrown.
-
-            The code below will crash if the stackMap returned is NULL.
-         */
-         if (stackMap == NULL)
-            return 0;
-         }
-      registerSaveDescription = *((U_32*)GET_REGISTER_SAVE_DESCRIPTION_CURSOR(HAS_FOUR_BYTE_OFFSET(md), stackMap));
-      }
-   return registerSaveDescription;
    }
 
 void * getJitGCStackAtlas(J9TR_MethodMetaData * md)

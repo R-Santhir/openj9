@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -25,7 +25,7 @@
  * Only Function Pointers are allowed.
  */
 
-#include "omr/compiler/z/codegen/TreeEvaluatorTable.hpp"
+#include "z/codegen/OMRTreeEvaluatorTable.hpp"
 
    TR::TreeEvaluator::fconstEvaluator,      // TR::dfconst
    TR::TreeEvaluator::dconstEvaluator,      // TR::ddconst
@@ -418,8 +418,6 @@
 
    TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdshrSetSign
    TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdshlSetSign
-   TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdshrPreserveSign
-   TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdshlPreserveSign
    TR::TreeEvaluator::pdshlEvaluator,       // TR::pdshlOverflow
    TR::TreeEvaluator::pdchkEvaluator,       // TR::pdchk
 
@@ -445,20 +443,12 @@
    TR::TreeEvaluator::pdcmpgtEvaluator,     // TR::pdcmpgt
    TR::TreeEvaluator::pdcmpleEvaluator,     // TR::pdcmple
 
-   TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdcheck
-   TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdfix
-
    TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdclean
-
-   TR::TreeEvaluator::unImpOpEvaluator,     // TR::pdexp
-   TR::TreeEvaluator::unImpOpEvaluator,     // TR::pduexp
 
    TR::TreeEvaluator::pdclearEvaluator,     // TR::pdclear
    TR::TreeEvaluator::pdclearEvaluator,     // TR::pdclearSetSign
 
    TR::TreeEvaluator::pdSetSignEvaluator,    // TR::pdSetSign
-
-   TR::TreeEvaluator::pddivremEvaluator,    // TR::pddivrem
 
    TR::TreeEvaluator::pdModifyPrecisionEvaluator,       // TR::pdModifyPrecision
 

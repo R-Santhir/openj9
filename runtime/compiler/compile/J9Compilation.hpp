@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -41,6 +41,7 @@ namespace J9 { typedef J9::Compilation CompilationConnector; }
 #include "env/CompilerEnv.hpp"
 #include "env/OMRMemory.hpp"
 #include "compile/AOTClassInfo.hpp"
+#include "runtime/SymbolValidationManager.hpp"
 
 class TR_AOTGuardSite;
 class TR_FrontEnd;
@@ -54,6 +55,7 @@ class TR_MethodBranchProfileInfo;
 class TR_ExternalValueProfileInfo;
 class TR_J9VM;
 class TR_AccessedProfileInfo;
+class TR_RelocationRuntime;
 namespace TR { class IlGenRequest; }
 
 #define COMPILATION_AOT_HAS_INVOKEHANDLE -9
@@ -91,7 +93,8 @@ class OMR_EXTENSIBLE Compilation : public OMR::CompilationConnector
          TR::Options &,
          TR::Region &heapMemoryRegion,
          TR_Memory *,
-         TR_OptimizationPlan *optimizationPlan);
+         TR_OptimizationPlan *optimizationPlan,
+         TR_RelocationRuntime *reloRuntime);
 
    ~Compilation();
 
@@ -195,6 +198,25 @@ class OMR_EXTENSIBLE Compilation : public OMR::CompilationConnector
 
    bool compilationShouldBeInterrupted(TR_CallingContext);
 
+   /* Heuristic Region APIs
+    *
+    * Heuristic Regions denotes regions where decisions
+    * within the region do not need to be remembered. In relocatable compiles,
+    * when the compiler requests some information via front end query,
+    * it's possible that the front end might walk a data structure,
+    * looking at several different possible answers before finally deciding
+    * on one. For a relocatable compile, only the final answer is important.
+    * Thus, a heuristic region is used to ignore all of the intermediate
+    * steps in determining the final answer.
+    */
+   void enterHeuristicRegion();
+   void exitHeuristicRegion();
+
+   /* Used to ensure that a implementer chosen for inlining is valid under
+    * AOT.
+    */
+   bool validateTargetToBeInlined(TR_ResolvedMethod *implementer);
+
    void reportILGeneratorPhase();
    void reportAnalysisPhase(uint8_t id);
    void reportOptimizationPhase(OMR::Optimizations);
@@ -252,12 +274,12 @@ class OMR_EXTENSIBLE Compilation : public OMR::CompilationConnector
    bool isGeneratedReflectionMethod(TR_ResolvedMethod *method);
 
    // cache J9 VM pointers
-   TR_OpaqueClassBlock *getObjectClassPointer() { return _ObjectClassPointer; }
-   TR_OpaqueClassBlock *getRunnableClassPointer() { return _RunnableClassPointer; }
-   TR_OpaqueClassBlock *getStringClassPointer() { return _StringClassPointer; }
-   TR_OpaqueClassBlock *getSystemClassPointer() { return _SystemClassPointer; }
-   TR_OpaqueClassBlock *getReferenceClassPointer() { return _ReferenceClassPointer; }
-   TR_OpaqueClassBlock *getJITHelpersClassPointer() { return _JITHelpersClassPointer; }
+   TR_OpaqueClassBlock *getObjectClassPointer();
+   TR_OpaqueClassBlock *getRunnableClassPointer();
+   TR_OpaqueClassBlock *getStringClassPointer();
+   TR_OpaqueClassBlock *getSystemClassPointer();
+   TR_OpaqueClassBlock *getReferenceClassPointer();
+   TR_OpaqueClassBlock *getJITHelpersClassPointer();
    TR_OpaqueClassBlock *getClassClassPointer(bool isVettedForAOT = false);
 
    // Monitors
@@ -287,7 +309,29 @@ class OMR_EXTENSIBLE Compilation : public OMR::CompilationConnector
    //
    bool supportsQuadOptimization();
 
+   TR_RelocationRuntime *reloRuntime() { return _reloRuntime; }
+
+   bool incompleteOptimizerSupportForReadWriteBarriers();
+
+   TR::SymbolValidationManager *getSymbolValidationManager() { return _symbolValidationManager; }
+
+   // Flag to record if any optimization has prohibited OSR over a range of trees
+   void setOSRProhibitedOverRangeOfTrees() { _osrProhibitedOverRangeOfTrees = true; }
+   bool isOSRProhibitedOverRangeOfTrees() { return _osrProhibitedOverRangeOfTrees; }
+
 private:
+   enum CachedClassPointerId
+      {
+      OBJECT_CLASS_POINTER,
+      RUNNABLE_CLASS_POINTER,
+      STRING_CLASS_POINTER,
+      SYSTEM_CLASS_POINTER,
+      REFERENCE_CLASS_POINTER,
+      JITHELPERS_CLASS_POINTER,
+      CACHED_CLASS_POINTER_COUNT,
+      };
+
+   TR_OpaqueClassBlock *getCachedClassPointer(CachedClassPointerId which);
 
    J9VMThread *_j9VMThread;
 
@@ -339,12 +383,7 @@ private:
    TR::list<TR_VirtualGuardSite*>     _sideEffectGuardPatchSites;
 
    // cache VM pointers
-   TR_OpaqueClassBlock               *_ObjectClassPointer;
-   TR_OpaqueClassBlock               *_RunnableClassPointer;
-   TR_OpaqueClassBlock               *_StringClassPointer;
-   TR_OpaqueClassBlock               *_SystemClassPointer;
-   TR_OpaqueClassBlock               *_ReferenceClassPointer;
-   TR_OpaqueClassBlock               *_JITHelpersClassPointer;
+   TR_OpaqueClassBlock               *_cachedClassPointers[CACHED_CLASS_POINTER_COUNT];
 
    TR_OpaqueClassBlock               *_aotClassClassPointer;
    bool                               _aotClassClassPointerInitialized;
@@ -360,6 +399,11 @@ private:
    TR_AccessedProfileInfo *_profileInfo;
 
    bool _skippedJProfilingBlock;
+
+   TR_RelocationRuntime *_reloRuntime;
+
+   TR::SymbolValidationManager *_symbolValidationManager;
+   bool _osrProhibitedOverRangeOfTrees;
    };
 
 }

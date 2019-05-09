@@ -61,6 +61,8 @@ type:PUNWIND_INFO
 type:_UNWIND_INFO
 type:PSLIST_HEADER
 type:_SLIST_HEADER
+type:__darwin_fp_control
+type:__darwin_fp_status
 
 # Ignore one (or all) of sets of types whose names differ only in case
 # (so we don't try to create Java source files whose names differ only
@@ -79,3 +81,9 @@ type:SOCKADDR_STORAGE_XP
 type:UINT
 type:ULONG
 type:WSADATA
+
+# problem names on AIX
+type:Enum
+
+# problem on OSX
+type:std

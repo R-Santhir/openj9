@@ -88,6 +88,7 @@ public:
 		if (extensions->alwaysCallWriteBarrier) {
 			writeBarrierType = gc_modron_wrtbar_always;
 		}
+
 		Assert_MM_true(gc_modron_wrtbar_illegal != writeBarrierType);
 		javaVM->gcWriteBarrierType = writeBarrierType;
 
@@ -95,7 +96,7 @@ public:
 			javaVM->gcReadBarrierType = gc_modron_readbar_always;
 		} else {
 			if (extensions->isConcurrentScavengerEnabled()) {
-				javaVM->gcReadBarrierType = gc_modron_readbar_evacuate;
+				javaVM->gcReadBarrierType = gc_modron_readbar_range_check;
 			} else {
 				javaVM->gcReadBarrierType = gc_modron_readbar_none;
 			}

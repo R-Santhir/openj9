@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -34,6 +34,7 @@
 #include "env/VMJ9.h"
 #include "env/j9method.h"
 #include "runtime/IProfiler.hpp"
+#include "env/ClassLoaderTable.hpp"
 
 #define   LOG(n,c) \
    if (_logLevel >= (3*n)) \
@@ -266,7 +267,7 @@ TR_J9SharedCache::addHint(J9Method * method, TR_SharedCacheHint theHint)
                *hintCount = 10 * _initialHintSCount;
 
             J9SharedDataDescriptor descriptor;
-            descriptor.address = (U_8*)scHintData;
+            descriptor.address = (U_8 *)(uintptrj_t)scHintData;
             descriptor.length = scHintDataLength; // Size includes the 2nd data field, currently only used for TR_HintFailedValidation
             descriptor.type = J9SHR_ATTACHED_DATA_TYPE_JITHINT;
             descriptor.flags = J9SHR_ATTACHED_DATA_NO_FLAGS;
@@ -322,7 +323,7 @@ TR_J9SharedCache::addHint(J9Method * method, TR_SharedCacheHint theHint)
          if (updateHint)
             {
             J9SharedDataDescriptor descriptor;
-            descriptor.address = (U_8*)scHintData;
+            descriptor.address = (U_8 *)(uintptrj_t)scHintData;
             descriptor.length = scHintDataLength; // Size includes the 2nd data field, currently only used for TR_HintFailedValidation
             descriptor.type = J9SHR_ATTACHED_DATA_TYPE_JITHINT;
             descriptor.flags = J9SHR_ATTACHED_DATA_NO_FLAGS;
@@ -419,6 +420,17 @@ TR_J9SharedCache::isPointerInSharedCache(void *ptr, void * & cacheOffset)
       return true;
       }
    return false;
+   }
+
+J9ROMClass *
+TR_J9SharedCache::startingROMClassOfClassChain(UDATA *classChain)
+   {
+   UDATA lengthInBytes = classChain[0];
+   TR_ASSERT_FATAL(lengthInBytes >= 2 * sizeof (UDATA), "class chain is too short!");
+
+   void *romClassOffset = reinterpret_cast<void*>(classChain[1]);
+   void *romClass = pointerFromOffsetInSharedCache(romClassOffset);
+   return static_cast<J9ROMClass*>(romClass);
    }
 
 // convert an offset into a string of 8 characters
@@ -761,4 +773,13 @@ TR_J9SharedCache::lookupClassFromChainAndLoader(uintptrj_t *chainData, void *cla
       return (TR_OpaqueClassBlock *) clazz;
 
    return NULL;
+   }
+
+uintptrj_t
+TR_J9SharedCache::getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(TR_OpaqueClassBlock *clazz)
+   {
+   void *loaderForClazz = _fe->getClassLoader(clazz);
+   void *classChainIdentifyingLoaderForClazz = persistentClassLoaderTable()->lookupClassChainAssociatedWithClassLoader(loaderForClazz);
+   uintptrj_t classChainOffsetInSharedCache = (uintptrj_t) offsetInSharedCacheFromPointer(classChainIdentifyingLoaderForClazz);
+   return classChainOffsetInSharedCache;
    }

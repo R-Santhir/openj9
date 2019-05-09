@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017, 2018 IBM Corp. and others
+# Copyright (c) 2017, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -37,10 +37,12 @@ target_sources(j9vm_gc_glue
 		${CMAKE_CURRENT_SOURCE_DIR}/MarkingDelegate.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/MarkingSchemeRootClearer.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/MarkingSchemeRootMarker.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/MetronomeDelegate.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/MixedObjectModel.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/ObjectModel.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/ObjectModelDelegate.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/ScavengerBackOutScanner.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/ScavengerDelegate.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/ScavengerRootClearer.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/ScavengerRootScanner.cpp
 )
@@ -52,7 +54,6 @@ target_link_libraries(j9vm_gc_glue
 target_include_directories(j9vm_gc_glue
 	INTERFACE
 		${j9vm_SOURCE_DIR}/gc_modron_standard
-		${j9vm_SOURCE_DIR}/gc_staccato
 		${j9vm_SOURCE_DIR}/gc_realtime
 		${j9vm_SOURCE_DIR}/gc_trace
 		${j9vm_SOURCE_DIR}/gc_vlhgc
@@ -74,6 +75,7 @@ target_sources(j9vm_core_glue
 )
 target_link_libraries(j9vm_core_glue
 	INTERFACE
+		j9vm_interface
 		j9vm_gc_includes
 )
 

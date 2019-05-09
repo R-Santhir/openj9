@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,12 +22,12 @@
 
 #include "il/symbol/J9MethodSymbol.hpp"
 
-#include "compile/Compilation.hpp"             // for Compilation, comp
+#include "compile/Compilation.hpp"
 #include "env/TRMemory.hpp"
-#include "il/DataTypes.hpp"                    // for DataTypes, etc
-#include "il/symbol/MethodSymbol.hpp"          // for MethodSymbol, etc
-#include "infra/Assert.hpp"                    // for TR_ASSERT
-#include "runtime/Runtime.hpp"                 // for TR_RuntimeHelper, etc
+#include "il/DataTypes.hpp"
+#include "il/symbol/MethodSymbol.hpp"
+#include "infra/Assert.hpp"
+#include "runtime/J9Runtime.hpp"
 
 /**
  * Return true if this method is pure ie no side-effects.
@@ -128,55 +128,6 @@ J9::MethodSymbol::isPureFunction()
          return false;
       }
    return false;
-   }
-
-TR_RuntimeHelper
-J9::MethodSymbol::getVMCallHelperFor(TR::DataType returnType, bool isSync, bool isNative, TR::Compilation *comp)
-   {
-   if (isNative)
-      return TR_icallVMprJavaSendNativeStatic;
-
-   switch (returnType)
-      {
-      case TR::NoType:
-         return isSync? TR_icallVMprJavaSendStaticSync0 : TR_icallVMprJavaSendStatic0;
-      case TR::Int8:
-      case TR::Int16:
-      case TR::Int32:
-         return isSync? TR_icallVMprJavaSendStaticSync1 : TR_icallVMprJavaSendStatic1;
-      case TR::Address:
-         if (TR::Compiler->target.is64Bit())
-            return isSync? TR_icallVMprJavaSendStaticSyncJ : TR_icallVMprJavaSendStaticJ;
-         else
-            return isSync? TR_icallVMprJavaSendStaticSync1 : TR_icallVMprJavaSendStatic1;
-      case TR::Int64:
-         return isSync? TR_icallVMprJavaSendStaticSyncJ : TR_icallVMprJavaSendStaticJ;
-      case TR::Float:
-         return isSync? TR_icallVMprJavaSendStaticSyncF : TR_icallVMprJavaSendStaticF;
-      case TR::Double:
-         return isSync? TR_icallVMprJavaSendStaticSyncD : TR_icallVMprJavaSendStaticD;
-      default:
-         TR_ASSERT(0, "Unknown return type: %s\n", returnType.toString());
-         return (TR_RuntimeHelper)0;
-      }
-   }
-
-TR_RuntimeHelper
-J9::MethodSymbol::getVMCallHelper()
-   {
-   return self()->getVMCallHelper(TR::comp());
-   }
-
-TR_RuntimeHelper
-J9::MethodSymbol::getVMCallHelper(TR::Compilation *comp)
-   {
-   // Note: Unresolved methods are considered unsynchronized here.  Runtime
-   // resolve helper corrects this if necessary.
-   return self()->getVMCallHelperFor(
-      self()->getMethod()->returnType(), 
-      self()->isSynchronised(),
-      (self()->isVMInternalNative() || self()->isJITInternalNative()),
-      comp);
    }
 
 
@@ -423,9 +374,6 @@ static TR::RecognizedMethod canSkipArrayStoreChecks[] =
    TR::java_util_concurrent_ConcurrentHashMap_tabAt,
    TR::java_util_concurrent_ConcurrentHashMap_casTabAt,
    TR::java_util_concurrent_ConcurrentHashMap_setTabAt,
-   TR::java_util_concurrent_ConcurrentHashMap_tmPut,
-   TR::java_util_concurrent_ConcurrentHashMap_tmRemove,
-   TR::java_util_concurrent_ConcurrentHashMap_tmEnabled,
    TR::java_util_concurrent_ConcurrentHashMap_TreeBin_lockRoot,
    TR::java_util_concurrent_ConcurrentHashMap_TreeBin_contendedLock,
    TR::java_util_concurrent_ConcurrentHashMap_TreeBin_find,

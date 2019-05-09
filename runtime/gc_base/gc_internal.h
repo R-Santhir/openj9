@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -97,9 +96,11 @@ extern J9_CFUNC UDATA j9gc_software_read_barrier_enabled(J9JavaVM *javaVM);
 extern J9_CFUNC void j9gc_objaccess_indexableStoreAddress(J9VMThread *vmThread, J9IndexableObject *destObject, I_32 index, void *value, UDATA isVolatile);
 extern J9_CFUNC void j9gc_objaccess_mixedObjectStoreAddress(J9VMThread *vmThread, j9object_t destObject, UDATA offset, void *value, UDATA isVolatile);
 extern J9_CFUNC void j9gc_objaccess_cloneObject(J9VMThread *vmThread, j9object_t srcObject, j9object_t destObject);
+extern J9_CFUNC void j9gc_objaccess_copyObjectFields(J9VMThread *vmThread, J9Class *valueClass, J9Object *srcObject, UDATA srcOffset, J9Object *destObject, UDATA destOffset);
 extern J9_CFUNC j9object_t j9gc_objaccess_asConstantPoolObject(J9VMThread *vmThread, j9object_t toConvert, UDATA allocationFlags);
 extern J9_CFUNC jvmtiIterationControl j9mm_iterate_heaps(J9JavaVM *vm, J9PortLibrary *portLibrary, UDATA flags, jvmtiIterationControl(*func)(J9JavaVM *vm, struct J9MM_IterateHeapDescriptor *heapDesc, void *userData), void *userData);
 extern J9_CFUNC int gcStartupHeapManagement(J9JavaVM * vm);
+extern J9_CFUNC void j9gc_jvmPhaseChange(J9VMThread *currentThread, UDATA phase);
 extern J9_CFUNC void j9gc_ext_reachable_from_object_do(J9VMThread *vmThread, j9object_t objectPtr, jvmtiIterationControl(*func)(j9object_t *slotPtr, j9object_t sourcePtr, void *userData, IDATA type, IDATA index, IDATA wasReportedBefore), void *userData, UDATA walkFlags);
 extern J9_CFUNC UDATA moveObjectToMemorySpace(J9VMThread *vmThread, void *destinationMemorySpace, j9object_t objectPtr);
 /* TODO: The signature of allocateMemoryForSublistFragment temporarily uses void* instead of OMR_VMThread* since the latter is a class */
@@ -234,7 +235,7 @@ extern J9_CFUNC void j9gc_objaccess_mixedObjectStoreI64(J9VMThread *vmThread, j9
 extern J9_CFUNC J9Object * j9gc_get_memoryController(J9VMThread *vmContext, J9Object *objectPtr);
 extern J9_CFUNC void j9gc_set_memoryController(J9VMThread *vmThread, J9Object* objectPtr, J9Object *memoryController);
 extern J9_CFUNC const char* omrgc_get_version(OMR_VM *omrVM);
-extern J9_CFUNC void j9gc_startGCIfTimeExpired(J9VMThread* vmThread);
+extern J9_CFUNC void j9gc_startGCIfTimeExpired(OMR_VMThread* vmThread);
 extern J9_CFUNC void j9gc_allocation_threshold_changed(J9VMThread* currentThread);
 extern J9_CFUNC void j9gc_set_allocation_threshold(J9VMThread* vmThread, UDATA low, UDATA high);
 extern J9_CFUNC void j9gc_objaccess_recentlyAllocatedObject(J9VMThread *vmThread, J9Object *dstObject);

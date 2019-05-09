@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -57,7 +57,7 @@ extern "C" {
 #include "jvminit.h"
 #include "j9port.h"
 #include "shrinit.h"
-#include "verbose.h"
+#include "verbose_api.h"
 #include "ut_j9shr.h"
 #include "j9shrnls.h"
 #include "j9exelibnls.h"
@@ -211,6 +211,7 @@ J9SharedClassesHelpText J9SHAREDCLASSESHELPTEXT[] = {
 	HELPTEXT_NEWLINE,
 	{OPTION_SILENT, J9NLS_SHRC_SHRINIT_HELPTEXT_SILENT, 0, 0},
 	{OPTION_NONFATAL, J9NLS_SHRC_SHRINIT_HELPTEXT_NONFATAL, 0, 0},
+	{OPTION_FATAL, J9NLS_SHRC_SHRINIT_HELPTEXT_FATAL, 0, 0},
 	{OPTION_NONE, J9NLS_SHRC_SHRINIT_HELPTEXT_NONE2, 0, 0},
 	{OPTION_UTILITIES, J9NLS_SHRC_SHRINIT_HELPTEXT_UTILITIES, 0, 0},
 	HELPTEXT_NEWLINE,
@@ -234,6 +235,7 @@ J9SharedClassesHelpText J9SHAREDCLASSESHELPTEXT[] = {
 #endif
 	{OPTION_CACHERETRANSFORMED, J9NLS_SHRC_SHRINIT_HELPTEXT_CACHERETRANSFORMED, 0, 0},
 	{OPTION_NOBOOTCLASSPATH, J9NLS_SHRC_SHRINIT_HELPTEXT_NOBOOTCLASSPATH_V1, 0, 0},
+	{OPTION_BOOTCLASSESONLY, J9NLS_SHRC_SHRINIT_HELPTEXT_BOOTCLASSESONLY, 0, 0},
 	{OPTION_ENABLE_BCI, J9NLS_SHRC_SHRINIT_HELPTEXT_ENABLE_BCI, 0, 0},
 	{OPTION_DISABLE_BCI, J9NLS_SHRC_SHRINIT_HELPTEXT_DISABLE_BCI, 0, 0},
 	{OPTION_RESTRICT_CLASSPATHS, J9NLS_SHRC_SHRINIT_HELPTEXT_RESTRICT_CLASSPATHS, 0, 0},
@@ -301,6 +303,7 @@ J9SharedClassesOptions J9SHAREDCLASSESOPTIONS[] = {
 	{ OPTION_PRINTORPHANSTATS, PARSE_TYPE_EXACT, RESULT_DO_PRINTORPHANSTATS, 0},
 	{ OPTION_SILENT, PARSE_TYPE_EXACT, RESULT_DO_SET_VERBOSEFLAG, 0},
 	{ OPTION_NONFATAL, PARSE_TYPE_EXACT, RESULT_DO_ADD_RUNTIMEFLAG, J9SHR_RUNTIMEFLAG_ENABLE_NONFATAL},
+	{ OPTION_FATAL, PARSE_TYPE_EXACT, RESULT_DO_REMOVE_RUNTIMEFLAG, J9SHR_RUNTIMEFLAG_ENABLE_NONFATAL},
 	{ OPTION_CONTROLDIR_EQUALS, PARSE_TYPE_STARTSWITH, RESULT_DO_CTRLD_EQUALS, 0},
 	{ OPTION_NOAOT, PARSE_TYPE_EXACT, RESULT_DO_REMOVE_RUNTIMEFLAG, J9SHR_RUNTIMEFLAG_ENABLE_AOT},
 	{ OPTION_NO_JITDATA, PARSE_TYPE_EXACT, RESULT_DO_REMOVE_RUNTIMEFLAG, J9SHR_RUNTIMEFLAG_ENABLE_JITDATA},
@@ -310,6 +313,7 @@ J9SharedClassesOptions J9SHAREDCLASSESOPTIONS[] = {
 	{ OPTION_MPROTECT_EQUALS, PARSE_TYPE_STARTSWITH, RESULT_DO_MPROTECT_EQUALS, 0},
 	{ OPTION_CACHERETRANSFORMED, PARSE_TYPE_EXACT, RESULT_DO_ADD_RUNTIMEFLAG, J9SHR_RUNTIMEFLAG_ENABLE_CACHERETRANSFORMED},
 	{ OPTION_NOBOOTCLASSPATH, PARSE_TYPE_EXACT, RESULT_DO_REMOVE_RUNTIMEFLAG, J9SHR_RUNTIMEFLAG_ENABLE_CACHEBOOTCLASSES},
+	{ OPTION_BOOTCLASSESONLY, PARSE_TYPE_EXACT, RESULT_DO_BOOTCLASSESONLY, J9SHR_RUNTIMEFLAG_ENABLE_CACHE_NON_BOOT_CLASSES},
 	{ OPTION_VERBOSE_DATA, PARSE_TYPE_EXACT, RESULT_DO_ADD_VERBOSEFLAG, J9SHR_VERBOSEFLAG_ENABLE_VERBOSE_DATA},
 	{ OPTION_SINGLEJVM, PARSE_TYPE_EXACT, RESULT_DO_NOTHING, 0},
 	{ OPTION_KEEP, PARSE_TYPE_EXACT, RESULT_DO_NOTHING, 0},
@@ -382,6 +386,8 @@ static IDATA checkIfCacheExists(J9JavaVM* vm, const char* ctrlDirName, char* cac
 static bool isClassFromPatchedModule(J9VMThread* vmThread, J9Module *j9module, U_8* className, UDATA classNameLength, J9ClassLoader* classLoader);
 static J9Module* getModule(J9VMThread* vmThread, U_8* className, UDATA classNameLength, J9ClassLoader* classLoader);
 static bool isFreeDiskSpaceLow(J9JavaVM *vm, U_64* maxsize);
+static char* generateStartupHintsKey(J9JavaVM *vm);
+static void fetchStartupHintsFromSharedCache(J9VMThread* vmThread);
 
 typedef struct J9SharedVerifyStringTable {
 	void *romClassAreaStart;
@@ -858,6 +864,9 @@ parseArgs(J9JavaVM* vm, char* options, U_64* runtimeFlags, UDATA* verboseFlags, 
 		         } else if ((filterLength == sizeof(SUB_OPTION_PRINTSTATS_STALE))
 		       		     && (0 != try_scan(&filter, SUB_OPTION_PRINTSTATS_STALE))) {
 		       		  *printStatsOptions |= PRINTSTATS_SHOW_ALL_STALE;
+		         } else if ((filterLength == sizeof(SUB_OPTION_PRINTSTATS_STARTUPHINT))
+		        		 && (0 != try_scan(&filter, SUB_OPTION_PRINTSTATS_STARTUPHINT))) {
+		        	  *printStatsOptions |= PRINTSTATS_SHOW_STARTUPHINT;
 		         /* -Xshareclasses:printallstats=<private options> For private options, it is default to print details. */
 		         } else if ((filterLength == sizeof(SUB_OPTION_PRINTSTATS_EXTRA))
 		        		 && (0 != try_scan(&filter, SUB_OPTION_PRINTSTATS_EXTRA))) {
@@ -1024,12 +1033,17 @@ parseArgs(J9JavaVM* vm, char* options, U_64* runtimeFlags, UDATA* verboseFlags, 
 				return RESULT_PARSE_FAILED;
 			}
 			break;
+		case RESULT_DO_BOOTCLASSESONLY:
+			*runtimeFlags &= ~J9SHAREDCLASSESOPTIONS[i].flag;
+			*runtimeFlags |= J9SHR_RUNTIMEFLAG_ENABLE_NONFATAL;
+			break;
  		default:
 			return J9SHAREDCLASSESOPTIONS[i].action;
 		}
 	
 		options += (strlen(J9SHAREDCLASSESOPTIONS[i].option)+1);
 	}
+
 
 #if defined(J9ZOS390)
 	/* Persistent shared classes caches not currently available */
@@ -1331,7 +1345,7 @@ hookFindSharedClass(J9HookInterface** hookInterface, UDATA eventNum, void* voidD
 	}
 
 	J9Module* module = eventData->j9module;
-	if ((J2SE_VERSION(vm) >= J2SE_19)
+	if ((J2SE_VERSION(vm) >= J2SE_V11)
 		&& (NULL == module)
 	) {
 		module = getModule(currentThread, (U_8*)eventData->className, realClassNameLength, eventData->classloader);
@@ -1380,7 +1394,7 @@ hookFindSharedClass(J9HookInterface** hookInterface, UDATA eventNum, void* voidD
 	if (!classpath && !infoFound) {
 		UDATA pathEntryCount = eventData->entryCount;
 
-		if (J2SE_VERSION(vm) >= J2SE_19) {
+		if (J2SE_VERSION(vm) >= J2SE_V11) {
 			if (eventData->classloader == vm->systemClassLoader) {
 				isBootLoader = true;
 				pathEntryCount += 1;
@@ -2284,7 +2298,7 @@ reportUtilityNotApplicable(J9JavaVM* vm, const char* ctrlDirName, const char* ca
 
 	IDATA reportedIncompatibleNum = j9shr_report_utility_incompatible(vm, ctrlDirName, groupPerm, verboseFlags, cacheName, optionName);
 
-	if (SH_OSCache::getCacheDir(PORTLIB, ctrlDirName, cacheDirName, J9SH_MAXPATH, versionData.cacheType) == -1) {
+	if (SH_OSCache::getCacheDir(vm, ctrlDirName, cacheDirName, J9SH_MAXPATH, versionData.cacheType) == -1) {
 		return;
 	}
 	if ((reportedIncompatibleNum == 0) && (j9shr_stat_cache(vm, cacheDirName, 0, cacheName, &versionData, OSCACHE_CURRENT_CACHE_GEN))) {
@@ -2317,6 +2331,7 @@ static void j9shr_printStats_dump_help(J9JavaVM* vm, bool moreHelp, bool helpFor
 	SHRINIT_TRACE_NOTAG(1, J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_JITHINT);
 	SHRINIT_TRACE_NOTAG(1, J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_ZIPCACHE);
 	SHRINIT_TRACE_NOTAG(1, J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_STALE);
+	SHRINIT_TRACE_NOTAG(1, J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_STARTUPHINT);
 	j9tty_printf(PORTLIB, "\n");
 	if (moreHelp) {
 		SHRINIT_TRACE_NOTAG(1, J9NLS_SHRC_SHRINIT_HELPTEXT_PRINTSTATS_EXTRA);
@@ -2464,14 +2479,14 @@ performSharedClassesCommandLineAction(J9JavaVM* vm, J9SharedClassConfig* sharedC
 		break;
 
 	case RESULT_DO_PRINT_CACHENAME:
-		if (SH_OSCache::getCacheDir(PORTLIB, sharedClassConfig->ctrlDirName, cacheDirName, J9SH_MAXPATH, cacheType) == -1) {
+		if (SH_OSCache::getCacheDir(vm, sharedClassConfig->ctrlDirName, cacheDirName, J9SH_MAXPATH, cacheType) == -1) {
 			return J9VMDLLMAIN_SILENT_EXIT_VM;
 		}
 		j9shr_print_cache_filename(vm, cacheDirName, runtimeFlags, cacheName);
 		break;
 
 	case RESULT_DO_PRINT_SNAPSHOTNAME:
-		if (-1 == SH_OSCache::getCacheDir(PORTLIB, sharedClassConfig->ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_SNAPSHOT)) {
+		if (-1 == SH_OSCache::getCacheDir(vm, sharedClassConfig->ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_SNAPSHOT)) {
 			return J9VMDLLMAIN_SILENT_EXIT_VM;
 		}
 		j9shr_print_snapshot_filename(vm, cacheDirName, cacheName);
@@ -2708,9 +2723,13 @@ ensureCorrectCacheSizes(J9JavaVM *vm, J9PortLibrary* portlib, U_64 runtimeFlags,
 	bool is64BitPlatDefaultSize = false;
 
 #if defined(J9VM_ENV_DATA64)
-	if (J2SE_VERSION(vm) >= J2SE_19) {
+#if defined(OPENJ9_BUILD)
+	defaultCacheSize = J9_SHARED_CLASS_CACHE_DEFAULT_SIZE_64BIT_PLATFORM;
+#else /* OPENJ9_BUILD */
+	if (J2SE_VERSION(vm) >= J2SE_V11) {
 		defaultCacheSize = J9_SHARED_CLASS_CACHE_DEFAULT_SIZE_64BIT_PLATFORM;
 	}
+#endif /* OPENJ9_BUILD */
 #endif /* J9VM_ENV_DATA64 */
 
 	if (*cacheSize == 0) {
@@ -3070,6 +3089,17 @@ j9shr_init(J9JavaVM *vm, UDATA loadFlags, UDATA* nonfatal)
 	UnitTest::unitTest = UnitTest::NO_TEST;
 	vm->sharedClassConfig = NULL;
 
+	Trc_SHR_INIT_j9shr_init_Entry(currentThread);
+
+	if (FALSE == vm->sharedCacheAPI->xShareClassesPresent) {
+		Trc_SHR_Assert_True(vm->sharedCacheAPI->sharedCacheEnabled);
+		Trc_SHR_Assert_True(J9_ARE_ALL_BITS_SET(runtimeFlags, J9SHR_RUNTIMEFLAG_ENABLE_NONFATAL));
+		Trc_SHR_Assert_True(J9_ARE_ALL_BITS_SET(runtimeFlags, J9SHR_RUNTIMEFLAG_ENABLE_CACHEBOOTCLASSES));
+		Trc_SHR_Assert_True(J9_ARE_NO_BITS_SET(runtimeFlags, J9SHR_RUNTIMEFLAG_ENABLE_CACHE_NON_BOOT_CLASSES));
+		Trc_SHR_Assert_True(0 == vm->sharedCacheAPI->verboseFlags);
+		Trc_SHR_INIT_j9shr_init_BootClassSharingEnabledByDefault(currentThread);
+	}
+
 	if (((0 != (runtimeFlags & J9SHR_RUNTIMEFLAG_CHECK_STRINGTABLE_RESET_READONLY)) ||
 		(0 != (runtimeFlags & J9SHR_RUNTIMEFLAG_CHECK_STRINGTABLE_RESET_READWRITE))) &&
 		(0 == (runtimeFlags & J9SHR_RUNTIMEFLAG_ENABLE_ROUND_TO_PAGE_SIZE)))
@@ -3326,6 +3356,8 @@ j9shr_init(J9JavaVM *vm, UDATA loadFlags, UDATA* nonfatal)
 		config->isBCIEnabled = j9shr_isBCIEnabled;
 		config->freeClasspathData = j9shr_freeClasspathData;
 		config->jvmPhaseChange = j9shr_jvmPhaseChange;
+		config->findGCHints = j9shr_findGCHints;
+		config->storeGCHints = j9shr_storeGCHints;
 		
 		config->sharedAPIObject = initializeSharedAPI(vm);
 		if (config->sharedAPIObject == NULL) {
@@ -3601,6 +3633,7 @@ _error:
 			 */
 			vm->sharedClassConfig->runtimeFlags |= J9SHR_RUNTIMEFLAG_DO_DESTROY_CONFIG;
 			j9shr_sharedClassesFinishInitialization(vm);
+			Trc_SHR_INIT_j9shr_init_ExitOnNonFatal(currentThread);
 		} else {
 			if (vm->sharedClassConfig->sharedAPIObject != NULL) {
 				j9mem_free_memory(vm->sharedClassConfig->sharedAPIObject);
@@ -4139,6 +4172,7 @@ getDefaultRuntimeFlags(void)
 			J9SHR_RUNTIMEFLAG_ENABLE_MPROTECT_PARTIAL_PAGES |
 #endif
 			J9SHR_RUNTIMEFLAG_ENABLE_CACHEBOOTCLASSES |
+			J9SHR_RUNTIMEFLAG_ENABLE_CACHE_NON_BOOT_CLASSES |
 			J9SHR_RUNTIMEFLAG_ENABLE_BYTECODEFIX |
 			J9SHR_RUNTIMEFLAG_ENABLE_AOT |
 			J9SHR_RUNTIMEFLAG_ENABLE_JITDATA |
@@ -4322,9 +4356,9 @@ j9shr_createCacheSnapshot(J9JavaVM* vm, const char* cacheName)
 
 	Trc_SHR_INIT_j9shr_createCacheSnapshot_Entry(cacheName);
 
-	if (-1 == SH_OSCache::getCacheDir(PORTLIB, vm->sharedClassConfig->ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_SNAPSHOT)) {
+	if (-1 == SH_OSCache::getCacheDir(vm, vm->sharedClassConfig->ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_SNAPSHOT)) {
 		Trc_SHR_INIT_j9shr_createCacheSnapshot_getCacheDirFailed();
-		SHRINIT_ERR_TRACE(verboseFlags, J9NLS_SHRC_GETSNAPSHOTDIR_FAILED);
+		/* NLS message has been printed out inside SH_OSCache::getCacheDir() if verbose flag is not 0 */
 		rc = -1;
 	} else {
 		IDATA fd = 0;
@@ -4746,6 +4780,9 @@ j9shr_jvmPhaseChange(J9VMThread *currentThread, UDATA phase)
 	if (J9VM_PHASE_NOT_STARTUP == phase) {
 		J9JavaVM* vm = currentThread->javaVM;
 
+		/* OpenJ9 issue; https://github.com/eclipse/openj9/issues/3743
+		 * GC decides whether to calls vm->sharedClassConfig->storeGCHints() to store the GC hints into the shared cache. */
+		storeStartupHintsToSharedCache(currentThread);
 		if (J9_ARE_NO_BITS_SET(vm->sharedClassConfig->runtimeFlags, J9SHR_RUNTIMEFLAG_MPROTECT_PARTIAL_PAGES_ON_STARTUP)) {
 			((SH_CacheMap*)vm->sharedClassConfig->sharedClassCache)->protectPartiallyFilledPages(currentThread);
 		}
@@ -4769,10 +4806,8 @@ static IDATA
 checkIfCacheExists(J9JavaVM* vm, const char* ctrlDirName, char* cacheDirName, const char* cacheName, J9PortShcVersion* versionData, U_32 cacheType)
 {
 	IDATA ret = -1;
-	PORT_ACCESS_FROM_JAVAVM(vm);
-
-	if (-1 == SH_OSCache::getCacheDir(PORTLIB, ctrlDirName, cacheDirName, J9SH_MAXPATH, cacheType)) {
-		SHRINIT_ERR_TRACE(vm->sharedCacheAPI->verboseFlags, J9NLS_SHRC_SHRINIT_GETCACHEDIR_FAILED);
+	if (-1 == SH_OSCache::getCacheDir(vm, ctrlDirName, cacheDirName, J9SH_MAXPATH, cacheType)) {
+		/* NLS message has been printed out inside SH_OSCache::getCacheDir() if verbose flag is not 0 */
 	} else {
 		setCurrentCacheVersion(vm, J2SE_VERSION(vm), versionData);
 		versionData->cacheType = cacheType;
@@ -4873,7 +4908,8 @@ isFreeDiskSpaceLow(J9JavaVM *vm, U_64* maxsize)
 	bool ret = true;
 	PORT_ACCESS_FROM_JAVAVM(vm);
 
-	if (-1 == SH_OSCache::getCacheDir(PORTLIB, vm->sharedCacheAPI->ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_PERSISTENT)) {
+	if (-1 == j9shr_getCacheDir(vm, vm->sharedCacheAPI->ctrlDirName, cacheDirName, J9SH_MAXPATH, J9PORT_SHR_CACHE_TYPE_PERSISTENT)) {
+		/* use j9shr_getCacheDir() instead of SH_OSCache::getCacheDir() to avoid dupliated NLS message if SH_OSCache::getCacheDir() failed */
 		Trc_SHR_INIT_isFreeDiskSpaceLow_getDirFailed();
 		goto done;
 	}
@@ -4896,6 +4932,216 @@ done:
 		Trc_SHR_INIT_isFreeDiskSpaceLow_SetMaxSize(*maxsize);
 	}
 	return ret;
+}
+
+/**
+ * This function generates a key for the GC hints. The key is a string of all the commandline arguments passed to the current JVM
+ * @param[in] vm The current J9JavaVM
+ *
+ * @return A string of all the commandline arguments, NULL if an error occurs.
+ */
+static char*
+generateStartupHintsKey(J9JavaVM* vm)
+{
+	JavaVMInitArgs *actualArgs = vm->vmArgsArray->actualVMArgs;
+	UDATA keyLength = 0;
+	UDATA extraLen = 0;
+	UDATA i = 0;
+	UDATA nOptions = vm->vmArgsArray->nOptions;
+	char* key = NULL;
+	bool firstOption = true;
+	PORT_ACCESS_FROM_JAVAVM(vm);
+
+	for (i = 0; i < nOptions; ++i) {
+		char* option = actualArgs->options[i].optionString;
+		if ((NULL != option && strlen(option) > 0) 
+			&& (NULL == strstr(option,"-Dsun.java.launcher.pid="))
+		) {
+			keyLength += strlen(actualArgs->options[i].optionString);
+			extraLen += 1;
+		}
+	}
+	if (keyLength == 0) {
+		goto done;
+	}
+	keyLength += extraLen; /* space between options and terminating null char */
+
+	key = (char*)j9mem_allocate_memory(keyLength, J9MEM_CATEGORY_VM);
+	if (NULL == key) {
+		goto done;
+	}
+	memset(key, 0, keyLength);
+	for (i = 0; i < nOptions; ++i) {
+		char* option = actualArgs->options[i].optionString;
+		if ((NULL != option && strlen(option) > 0) 
+			&& (NULL == strstr(option,"sun.java.launcher.pid"))
+		) {
+			if (firstOption) {
+				firstOption = false;
+				j9str_printf(PORTLIB, key, keyLength, "%s%s", key, option);
+			} else {
+				j9str_printf(PORTLIB, key, keyLength, "%s%s%s", key, " ", option);
+			}
+		}
+	}
+done:
+	return key;
+}
+
+
+/**
+ * This function fetches the startup hints from the shared cache and store it locally to vm->sharedClassConfig->localStartupHints.
+ * @param[in] currentThread  The current VM thread
+ *
+ */
+static void
+fetchStartupHintsFromSharedCache(J9VMThread* currentThread)
+{
+	J9JavaVM* vm = currentThread->javaVM;
+
+	if (NULL != vm->sharedClassConfig) {
+		char *key = NULL;
+		if (J9_ARE_ALL_BITS_SET(vm->sharedClassConfig->localStartupHints.localStartupHintFlags, J9SHR_LOCAL_STARTUPHINTS_FLAG_FETCHED)) {
+			/* Already fetched before, directly return */
+			return;
+		}
+		key = generateStartupHintsKey(vm);
+		if (NULL != key) {
+			J9SharedDataDescriptor dataDescriptor = {0};
+			PORT_ACCESS_FROM_JAVAVM(vm);
+			if (0 < j9shr_findSharedData(currentThread, key, strlen(key), J9SHR_DATA_TYPE_STARTUP_HINTS, 0, &dataDescriptor, NULL)) {
+				Trc_SHR_Assert_True(J9SHR_DATA_TYPE_STARTUP_HINTS == dataDescriptor.type);
+				Trc_SHR_Assert_True(sizeof(J9SharedStartupHintsDataDescriptor) == dataDescriptor.length);
+				memcpy(&vm->sharedClassConfig->localStartupHints.hintsData, dataDescriptor.address, sizeof(J9SharedStartupHintsDataDescriptor));
+				vm->sharedClassConfig->localStartupHints.localStartupHintFlags |= J9SHR_LOCAL_STARTUPHINTS_FLAG_FETCHED;
+				Trc_SHR_INIT_fetchStartupHintsFromSharedCache_Hints_Found(currentThread, vm->sharedClassConfig->localStartupHints.hintsData.flags,
+						vm->sharedClassConfig->localStartupHints.hintsData.heapSize1, vm->sharedClassConfig->localStartupHints.hintsData.heapSize2);
+			} else {
+				Trc_SHR_INIT_fetchStartupHintsFromSharedCache_Hints_Not_Found(currentThread);
+			}
+			j9mem_free_memory(key);
+		} else {
+			Trc_SHR_INIT_fetchStartupHintsFromSharedCache_Null_key(currentThread);
+		}
+	}
+}
+
+/**
+ * This function store the local startup hints vm->sharedClassConfig->localStartupHints to the shared cache
+ * @param[in] currentThread  The current VM thread
+ * @return  The location of the cached data or null
+ *
+ */
+const U_8*
+storeStartupHintsToSharedCache(J9VMThread* currentThread)
+{
+	J9JavaVM* vm = currentThread->javaVM;
+	const U_8 *ret = NULL;
+	if (J9_ARE_ANY_BITS_SET(vm->sharedClassConfig->localStartupHints.localStartupHintFlags, J9SHR_LOCAL_STARTUPHINTS_FLAG_WRITE_HINTS)) {
+		J9SharedDataDescriptor dataDescriptor = {0};
+		UDATA flag = J9SHRDATA_SINGLE_STORE_FOR_KEY_TYPE;
+		char* key = generateStartupHintsKey(vm);
+
+		if (NULL != key) {
+			PORT_ACCESS_FROM_JAVAVM(vm);
+			dataDescriptor.address = (U_8*)&vm->sharedClassConfig->localStartupHints.hintsData;
+			dataDescriptor.type = J9SHR_DATA_TYPE_STARTUP_HINTS;
+			dataDescriptor.length = sizeof(J9SharedStartupHintsDataDescriptor);
+			if (J9_ARE_ANY_BITS_SET(vm->sharedClassConfig->localStartupHints.localStartupHintFlags, J9SHR_LOCAL_STARTUPHINTS_FLAG_OVERWRITE_HINTS)) {
+				flag = J9SHRDATA_SINGLE_STORE_FOR_KEY_TYPE_OVERWRITE;
+			}
+			dataDescriptor.flags = flag;
+			Trc_SHR_INIT_storeStartupHintsToSharedCache_Set_Flags(currentThread, flag);
+			ret = j9shr_storeSharedData(currentThread, key, strlen(key), &dataDescriptor);
+			if (NULL == ret) {
+				Trc_SHR_INIT_storeStartupHintsToSharedCache_Store_Failed(currentThread);
+			} else {
+				Trc_SHR_INIT_storeStartupHintsToSharedCache_Store_Successful(currentThread, vm->sharedClassConfig->localStartupHints.hintsData.flags,
+						vm->sharedClassConfig->localStartupHints.hintsData.heapSize1, vm->sharedClassConfig->localStartupHints.hintsData.heapSize2);
+			}
+			j9mem_free_memory(key);
+		} else {
+			Trc_SHR_INIT_storeStartupHintsToSharedCache_Null_key(currentThread);
+		}
+	} else {
+		Trc_SHR_INIT_storeStartupHintsToSharedCache_Store_Nothing(currentThread);
+	}
+	return ret;
+}
+
+/**
+ * Stores the GC hints into vm->sharedClassConfig->localStartupHints.hintsData. This function is not thread safe.
+ * @param[in] vmThread  The current thread
+ * @param[in] heapSize1  The first heap size param that is to be stored into the shared cache
+ * @param[in] heapSize2  The second heap size param that is to be stored into the shared cache
+ * @param[in] forceReplace TRUE Replace the existing GC hints under the same key (the same command line arguments) if there is one already in the shared cache.
+ * 							FALSE Do not replace existing GC hints under the same key.
+ */
+void
+j9shr_storeGCHints(J9VMThread* currentThread, UDATA heapSize1, UDATA heapSize2, BOOLEAN forceReplace)
+{
+	J9JavaVM* vm = currentThread->javaVM;
+	bool heapSizesSet = J9_ARE_ALL_BITS_SET(vm->sharedClassConfig->localStartupHints.hintsData.flags, J9SHR_STARTUPHINTS_HEAPSIZES_SET);
+
+	if (forceReplace || !heapSizesSet) {
+		vm->sharedClassConfig->localStartupHints.hintsData.heapSize1 = heapSize1;
+		vm->sharedClassConfig->localStartupHints.hintsData.heapSize2 = heapSize2;
+		vm->sharedClassConfig->localStartupHints.hintsData.flags |= J9SHR_STARTUPHINTS_HEAPSIZES_SET;
+		if (forceReplace) {
+			vm->sharedClassConfig->localStartupHints.localStartupHintFlags |= J9SHR_LOCAL_STARTUPHINTS_FLAG_OVERWRITE_HEAPSIZES;
+			Trc_SHR_INIT_j9shr_storeGCHints_Overwrite_LocalHints(currentThread, heapSize1, heapSize2);
+		} else {
+			vm->sharedClassConfig->localStartupHints.localStartupHintFlags |= J9SHR_LOCAL_STARTUPHINTS_FLAG_STORE_HEAPSIZES;
+			Trc_SHR_INIT_j9shr_storeGCHints_Write_To_LocalHints(currentThread, heapSize1, heapSize2);
+		}
+	}
+}
+
+
+/**
+ * Find the GC hints from the shared classes cache
+ * @param[in] vmThread  The current thread
+ * @param[out] heapSize1  The first heap size that has been previouly stored
+ * @param[out] heapSize2  The second heap size that has been previouly stored
+ *
+ * @return 0 on success, -1 otherwise.
+ */
+IDATA
+j9shr_findGCHints(J9VMThread* currentThread, UDATA *heapSize1, UDATA *heapSize2)
+{
+	IDATA returnVal = -1;
+	J9JavaVM* vm = currentThread->javaVM;
+
+	fetchStartupHintsFromSharedCache(currentThread);
+	if (J9_ARE_ALL_BITS_SET(vm->sharedClassConfig->localStartupHints.hintsData.flags, J9SHR_STARTUPHINTS_HEAPSIZES_SET)) {
+		if (NULL != heapSize1) {
+			*heapSize1 = vm->sharedClassConfig->localStartupHints.hintsData.heapSize1;
+		}
+		if (NULL != heapSize2) {
+			*heapSize2 = vm->sharedClassConfig->localStartupHints.hintsData.heapSize2;
+		}
+		Trc_SHR_INIT_j9shr_findGCHints_Event_Found(currentThread, vm->sharedClassConfig->localStartupHints.hintsData.heapSize1,
+				vm->sharedClassConfig->localStartupHints.hintsData.heapSize2);
+		returnVal = 0;
+	}
+	return returnVal;
+}
+
+/**
+ * Determine the directory to use for the cache file or control file(s)
+ *
+ * @param [in] vm  A J9JavaVM
+ * @param [in] ctrlDirName  The control dir name
+ * @param [out] buffer  The buffer to write the result into
+ * @param [in] bufferSize  The size of the buffer in bytes
+ * @param [in] cacheType  The Type of cache
+ *
+ * @return 0 on success or -1 for failure
+ */
+IDATA
+j9shr_getCacheDir(J9JavaVM* vm, const char* ctrlDirName, char* buffer, UDATA bufferSize, U_32 cacheType)
+{
+	return SH_OSCache::getCacheDir(vm, ctrlDirName, buffer, bufferSize, cacheType, false);
 }
 
 } /* extern "C" */

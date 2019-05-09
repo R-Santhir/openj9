@@ -33,6 +33,8 @@ final class PtxKernelGenerator {
 	/**
 	 * Generate the PTX code for a collection of sort network kernels.
 	 *
+	 * @param capability the compute capability of the device where the kernel
+	 *     will be used
 	 * @param elementType the type of the elements in the array to be sorted;
 	 *     must be one of 'D', 'F', 'I' or 'J' (the Java encoding of primitive
 	 *     types double, float, int or long, respectively)
@@ -40,10 +42,10 @@ final class PtxKernelGenerator {
 	 * @throws IOException if a problem is encountered writing to the given output
 	 *     stream
 	 */
-	public static void writeTo(char elementType, OutputStream out) throws IOException {
+	public static void writeTo(int capability, char elementType, OutputStream out) throws IOException {
 		PtxKernelGenerator generator = new PtxKernelGenerator(out, elementType);
 
-		generator.generate();
+		generator.generate(capability);
 	}
 
 	/**
@@ -127,8 +129,8 @@ final class PtxKernelGenerator {
 			// need to swap. The 'gtu' comparison is true if the first operand is
 			// larger than the second or if either operand is NaN. By ruling out
 			// the second operand being a NaN, we achieve the desired test.
-			format("testp.number%s p0,vl%d;", typeName, index1);
-			format("setp.gtu.and%s p0,vl%d,vl%d,p0;", typeName, index0, index1);
+			format("testp.number%s p1,vl%d;", typeName, index1);
+			format("setp.gtu.and%s p0,vl%d,vl%d,p1;", typeName, index0, index1);
 
 			// Finally we must order -0.0 before +0.0.
 
@@ -139,11 +141,8 @@ final class PtxKernelGenerator {
 			// compare for floating point equality
 			format("@!p0 setp.eq%s p1,vl%d,vl%d;", typeName, index0, index1);
 
-			// compare as scalars 
-			format("@!p0 setp.gt.and.s%d p1,vs0,vs1,p1;", typeSize * 8);
-
-			// if not originally seen to be out of order, use this result
-			append("@!p0 mov.pred p0,p1;");
+			// compare as scalars, updating the result
+			format("@!p0 setp.gt.and.s%d p0,vs0,vs1,p1;", typeSize * 8);
 		}
 	}
 
@@ -306,9 +305,9 @@ final class PtxKernelGenerator {
 		append("add.u32 globalIndex,baseIndex,workId;");
 
 		// sharedData[workId] = (globalIndex < length) ? data[globalIndex] : maxValue;
-		append("setp.lt.u32 p0,globalIndex,length;");
-		format("mad.wide.u32 dataPtr,globalIndex,%d,data;", typeSize);
 		format("mov%s vl0,%s;", typeName, maxValue);
+		append("setp.lt.u32 p0,globalIndex,length;");
+		format("@p0 mad.wide.u32 dataPtr,globalIndex,%d,data;", typeSize);
 		format("@p0 ld.global%s vl0,[dataPtr];", typeName);
 		format("mad.wide.u32 sharedPtr0,workId,%d,sharedData;", typeSize);
 		format("st.shared%s [sharedPtr0],vl0;", typeName);
@@ -427,9 +426,9 @@ final class PtxKernelGenerator {
 		append("}");
 	}
 
-	private void emitPreamble() throws IOException {
+	private void emitPreamble(int capability) throws IOException {
 		append(".version 3.2");
-		append(".target sm_20");
+		format(".target sm_%d", (capability < 3) ? 20 : 30);
 		append(".address_size 64");
 	}
 
@@ -446,13 +445,13 @@ final class PtxKernelGenerator {
 			// vl[i] = maxValue; if (ix[i] < length) { vl[i] = data[ix[i]]; }
 			format("mov%s vl%d,%s;", typeName, i, maxValue);
 			format("setp.lt.u32 p0,ix%d,length;", i);
-			format("mad.wide.u32 ptr,ix%d,%d,data;", i, typeSize);
+			format("@p0 mad.wide.u32 ptr,ix%d,%d,data;", i, typeSize);
 			format("@p0 ld.global%s vl%d,[ptr];", typeName, i);
 		}
 	}
 
-	private void generate() throws IOException {
-		emitPreamble();
+	private void generate(int capability) throws IOException {
+		emitPreamble(capability);
 
 		final int MaxStepCount = 4;
 
@@ -475,7 +474,7 @@ final class PtxKernelGenerator {
 			// if (moved & (1 << i)) { data[ix[i]] = vl[i]; }
 			format("and.b32 bit,moved,%s;", constant(1 << i));
 			append("setp.ne.b32 p0,bit,0;");
-			format("mad.wide.u32 ptr,ix%d,%d,data;", i, typeSize);
+			format("@p0 mad.wide.u32 ptr,ix%d,%d,data;", i, typeSize);
 			format("@p0 st.global%s [ptr],vl%d;", typeName, i);
 		}
 	}

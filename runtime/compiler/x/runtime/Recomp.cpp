@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -26,7 +26,7 @@
 #include <stdint.h>
 #include "env/jittypes.h"
 #include "runtime/CodeCacheManager.hpp"
-#include "runtime/Runtime.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "x/runtime/X86Runtime.hpp"
 #include "env/VMJ9.h"
 
@@ -198,7 +198,7 @@ void J9::Recompilation::methodHasBeenRecompiled(void *oldStartPC, void *newStart
 #if defined(TR_HOST_X86) && defined(TR_HOST_64BIT)
       if (!IS_32BIT_RIP(helperAddr, (intptrj_t)(startByte+5)))
          {
-         helperAddr = fe->indexedTrampolineLookup(COUNTING_PATCH_CALL_SITE, startByte);
+         helperAddr = TR::CodeCacheManager::instance()->findHelperTrampoline(COUNTING_PATCH_CALL_SITE, startByte);
          }
 #endif
 
@@ -240,7 +240,7 @@ void J9::Recompilation::methodHasBeenRecompiled(void *oldStartPC, void *newStart
 #if defined(TR_HOST_X86) && defined(TR_HOST_64BIT)
       if (!IS_32BIT_RIP(helperAddr, (intptrj_t)(p+4)))
          {
-         helperAddr = fe->indexedTrampolineLookup(SAMPLING_PATCH_CALL_SITE, p);
+         helperAddr = TR::CodeCacheManager::instance()->findHelperTrampoline(SAMPLING_PATCH_CALL_SITE, p);
          }
 #endif
 
@@ -263,7 +263,8 @@ void J9::Recompilation::methodHasBeenRecompiled(void *oldStartPC, void *newStart
       // Now tell the VM that the method has been uncommitted - and the code memory
       // allocated can be reused
       //
-      fe->releaseCodeMemory(oldStartPC, bytesToSaveAtStart);
+      TR_J9VMBase *fej9 = (TR_J9VMBase *)fe;
+      fej9->releaseCodeMemory(oldStartPC, bytesToSaveAtStart);
       }
    }
 

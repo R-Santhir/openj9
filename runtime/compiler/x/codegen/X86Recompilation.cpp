@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -25,6 +25,7 @@
 #include "codegen/CodeGenerator.hpp"
 #include "codegen/Machine.hpp"
 #include "codegen/Linkage.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/Snippet.hpp"
 #include "codegen/PreprologueConst.hpp"
 #include "compile/ResolvedMethod.hpp"
@@ -167,7 +168,7 @@ TR::Instruction *TR_X86Recompilation::generatePrologue(TR::Instruction *cursor)
          if (TR::Compiler->target.is64Bit())
             {
             TR_ASSERT(linkage->getMinimumFirstInstructionSize() <= 10, "Can't satisfy first instruction size constraint");
-            TR::RealRegister *scratchReg = machine->getX86RealRegister(TR::RealRegister::edi);
+            TR::RealRegister *scratchReg = machine->getRealRegister(TR::RealRegister::edi);
             cursor = new (trHeapMemory()) TR::AMD64RegImm64Instruction(cursor, MOV8RegImm64, scratchReg, (uintptrj_t)getCounterAddress(), cg());
             mRef = generateX86MemoryReference(scratchReg, 0, cg());
             }

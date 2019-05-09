@@ -1,6 +1,6 @@
 /*[INCLUDE-IF Sidecar19-SE]*/
 /*******************************************************************************
- * Copyright (c) 2016, 2018 IBM Corp. and others
+ * Copyright (c) 2016, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,11 +22,7 @@
  *******************************************************************************/
 package com.ibm.lang.management.internal;
 
-/*[IF Sidecar19-SE-OpenJ9]*/
 import java.lang.ModuleLayer;
-/*[ELSE]
-import java.lang.reflect.Layer;
-/*[ENDIF]*/
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -100,11 +96,7 @@ public final class PlatformMBeanProvider extends sun.management.spi.PlatformMBea
 		/* OpenJ9DiagnosticsMXBeanImpl depends on openj9.jvm. If openj9.jvm is not
 		 * available exclude this component.
 		 */
-/*[IF Sidecar19-SE-OpenJ9]*/
 		if (ModuleLayer.boot().findModule("openj9.jvm").isPresent()) { //$NON-NLS-1$
-/*[ELSE]
-		if (Layer.boot().findModule("openj9.jvm").isPresent()) { //$NON-NLS-1$
-/*[ENDIF]*/
 			ComponentBuilder.create(OpenJ9DiagnosticsMXBeanImpl.getInstance())
 				.addInterface(OpenJ9DiagnosticsMXBean.class)
 				.register(allComponents);

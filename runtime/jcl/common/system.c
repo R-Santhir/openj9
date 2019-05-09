@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1998, 2018 IBM Corp. and others
+ * Copyright (c) 1998, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -394,63 +394,76 @@ jobject getPropertyList(JNIEnv *env)
  */
 jstring getEncoding(JNIEnv *env, jint encodingType)
 {
-	char* encoding, property[128];
+	char *encoding = NULL;
+	char property[128];
+	jstring result = NULL;
 
-	switch(encodingType) {
-		case 0:		/* initialize the locale */
-			getPlatformFileEncoding(env, NULL, 0, encodingType);
-			return NULL;
+	switch (encodingType) {
+	case 0:		/* initialize the locale */
+		getPlatformFileEncoding(env, NULL, 0, encodingType);
+		break;
 
-		case 1: 		/* platform encoding */
-			encoding = getPlatformFileEncoding(env, property, sizeof(property), encodingType);
-#if defined(J9VM_JCL_SE11)
-			{
-				UDATA handle = 0;
-				PORT_ACCESS_FROM_ENV(env);
-				if (0 == j9sl_open_shared_library("java", &handle, J9PORT_SLOPEN_DECORATE)) {
-					void (*nativeFuncAddrJNU)(JNIEnv *env, const char *str) = NULL;
-					if (0 == j9sl_lookup_name(handle, "InitializeEncoding", (UDATA*) &nativeFuncAddrJNU, "VLL")) {
-						/* invoke JCL native to initialize platform encoding explicitly */
-						nativeFuncAddrJNU(env, encoding);
-					}
+	case 1: 		/* platform encoding */
+#if defined(OSX)
+		encoding = "UTF-8";
+#else
+		encoding = getPlatformFileEncoding(env, property, sizeof(property), encodingType);
+#endif /* defined(OSX) */
+#if JAVA_SPEC_VERSION >= 11
+		{
+			UDATA handle = 0;
+			J9JavaVM * const vm = ((J9VMThread*)env)->javaVM;
+			char dllPath[EsMaxPath];
+			UDATA written = 0;
+			PORT_ACCESS_FROM_ENV(env);
+			/* libjava.[so|dylib] is in the jdk/lib/ directory, one level up from the default/ & compressedrefs/ directories */
+			written = j9str_printf(PORTLIB, dllPath, sizeof(dllPath), "%s/../java", vm->j2seRootDirectory);
+			/* Assert the number of characters written (not including the null) fit within the dllPath buffer */
+			Assert_JCL_true(written < (sizeof(dllPath) - 1));
+			if (0 == j9sl_open_shared_library(dllPath, &handle, J9PORT_SLOPEN_DECORATE)) {
+				void (JNICALL *nativeFuncAddrJNU)(JNIEnv *env, const char *str) = NULL;
+				if (0 == j9sl_lookup_name(handle, "InitializeEncoding", (UDATA*) &nativeFuncAddrJNU, "VLL")) {
+					/* invoke JCL native to initialize platform encoding explicitly */
+					nativeFuncAddrJNU(env, encoding);
 				}
 			}
-#endif /* J9VM_JCL_SE11 */
-			break;
+		}
+#endif /* JAVA_SPEC_VERSION >= 11 */
+		break;
 
-		case 2:		/* file.encoding */
-			if (!(encoding = getDefinedEncoding(env, "-Dfile.encoding=")))
-			{
-				encoding = getPlatformFileEncoding(env, property, sizeof(property), encodingType);
-			}
+	case 2:		/* file.encoding */
+		encoding = getDefinedEncoding(env, "-Dfile.encoding=");
+		if (NULL == encoding) {
+			encoding = getPlatformFileEncoding(env, property, sizeof(property), encodingType);
+		}
 #if defined(J9ZOS390)
-			if (__CSNameType(encoding) == _CSTYPE_ASCII) {
-				__ccsid_t ccsid;
-				ccsid = __toCcsid(encoding);
-				atoe_setFileTaggingCcsid(&ccsid);
-			}       
-#endif
-			break;
+		if (__CSNameType(encoding) == _CSTYPE_ASCII) {
+			__ccsid_t ccsid;
+			ccsid = __toCcsid(encoding);
+			atoe_setFileTaggingCcsid(&ccsid);
+		}
+#endif /* defined(J9ZOS390) */
+		break;
 
-		case 3:		/* os.encoding */
-			if (!(encoding = getDefinedEncoding(env, "-Dos.encoding="))) {
+	case 3:		/* os.encoding */
+		encoding = getDefinedEncoding(env, "-Dos.encoding=");
+		if (NULL == encoding) {
 #if defined(J9ZOS390) || defined(J9ZTPF)
-				encoding = "ISO8859_1";
+			encoding = "ISO8859_1";
 #elif defined(WIN32)
-				encoding = "UTF8";
-#else
-				return NULL;
-#endif
-			 } 
-			break;
+			encoding = "UTF8";
+#endif /* defined(J9ZOS390) || defined(J9ZTPF) */
+		 } 
+		break;
 
-		default:
-			return NULL;
+	default:
+		break;
 	}
-
-	return (*env)->NewStringUTF(env, encoding);
+	if (NULL != encoding) {
+		result = (*env)->NewStringUTF(env, encoding);
+	}
+	return result;
 }
-
 
 static void JNICALL
 systemPropertyIterator(char* key, char* value, void* userData)
@@ -508,7 +521,7 @@ Java_java_lang_System_startSNMPAgent(JNIEnv *env, jclass jlClass)
 		jclass smAClass = NULL;
 		jmethodID startAgent = NULL;
 		
-		if ((J2SE_VERSION(vm) >= J2SE_19) && (J2SE_SHAPE(vm) >= J2SE_SHAPE_B165)) {
+		if (J2SE_VERSION(vm) >= J2SE_V11) {
 			smAClass = (*env)->FindClass(env, "jdk/internal/agent/Agent");
 		} else {
 			smAClass = (*env)->FindClass(env, "sun/management/Agent");

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -199,7 +199,10 @@
    java_lang_String_getChars_charArray,
    java_lang_String_getChars_byteArray,
 
+   java_lang_StringLatin1_indexOf,
+
    java_lang_StringUTF16_getChar,
+   java_lang_StringUTF16_indexOf,
    java_lang_StringUTF16_toBytes,
 
    java_lang_StringBuffer_append,
@@ -307,6 +310,9 @@
    sun_misc_Unsafe_compareAndSwapInt_jlObjectJII_Z,
    sun_misc_Unsafe_compareAndSwapLong_jlObjectJJJ_Z,
    sun_misc_Unsafe_compareAndSwapObject_jlObjectJjlObjectjlObject_Z,
+   sun_misc_Unsafe_compareAndExchangeInt_jlObjectJII_Z,
+   sun_misc_Unsafe_compareAndExchangeLong_jlObjectJJJ_Z,
+   sun_misc_Unsafe_compareAndExchangeObject_jlObjectJjlObjectjlObject_Z,
 
    sun_misc_Unsafe_putBoolean_jlObjectJZ_V,
    sun_misc_Unsafe_putByte_jlObjectJB_V,
@@ -669,6 +675,8 @@
 
    com_ibm_jit_JITHelpers_is32Bit,
    com_ibm_jit_JITHelpers_isArray,
+   com_ibm_jit_JITHelpers_intrinsicIndexOfStringLatin1,
+   com_ibm_jit_JITHelpers_intrinsicIndexOfStringUTF16,
    com_ibm_jit_JITHelpers_intrinsicIndexOfLatin1,
    com_ibm_jit_JITHelpers_intrinsicIndexOfUTF16,
    com_ibm_jit_JITHelpers_getJ9ClassFromObject32,
@@ -905,11 +913,6 @@
    java_util_concurrent_ConcurrentHashMap_casTabAt,
    java_util_concurrent_ConcurrentHashMap_setTabAt,
 
-   // Transactional Memory
-   java_util_concurrent_ConcurrentHashMap_tmPut,
-   java_util_concurrent_ConcurrentHashMap_tmRemove,
-   java_util_concurrent_ConcurrentHashMap_tmEnabled,
-
    java_util_concurrent_ConcurrentHashMap_TreeBin_lockRoot,
    java_util_concurrent_ConcurrentHashMap_TreeBin_contendedLock,
    java_util_concurrent_ConcurrentHashMap_TreeBin_find,
@@ -953,6 +956,10 @@
    java_lang_invoke_FoldHandle_argIndices,
    java_lang_invoke_FoldHandle_argumentsForCombiner,
    java_lang_invoke_FoldHandle_foldPosition,
+   java_lang_invoke_FilterArgumentsWithCombinerHandle_filterPosition,
+   java_lang_invoke_FilterArgumentsWithCombinerHandle_argumentIndices,
+   java_lang_invoke_FilterArgumentsWithCombinerHandle_argumentsForCombiner,
+   java_lang_invoke_FilterArgumentsWithCombinerHandle_numSuffixArgs,
    java_lang_invoke_GuardWithTestHandle_numGuardArgs,
    java_lang_invoke_ILGenMacros_arrayElements,
    java_lang_invoke_ILGenMacros_arrayLength,

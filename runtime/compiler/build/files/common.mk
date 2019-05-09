@@ -1,4 +1,4 @@
-# Copyright (c) 2000, 2018 IBM Corp. and others
+# Copyright (c) 2000, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -52,14 +52,12 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     compiler/optimizer/OSRGuardInsertion.cpp \
     compiler/optimizer/OSRGuardRemoval.cpp \
     compiler/optimizer/ProfileGenerator.cpp \
-    compiler/optimizer/RedundantBCDSignElimination.cpp \
     compiler/optimizer/SequentialStoreSimplifier.cpp \
     compiler/optimizer/SignExtendLoads.cpp \
     compiler/optimizer/SPMDParallelizer.cpp \
     compiler/optimizer/SPMDPreCheck.cpp \
     compiler/optimizer/StringBuilderTransformer.cpp \
     compiler/optimizer/StringPeepholes.cpp \
-    compiler/optimizer/SwitchAnalyzer.cpp \
     compiler/optimizer/UnsafeFastPath.cpp \
     compiler/optimizer/VarHandleTransformer.cpp \
     compiler/optimizer/VPBCDConstraint.cpp \
@@ -90,6 +88,7 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     omr/compiler/codegen/OMRUnresolvedDataSnippet.cpp \
     omr/compiler/codegen/OutOfLineCodeSection.cpp \
     omr/compiler/codegen/PreInstructionSelection.cpp \
+    omr/compiler/codegen/RegisterIterator.cpp \
     omr/compiler/codegen/Relocation.cpp \
     omr/compiler/codegen/ScratchRegisterManager.cpp \
     omr/compiler/codegen/StorageInfo.cpp \
@@ -215,16 +214,14 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     omr/compiler/optimizer/ReachingDefinitions.cpp \
     omr/compiler/optimizer/RedundantAsyncCheckRemoval.cpp \
     omr/compiler/optimizer/RegDepCopyRemoval.cpp \
-    omr/compiler/optimizer/RegisterAnticipatability.cpp \
-    omr/compiler/optimizer/RegisterAvailability.cpp \
     omr/compiler/optimizer/RegisterCandidate.cpp \
     omr/compiler/optimizer/RematTools.cpp \
     omr/compiler/optimizer/ReorderIndexExpr.cpp \
-    omr/compiler/optimizer/ShrinkWrapping.cpp \
     omr/compiler/optimizer/SinkStores.cpp \
     omr/compiler/optimizer/StripMiner.cpp \
     omr/compiler/optimizer/StructuralAnalysis.cpp \
     omr/compiler/optimizer/Structure.cpp \
+    omr/compiler/optimizer/SwitchAnalyzer.cpp \
     omr/compiler/optimizer/TranslateTable.cpp \
     omr/compiler/optimizer/TrivialDeadBlockRemover.cpp \
     omr/compiler/optimizer/UnionBitVectorAnalysis.cpp \
@@ -323,6 +320,7 @@ JIT_PRODUCT_SOURCE_FILES+=\
     compiler/infra/J9Monitor.cpp \
     compiler/infra/J9MonitorTable.cpp \
     compiler/infra/RWMonitor.cpp \
+    compiler/optimizer/BoolArrayStoreTransformer.cpp \
     compiler/optimizer/EstimateCodeSize.cpp \
     compiler/optimizer/InlinerTempForJ9.cpp \
     compiler/optimizer/InterProceduralAnalyzer.cpp \
@@ -358,6 +356,7 @@ JIT_PRODUCT_SOURCE_FILES+=\
     compiler/runtime/Runtime.cpp \
     compiler/runtime/RuntimeAssumptions.cpp \
     compiler/runtime/SignalHandler.c \
+    compiler/runtime/SymbolValidationManager.cpp \
     compiler/runtime/Trampoline.cpp \
     compiler/runtime/ValueProfiler.cpp \
     compiler/runtime/codertinit.cpp \

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -40,10 +40,10 @@
 #include "il/symbol/StaticSymbol.hpp"
 #include "p/codegen/PPCInstruction.hpp"
 #include "p/codegen/PPCRecompilation.hpp"
+#include "runtime/CodeCacheManager.hpp"
 
 uint8_t *TR::PPCForceRecompilationSnippet::emitSnippetBody()
    {
-   TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg()->fe());
    uint8_t             *buffer = cg()->getBinaryBufferCursor();
    TR::SymbolReference  *induceRecompilationSymRef = cg()->symRefTab()->findOrCreateRuntimeHelper(TR_PPCinduceRecompilation, false, false, false);
    intptrj_t startPC = (intptrj_t)((uint8_t*)cg()->getCodeStart());
@@ -51,7 +51,7 @@ uint8_t *TR::PPCForceRecompilationSnippet::emitSnippetBody()
    getSnippetLabel()->setCodeLocation(buffer);
 
    TR::RegisterDependencyConditions *deps = _doneLabel->getInstruction()->getDependencyConditions();
-   TR::RealRegister *startPCReg  = cg()->machine()->getPPCRealRegister(deps->getPostConditions()->getRegisterDependency(0)->getRealRegister());
+   TR::RealRegister *startPCReg  = cg()->machine()->getRealRegister(deps->getPostConditions()->getRegisterDependency(0)->getRealRegister());
 
    TR::InstOpCode opcode;
 
@@ -118,16 +118,16 @@ uint8_t *TR::PPCForceRecompilationSnippet::emitSnippetBody()
       buffer += PPC_INSTRUCTION_LENGTH;
       }
 
-   intptrj_t distance = (intptrj_t)induceRecompilationSymRef->getMethodAddress() - (intptrj_t)buffer;
-   if (!(distance>=BRANCH_BACKWARD_LIMIT && distance<=BRANCH_FORWARD_LIMIT))
+   intptrj_t helperAddress = (intptrj_t)induceRecompilationSymRef->getMethodAddress();
+   if (cg()->directCallRequiresTrampoline(helperAddress, (intptrj_t)buffer))
       {
-      distance = fej9->indexedTrampolineLookup(induceRecompilationSymRef->getReferenceNumber(), (void *)buffer) - (intptrj_t)buffer;
-      TR_ASSERT(distance>=BRANCH_BACKWARD_LIMIT && distance<=BRANCH_FORWARD_LIMIT,
-             "CodeCache is more than 32MB.\n");
+      helperAddress = TR::CodeCacheManager::instance()->findHelperTrampoline(induceRecompilationSymRef->getReferenceNumber(), (void *)buffer);
+      TR_ASSERT_FATAL(TR::Compiler->target.cpu.isTargetWithinIFormBranchRange(helperAddress, (intptrj_t)buffer),
+                      "Helper address is out of range");
       }
 
    // b distance
-   *(int32_t *)buffer = 0x48000000 | (distance & 0x03ffffff);
+   *(int32_t *)buffer = 0x48000000 | ((helperAddress - (intptrj_t)buffer) & 0x03ffffff);
 
    cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(buffer,(uint8_t *)induceRecompilationSymRef,TR_HelperAddress, cg()),
                           __FILE__,
@@ -145,7 +145,7 @@ TR_Debug::print(TR::FILE *pOutFile, TR::PPCForceRecompilationSnippet * snippet)
    uint8_t   *cursor = snippet->getSnippetLabel()->getCodeLocation();
 
    TR::RegisterDependencyConditions *deps = snippet->getDoneLabel()->getInstruction()->getDependencyConditions();
-   TR::RealRegister *startPCReg  = _cg->machine()->getPPCRealRegister(deps->getPostConditions()->getRegisterDependency(0)->getRealRegister());
+   TR::RealRegister *startPCReg  = _cg->machine()->getRealRegister(deps->getPostConditions()->getRegisterDependency(0)->getRealRegister());
 
    printSnippetLabel(pOutFile, snippet->getSnippetLabel(), cursor, "EDO Recompilation Snippet");
 

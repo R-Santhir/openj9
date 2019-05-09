@@ -1,4 +1,4 @@
-# Copyright (c) 2000, 2018 IBM Corp. and others
+# Copyright (c) 2000, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,7 +28,11 @@ SHELL=/bin/sh
 #
 OBJSUFF=.o
 ARSUFF=.a
+ifeq ($(OS),osx)
+SOSUFF=.dylib
+else
 SOSUFF=.so
+endif
 EXESUFF=
 LIBPREFIX=lib
 DEPSUFF=.depend.mk
@@ -69,9 +73,6 @@ ifeq ($(C_COMPILER),clang)
     endif
 endif
 
-# This is the script that's used to generate TRBuildName.cpp
-GENERATE_VERSION_SCRIPT?=$(JIT_SCRIPT_DIR)/generateVersion.pl
-
 # This is the script to preprocess ARM assembly files
 ARMASM_SCRIPT?=$(JIT_SCRIPT_DIR)/armasm2gas.sed
 
@@ -79,7 +80,7 @@ ARMASM_SCRIPT?=$(JIT_SCRIPT_DIR)/armasm2gas.sed
 ZASM_SCRIPT?=$(JIT_SCRIPT_DIR)/s390m4check.pl
 
 #
-# First setup C and C++ compilers. 
+# First setup C and C++ compilers.
 #
 #     Note: "CX" means both C and C++
 #
@@ -101,7 +102,7 @@ CX_FLAGS+=\
     -fomit-frame-pointer \
     -fasynchronous-unwind-tables \
     -Wreturn-type \
-    -fno-dollars-in-identifiers
+    -fno-strict-aliasing
 
 CXX_FLAGS+=\
     -std=c++0x \
@@ -120,12 +121,12 @@ CX_OPTFLAG?=$(CX_DEFAULTOPT)
 CX_FLAGS_PROD+=$(CX_OPTFLAG)
 
 ifeq ($(HOST_ARCH),x)
-    CX_FLAGS+=-mfpmath=sse -msse -msse2 -fno-strict-aliasing -fno-math-errno -fno-rounding-math -fno-trapping-math -fno-signaling-nans
-    
+    CX_FLAGS+=-mfpmath=sse -msse -msse2 -fno-math-errno -fno-trapping-math
+
     ifeq ($(HOST_BITS),32)
         CX_FLAGS+=-m32 -fpic
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         CX_DEFINES+=J9HAMMER
         CX_FLAGS+=-m64 -fPIC
@@ -135,18 +136,18 @@ endif
 ifeq ($(HOST_ARCH),p)
     CX_DEFAULTOPT=-O2
     CX_FLAGS+=-fpic
-    
+
     ifeq ($(HOST_BITS),32)
         CX_DEFINES+=LINUXPPC USING_ANSI
         CX_FLAGS+=-m32
         CX_FLAGS_PROD+=-mcpu=powerpc
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         CX_DEFINES+=LINUXPPC LINUXPPC64 USING_ANSI
         CX_FLAGS_PROD+=-mcpu=powerpc64
     endif
-    
+
     ifdef ENABLE_SIMD_LIB
         CX_DEFINES+=ENABLE_SPMD_SIMD
         CX_FLAGS+=-qaltivec -qarch=pwr7 -qtune=pwr7
@@ -156,19 +157,24 @@ endif
 ifeq ($(HOST_ARCH),z)
     ifeq ($(HOST_BITS),32)
         CX_DEFINES+=J9VM_TIERED_CODE_CACHE MAXMOVE S390 FULL_ANSI
-        CX_FLAGS+=-m31 -fPIC -fno-strict-aliasing -march=$(ARCHLEVEL) -mtune=$(TUNELEVEL) -mzarch
-        CX_FLAGS_DEBUG+=-gdwarf-2
+        CX_FLAGS+=-m31 -fPIC -march=$(ARCHLEVEL) -mtune=$(TUNELEVEL) -mzarch
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         CX_DEFINES+=S390 S39064 FULL_ANSI MAXMOVE J9VM_TIERED_CODE_CACHE
-        CX_FLAGS+=-fPIC -fno-strict-aliasing -march=$(ARCHLEVEL) -mtune=$(TUNELEVEL) -mzarch
+        CX_FLAGS+=-fPIC -march=$(ARCHLEVEL) -mtune=$(TUNELEVEL) -mzarch
     endif
+
+    CX_FLAGS_DEBUG+=-gdwarf-2
 endif
 
 ifeq ($(HOST_ARCH),arm)
     CX_DEFINES+=ARMGNU ARMGNUEABI FIXUP_UNALIGNED HARDHAT
     CX_FLAGS+=-fPIC -mfloat-abi=hard -mfpu=vfp -march=armv6 -marm
+endif
+
+ifeq ($(HOST_ARCH),aarch64)
+    CX_FLAGS+=-fPIC
 endif
 
 ifeq ($(C_COMPILER),clang)
@@ -208,22 +214,12 @@ S_DEFINES_DEBUG+=DEBUG
 S_FLAGS+=--noexecstack
 S_FLAGS_DEBUG+=--gstabs
 
-ifeq ($(HOST_ARCH),x)
-    ifeq ($(HOST_BITS),32)
-        S_FLAGS+=--32
-    endif
-    
-    ifeq ($(HOST_BITS),64)
-        S_FLAGS+=--64
-    endif
-endif
-
 ifeq ($(HOST_ARCH),p)
     S_FLAGS+=-maltivec
     ifeq ($(HOST_BITS),32)
         S_FLAGS+=-a32 -mppc
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         S_FLAGS+=-a64 -mppc64
     endif
@@ -233,7 +229,7 @@ ifeq ($(HOST_ARCH),z)
     ifeq ($(HOST_BITS),32)
         S_FLAGS+=-m31 -mzarch -march=$(ARCHLEVEL)
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         S_FLAGS+=-march=$(ARCHLEVEL) -mzarch
     endif
@@ -256,52 +252,62 @@ endif
 S_DEFINES+=$(S_DEFINES_EXTRA)
 S_FLAGS+=$(S_FLAGS_EXTRA)
 
-#
-# Setup MASM2GAS to preprocess x86 assembly files
-# PASM files are first preprocessed by CPP as well
-#
 ifeq ($(HOST_ARCH),x)
+#
+# Setup NASM
+#
 
-    ASM_SCRIPT=$(JIT_SCRIPT_DIR)/masm2gas.pl
+    NASM_CMD?=nasm
 
-    ASM_INCLUDES=$(PRODUCT_INCLUDES)
+    NASM_DEFINES=\
+        TR_HOST_X86 \
+        TR_TARGET_X86
 
-    ifeq ($(HOST_BITS),64)
-        ASM_FLAGS+=--64
+    ifeq ($(OS),osx)
+        NASM_DEFINES+=\
+            OSX
+    else
+        NASM_DEFINES+=\
+            LINUX
     endif
 
-    ifeq ($(BUILD_CONFIG),debug)
-        ASM_FLAGS+=$(ASM_FLAGS_DEBUG)
+    NASM_INCLUDES=\
+        $(J9SRC)/oti \
+        $(J9SRC)/compiler \
+        $(J9SRC)/compiler/x/runtime
+
+    ifeq ($(HOST_BITS),32)
+        NASM_OBJ_FORMAT=-felf32
+
+        NASM_DEFINES+=\
+            TR_HOST_32BIT \
+            TR_TARGET_32BIT
+
+        NASM_INCLUDES+=\
+            $(J9SRC)/compiler/x/i386/runtime
+    else
+        ifeq ($(OS),osx)
+            NASM_OBJ_FORMAT=-fmacho64
+        else
+            NASM_OBJ_FORMAT=-felf64
+        endif
+
+        NASM_DEFINES+=\
+            TR_HOST_64BIT \
+            TR_TARGET_64BIT
+
+        NASM_INCLUDES+=\
+            $(J9SRC)/compiler/x/amd64/runtime
     endif
 
-    ifeq ($(BUILD_CONFIG),prod)
-        ASM_FLAGS+=$(ASM_FLAGS_PROD)
-    endif
-    
-    ASM_FLAGS+=$(ASM_FLAGS_EXTRA)
-    
-    PASM_CMD=$(CC)
-    
-    PASM_INCLUDES=$(PRODUCT_INCLUDES)
-    PASM_DEFINES+=$(HOST_DEFINES) $(TARGET_DEFINES)
-    
-    ifeq ($(BUILD_CONFIG),debug)
-        PASM_FLAGS+=$(PASM_FLAGS_DEBUG)
-    endif
-
-    ifeq ($(BUILD_CONFIG),prod)
-        PASM_FLAGS+=$(PASM_FLAGS_PROD)
-    endif
-    
-    PASM_FLAGS+=$(PASM_FLAGS_EXTRA)
-endif
+endif # HOST_ARCH == x
 
 #
 # Setup CPP and SED to preprocess PowerPC Assembly Files
-# 
+#
 ifeq ($(HOST_ARCH),p)
     IPP_CMD=$(SED)
-    
+
     ifeq ($(BUILD_CONFIG),debug)
         IPP_FLAGS+=$(IPP_FLAGS_DEBUG)
     endif
@@ -309,15 +315,15 @@ ifeq ($(HOST_ARCH),p)
     ifeq ($(BUILD_CONFIG),prod)
         IPP_FLAGS+=$(IPP_FLAGS_PROD)
     endif
-    
+
     IPP_FLAGS+=$(IPP_FLAGS_EXTRA)
-    
+
     SPP_CMD=$(CC)
-    
+
     SPP_INCLUDES=$(PRODUCT_INCLUDES)
     SPP_DEFINES+=$(CX_DEFINES) $(SPP_DEFINES_EXTRA)
     SPP_FLAGS+=$(CX_FLAGS)
-    
+
     ifeq ($(BUILD_CONFIG),debug)
         SPP_FLAGS+=$(SPP_FLAGS_DEBUG)
     endif
@@ -325,7 +331,7 @@ ifeq ($(HOST_ARCH),p)
     ifeq ($(BUILD_CONFIG),prod)
         SPP_FLAGS+=$(SPP_FLAGS_PROD)
     endif
-    
+
     SPP_FLAGS+=$(SPP_FLAGS_EXTRA)
 endif
 
@@ -336,22 +342,25 @@ ifeq ($(HOST_ARCH),z)
     M4_CMD?=$(M4)
 
     M4_INCLUDES=$(PRODUCT_INCLUDES)
-    
+
     M4_DEFINES+=$(HOST_DEFINES) $(TARGET_DEFINES)
     M4_DEFINES+=J9VM_TIERED_CODE_CACHE
-    
+
     ifeq ($(HOST_BITS),32)
         ifneq (,$(shell grep 'define J9VM_JIT_32BIT_USES64BIT_REGISTERS' $(J9SRC)/include/j9cfg.h))
             M4_DEFINES+=J9VM_JIT_32BIT_USES64BIT_REGISTERS
         endif
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         ifneq (,$(shell grep 'define J9VM_INTERP_COMPRESSED_OBJECT_HEADER' $(J9SRC)/include/j9cfg.h))
             M4_DEFINES+=J9VM_INTERP_COMPRESSED_OBJECT_HEADER
         endif
+        ifneq (,$(shell grep 'define J9VM_GC_COMPRESSED_POINTERS' $(J9SRC)/include/j9cfg.h))
+            M4_DEFINES+=OMR_GC_COMPRESSED_POINTERS
+        endif
     endif
-    
+
     ifeq ($(BUILD_CONFIG),debug)
         M4_DEFINES+=$(M4_DEFINES_DEBUG)
         M4_FLAGS+=$(M4_FLAGS_DEBUG)
@@ -361,7 +370,7 @@ ifeq ($(HOST_ARCH),z)
         M4_DEFINES+=$(M4_DEFINES_PROD)
         M4_FLAGS+=$(M4_FLAGS_PROD)
     endif
-    
+
     M4_DEFINES+=$(M4_DEFINES_EXTRA)
     M4_FLAGS+=$(M4_FLAGS_EXTRA)
 endif
@@ -373,11 +382,11 @@ ifeq ($(HOST_ARCH),arm)
     ARMASM_CMD?=$(SED)
 
     SPP_CMD?=$(CC)
-    
+
     SPP_INCLUDES=$(PRODUCT_INCLUDES)
     SPP_DEFINES+=$(CX_DEFINES)
     SPP_FLAGS+=$(CX_FLAGS)
-    
+
     ifeq ($(BUILD_CONFIG),debug)
         SPP_DEFINES+=$(SPP_DEFINES_DEBUG)
         SPP_FLAGS+=$(SPP_FLAGS_DEBUG)
@@ -387,10 +396,32 @@ ifeq ($(HOST_ARCH),arm)
         SPP_DEFINES+=$(SPP_DEFINES_PROD)
         SPP_FLAGS+=$(SPP_FLAGS_PROD)
     endif
-    
+
     SPP_DEFINES+=$(SPP_DEFINES_EXTRA)
     SPP_FLAGS+=$(SPP_FLAGS_EXTRA)
-endif
+endif # HOST_ARCH == arm
+
+#
+# Setup CPP to preprocess AArch64 Assembly Files
+#
+ifeq ($(HOST_ARCH),aarch64)
+    SPP_CMD=$(CC)
+
+    SPP_INCLUDES=$(PRODUCT_INCLUDES)
+    SPP_DEFINES+=$(CX_DEFINES)
+    SPP_FLAGS+=$(CX_FLAGS)
+
+    ifeq ($(BUILD_CONFIG),debug)
+        SPP_FLAGS+=$(SPP_FLAGS_DEBUG)
+    endif
+
+    ifeq ($(BUILD_CONFIG),prod)
+        SPP_FLAGS+=$(SPP_FLAGS_PROD)
+    endif
+
+    SPP_DEFINES+=$(SPP_DEFINES_EXTRA)
+    SPP_FLAGS+=$(SPP_FLAGS_EXTRA)
+endif # HOST_ARCH == aarch64
 
 #
 # Finally setup the linker
@@ -408,48 +439,47 @@ ifeq ($(HOST_ARCH),x)
         SOLINK_FLAGS+=-m32
         SOLINK_SLINK+=dl m omrsig
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         SOLINK_FLAGS+=-m64
         SOLINK_SLINK+=dl m
     endif
-    
-    SUPPORT_STATIC_LIBCXX = $(shell $(SOLINK_CMD) -static-libstdc++ 2>&1 | grep "unrecognized option" > /dev/null; echo $$?)
-    ifneq ($(SUPPORT_STATIC_LIBCXX),0)
-        SOLINK_FLAGS+=-static-libstdc++
+
+    # Using the linker option -static-libgcc results in an error on OSX. The option -static-libstdc++ is unused. Therefore
+    # these options have been excluded from OSX
+    ifneq ($(OS),osx)
+        SUPPORT_STATIC_LIBCXX = $(shell $(SOLINK_CMD) -static-libstdc++ 2>&1 | grep "unrecognized option" > /dev/null; echo $$?)
+        ifneq ($(SUPPORT_STATIC_LIBCXX),0)
+            SOLINK_FLAGS+=-static-libgcc -static-libstdc++
+        endif
     endif
 endif
 
 ifeq ($(HOST_ARCH),p)
     ifeq ($(HOST_BITS),32)
         SOLINK_FLAGS+=-m32 -fpic
-        SOLINK_SLINK+=stdc++ dl m
+        SOLINK_SLINK+=dl m
     endif
-    
+
     ifeq ($(HOST_BITS),64)
         SOLINK_FLAGS+=-m64 -fpic
-        SOLINK_SLINK+=stdc++ dl m pthread
+        SOLINK_SLINK+=dl m pthread
     endif
-    
+
     SUPPORT_STATIC_LIBCXX = $(shell $(SOLINK_CMD) -static-libstdc++ 2>&1 | grep "unrecognized option" > /dev/null; echo $$?)
     ifneq ($(SUPPORT_STATIC_LIBCXX),0)
-        SOLINK_FLAGS+=-static-libstdc++
+        SOLINK_FLAGS+=-static-libgcc -static-libstdc++
     endif
 endif
 
 ifeq ($(HOST_ARCH),z)
     ifeq ($(HOST_BITS),32)
         SOLINK_FLAGS+=-m31
-        SOLINK_SLINK+=stdc++
     endif
-    
-    ifeq ($(HOST_BITS),64)
-        SOLINK_SLINK+=stdc++
-    endif
-    
+
     SUPPORT_STATIC_LIBCXX = $(shell $(SOLINK_CMD) -static-libstdc++ 2>&1 | grep "unrecognized option" > /dev/null; echo $$?)
     ifneq ($(SUPPORT_STATIC_LIBCXX),0)
-        SOLINK_FLAGS+=-static-libstdc++
+        SOLINK_FLAGS+=-static-libgcc -static-libstdc++
     endif
 endif
 
@@ -474,6 +504,8 @@ ifeq ($(BUILD_CONFIG),debug)
     SOLINK_VERSION_SCRIPT=$(JIT_SCRIPT_DIR)/j9jit.linux.debug.exp
 endif
 
+ifeq ($(OS),linux)
 SOLINK_EXTRA_ARGS+=-Wl,--version-script=$(SOLINK_VERSION_SCRIPT)
+endif
 
 SOLINK_FLAGS+=$(SOLINK_FLAGS_EXTRA)

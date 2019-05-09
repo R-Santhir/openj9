@@ -59,46 +59,8 @@
 #include <poll.h>
 #if defined(LINUX)
 #define IPV6_FLOWINFO_SEND      33
-#define HAS_RTNETLINK 1
 #endif /* defined(LINUX) */
 #endif /* defined(LINUX) || defined(OSX) */
-
-#if defined(HAS_RTNETLINK)
-#include <asm/types.h>
-#include <linux/netlink.h> 
-#include <linux/rtnetlink.h> 
-typedef struct linkReq_struct{
-               struct nlmsghdr 	netlinkHeader;
-               struct ifinfomsg	msg;
-	} linkReq_struct ;
-
-typedef struct addrReq_struct{
-               struct nlmsghdr 	netlinkHeader;
-               struct ifaddrmsg   msg;
-	} addrReq_struct ;
-
-#define NETLINK_DATA_BUFFER_SIZE 4096
-#define NETLINK_READTIMEOUT_SECS 20
-
-typedef struct netlinkContext_struct {
-			int 						netlinkSocketHandle;
-			char 						buffer[NETLINK_DATA_BUFFER_SIZE];
-			struct nlmsghdr*    	netlinkHeader;
-			uint32_t 					remainingLength;
-			uint32_t						done;
-	} netlinkContext_struct;
-
-#else /* HAS_RTNETLINK */
-
-/* need something so that functions still compile */
-typedef struct netlinkContext_struct {
-			int 						netlinkSocketHandle;
-	} netlinkContext_struct;
-
-typedef struct nlmsghdr {
-			int length;
-	} nlmsghdr;
-#endif
 
 #define INVALID_SOCKET (j9socket_t) -1
 
@@ -1857,8 +1819,8 @@ j9sock_getopt_sockaddr(struct J9PortLibrary *portLibrary, j9socket_t socketP, in
 
 	/* if IPv4 the OS returns in_addr, if IPv6, value of interface index is returned */
 	typedef union byte_or_int {
-		uint8_t byte;
-		uint32_t integer;
+		uint8_t byte_val;
+		uint32_t integer_val;
 	} value;
 	value val;
 	socklen_t optlen = sizeof(val);
@@ -1888,13 +1850,13 @@ j9sock_getopt_sockaddr(struct J9PortLibrary *portLibrary, j9socket_t socketP, in
 	if (J9ADDR_FAMILY_AFINET6 == portableFamily) {
 		if (optlen == sizeof(uint8_t)) {
 			/* lookup the address with the interface index */
-			int32_t result = lookupIPv6AddressFromIndex(portLibrary, val.byte, (j9sockaddr_t) sockaddr);
+			int32_t result = lookupIPv6AddressFromIndex(portLibrary, val.byte_val, (j9sockaddr_t) sockaddr);
 			if (0 != result){
 				return result;
 			}
 		} else if (optlen == sizeof(struct in_addr)){
 			/* if optlen is 4, address is IPv4 */
-			sockaddr->sin_addr.s_addr = val.integer;
+			sockaddr->sin_addr.s_addr = val.integer_val;
 		} else {
 			Trc_PRT_sock_j9sock_getopt_sockaddr_address_length_invalid_Exit(portableFamily);
 			return J9PORT_ERROR_SOCKET_OPTARGSINVALID;
@@ -1902,7 +1864,7 @@ j9sock_getopt_sockaddr(struct J9PortLibrary *portLibrary, j9socket_t socketP, in
 	} else if (J9ADDR_FAMILY_AFINET4 == portableFamily) {
 		/* portableFamily is AFINET4 when preferIPv4Stack=true */
 		if (optlen == sizeof(struct in_addr)) {
-			sockaddr->sin_addr.s_addr = val.integer;
+			sockaddr->sin_addr.s_addr = val.integer_val;
 		} else {
 			Trc_PRT_sock_j9sock_getopt_sockaddr_address_length_invalid_Exit(portableFamily);
 			return J9PORT_ERROR_SOCKET_OPTARGSINVALID;

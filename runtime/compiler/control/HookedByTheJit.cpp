@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -30,6 +30,7 @@
 #include "j9cfg.h"
 #include "j9modron.h"
 #include "j9nonbuilder.h"
+#include "j9consts.h"
 #include "mmhook.h"
 #include "mmomrhook.h"
 #include "vmaccess.h"
@@ -840,7 +841,7 @@ void DLTLogic(J9VMThread* vmThread, TR::CompilationInfo *compInfo)
        ((intptrj_t)(walkState.method->constantPool) & J9_STARTPC_JNI_NATIVE) ||
        !J9ROMMETHOD_HAS_BACKWARDS_BRANCHES(romMethod) ||
        TR::CompilationInfo::getJ9MethodVMExtra(walkState.method)==J9_JIT_NEVER_TRANSLATE ||
-       (J9CLASS_FLAGS(J9_CLASS_FROM_METHOD(walkState.method)) & J9_JAVA_CLASS_HOT_SWAPPED_OUT) ||
+       (J9CLASS_FLAGS(J9_CLASS_FROM_METHOD(walkState.method)) & J9AccClassHotSwappedOut) ||
        walkState.bytecodePCOffset<=0)      // FIXME: Deal with loop back on entry later
       {
       dltBlock->methods[idx] = 0;
@@ -891,7 +892,7 @@ void DLTLogic(J9VMThread* vmThread, TR::CompilationInfo *compInfo)
             }
          }
       }
-       
+
    if (doPerformDLT)
       {
       int32_t bcIndex = walkState.bytecodePCOffset;
@@ -1476,6 +1477,7 @@ static void jitHookGlobalGCStart(J9HookInterface * * hookInterface, UDATA eventN
 
    if (jitConfig && jitConfig->runtimeFlags & J9JIT_GC_NOTIFY)
       printf("\n{GGC");
+   jitReclaimMarkedAssumptions(false);
    }
 
 static void jitHookLocalGCStart(J9HookInterface * * hookInterface, UDATA eventNum, void * eventData, void * userData)
@@ -1498,6 +1500,7 @@ static void jitHookLocalGCStart(J9HookInterface * * hookInterface, UDATA eventNu
       printf("\n<jit: enabling stack tracing at gc %d>", jitConfig->gcCount);
       TR::Options::getCmdLineOptions()->setVerboseOption(TR_VerboseGc);
       }
+   jitReclaimMarkedAssumptions(false);
    }
 
 static void jitHookGlobalGCEnd(J9HookInterface * * hookInterface, UDATA eventNum, void * eventData, void * userData)
@@ -2494,7 +2497,7 @@ static void jitHookClassesUnload(J9HookInterface * * hookInterface, UDATA eventN
          // If the romableAotITable field is set to 0, that means this class was not caught
          // by the JIT load hook and has not been loaded.
          //
-         if (J9CLASS_FLAGS(j9clazz) &  J9_JAVA_CLASS_DYING && j9clazz->romableAotITable !=0 )
+         if (J9CLASS_FLAGS(j9clazz) &  J9AccClassDying && j9clazz->romableAotITable !=0 )
             {
             clazz = ((TR_J9VMBase *)fe)->convertClassPtrToClassOffset(j9clazz);
             table->classGotUnloadedPost(fe,clazz); // side-effect: builds the array of visited superclasses
@@ -2977,8 +2980,11 @@ void jitClassesRedefined(J9VMThread * currentThread, UDATA classCount, J9JITRede
          staleMethod = methodList[j].oldMethod;
          freshMethod = methodList[j].newMethod;
          bool isSMP = 1; // conservative
-         reportHookDetail(currentThread, "jitClassesRedefined", "    Notify CHTable on method old=%p fresh=%p", oldMethod, freshMethod);
-         table->methodGotOverridden(fe, compInfo->persistentMemory(), (TR_OpaqueMethodBlock*)freshMethod, (TR_OpaqueMethodBlock*)oldMethod, isSMP);
+         if (table)
+            {
+            reportHookDetail(currentThread, "jitClassesRedefined", "    Notify CHTable on method old=%p fresh=%p", oldMethod, freshMethod);
+            table->methodGotOverridden(fe, compInfo->persistentMemory(), (TR_OpaqueMethodBlock*)freshMethod, (TR_OpaqueMethodBlock*)oldMethod, isSMP);
+            }
          // Step 4 patch modified J9Method
          if (oldMethod && newMethod && rat)
             {
@@ -3016,6 +3022,43 @@ void jitClassesRedefined(J9VMThread * currentThread, UDATA classCount, J9JITRede
       TR::Options::getCmdLineOptions()->setOption(TR_MimicInterpreterFrameShape);
 
    reportHookFinished(currentThread, "jitClassesRedefined");
+   }
+
+void jitFlushCompilationQueue(J9VMThread * currentThread, J9JITFlushCompilationQueueReason reason)
+   {
+   char *buffer = "unknown reason";
+   if (reason == J9FlushCompQueueDataBreakpoint)
+      buffer = "DataBreakpoint";
+   else
+      TR_ASSERT(0, "unexpected use of jitFlushCompilationQueue");
+
+   reportHook(currentThread, "jitFlushCompilationQueue ", buffer);
+
+   J9JITConfig * jitConfig = currentThread->javaVM->jitConfig;
+   TR::CompilationInfo * compInfo = TR::CompilationInfo::get(jitConfig);
+   TR_J9VMBase * fe = TR_J9VMBase::get(jitConfig, currentThread);
+
+   // JIT compilation thread could be running without exclusive access so we need to explicitly stop it
+   if (!TR::Options::getCmdLineOptions()->getOption(TR_DisableNoVMAccess))
+      {
+      TR::MonitorTable::get()->getClassUnloadMonitor()->enter_write();
+      }
+
+   // need to get the compilation lock before updating the queue
+   fe->acquireCompilationLock();
+   compInfo->setAllCompilationsShouldBeInterrupted();
+   reportHookDetail(currentThread, "jitFlushCompilationQueue", "  Invalidate all all compilation requests");
+   fe->invalidateCompilationRequestsForUnloadedMethods(NULL, true);
+   //clean up the trampolines
+   TR::CodeCacheManager::instance()->onFSDDecompile();
+   fe->releaseCompilationLock();
+
+   if (!TR::Options::getCmdLineOptions()->getOption(TR_DisableNoVMAccess))
+      {
+      TR::MonitorTable::get()->getClassUnloadMonitor()->exit_write();
+      }
+
+   reportHookFinished(currentThread, "jitFlushCompilationQueue ", buffer);
    }
 
 #endif // #if (defined(TR_HOST_X86) || defined(TR_HOST_POWER) || defined(TR_HOST_S390))
@@ -3115,7 +3158,7 @@ static void updateOverriddenFlag( J9VMThread *vm , J9Class *cl)
 
    J9ROMClass *ROMCl = cl->romClass;
 
-   if(ROMCl->modifiers & J9_JAVA_INTERFACE  )   //Do nothing if interface
+   if(ROMCl->modifiers &  J9AccInterface )   //Do nothing if interface
       return;
 
    int32_t classDepth = J9CLASS_DEPTH(cl) - 1;
@@ -3475,7 +3518,7 @@ static bool updateCHTable(J9VMThread * vmThread, J9Class  * cl)
    if (classDepth >= 0)
       {
       J9Class * superCl = cl->superclasses[classDepth];
-      superCl->classDepthAndFlags |= J9_JAVA_CLASS_HAS_BEEN_OVERRIDDEN;
+      superCl->classDepthAndFlags |= J9AccClassHasBeenOverridden;
 
       TR_OpaqueClassBlock *superClazz = ((TR_J9VMBase *)vm)->convertClassPtrToClassOffset(superCl);
       if (p)
@@ -3493,7 +3536,7 @@ static bool updateCHTable(J9VMThread * vmThread, J9Class  * cl)
          superCl = iTableEntry->interfaceClass;
          if (superCl != cl)
             {
-            superCl->classDepthAndFlags |= J9_JAVA_CLASS_HAS_BEEN_OVERRIDDEN;
+            superCl->classDepthAndFlags |= J9AccClassHasBeenOverridden;
             superClazz = ((TR_J9VMBase *)vm)->convertClassPtrToClassOffset(superCl);
             if (p)
                {
@@ -3963,7 +4006,7 @@ static void jitHookClassLoad(J9HookInterface * * hookInterface, UDATA eventNum, 
    // ALI 20031015: I think I have fixed the above todo - we should never
    // get an inconsistent state now.  The following should be unnecessary -
    // verify and remove  FIXME
-   cl->classDepthAndFlags &= ~J9_JAVA_CLASS_HAS_BEEN_OVERRIDDEN;
+   cl->classDepthAndFlags &= ~J9AccClassHasBeenOverridden;
 
    J9ClassLoader *classLoader = cl->classLoader;
 
@@ -4441,107 +4484,6 @@ static void jitHookAboutToRunMain(J9HookInterface * * hook, UDATA eventNum, void
       compileClasses(vmThread, "");
    }
 
-static void dumpStats(J9JITConfig * jitConfig)
-   {
-#ifdef DEBUG
-   UDATA gcOverhead = 0, atlasOverhead = 0, debugOverhead = 0;
-
-   /* Avoid the divide by zero case */
-   if (jitConfig->totalCodeBytesUsed)
-      {
-      gcOverhead = (UDATA)
-         (((SYS_FLOAT) jitConfig->totalGCDataBytesUsed / (SYS_FLOAT) jitConfig->totalCodeBytesUsed) * 100.0);
-      atlasOverhead = (UDATA)
-         (((SYS_FLOAT) jitConfig->totalAtlasDataBytesUsed / (SYS_FLOAT) jitConfig->totalCodeBytesUsed) * 100.0);
-      debugOverhead = (UDATA)
-         (((SYS_FLOAT) jitConfig->totalDebugDataBytesUsed / (SYS_FLOAT) jitConfig->totalCodeBytesUsed) * 100.0);
-      }
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"JIT Statistics:");
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d methods translated", jitConfig->totalMethodsTranslated);
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d methods NOT translated", jitConfig->totalMethodsNotTranslated);
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d code bytes", jitConfig->totalCodeBytesUsed);
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d gcMap bytes (~%3d%% of code size)", jitConfig->totalGCDataBytesUsed,
-                (UDATA) gcOverhead);
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d atlas bytes (~%3d%% of code size)", jitConfig->totalAtlasDataBytesUsed,
-                (UDATA) atlasOverhead);
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d debug bytes (~%3d%% of code size)", jitConfig->totalDebugDataBytesUsed,
-                (UDATA) debugOverhead);
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %9d code + data bytes",
-                (jitConfig->totalCodeBytesUsed + jitConfig->totalGCDataBytesUsed +
-                 jitConfig->totalAtlasDataBytesUsed + jitConfig->totalDebugDataBytesUsed));
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"");
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  Unresolved References:");
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d classes            (~%3d%%)", jitConfig->unresolvedClassRefs,
-                jitConfig->totalClassRefs,
-                (jitConfig->totalClassRefs ?
-                 (UDATA) (((SYS_FLOAT) jitConfig->unresolvedClassRefs / (SYS_FLOAT) jitConfig->totalClassRefs) *
-                          100.0) : 0));
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d static methods     (~%3d%%)",
-                jitConfig->unresolvedStaticMethodRefs, jitConfig->totalStaticMethodRefs,
-                (jitConfig->totalStaticMethodRefs ? (UDATA) (
-                                                             ((SYS_FLOAT) jitConfig->unresolvedStaticMethodRefs /
-                                                              (SYS_FLOAT) jitConfig->totalStaticMethodRefs) *
-                                                             100.0) : 0));
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d special methods    (~%3d%%)", jitConfig->unresolvedSpecialMethodRefs,
-                jitConfig->totalSpecialMethodRefs,
-                (jitConfig->totalSpecialMethodRefs ?
-                 (UDATA) (
-                          ((SYS_FLOAT) jitConfig->unresolvedSpecialMethodRefs /
-                           (SYS_FLOAT) jitConfig->totalSpecialMethodRefs) * 100.0) : 0));
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d interface methods  (~%3d%%)", jitConfig->unresolvedInterfaceMethodRefs,
-                jitConfig->totalInterfaceMethodRefs,
-                (jitConfig->totalInterfaceMethodRefs ?
-                 (UDATA) (
-                          ((SYS_FLOAT) jitConfig->unresolvedInterfaceMethodRefs /
-                           (SYS_FLOAT) jitConfig->totalInterfaceMethodRefs) * 100.0) : 0));
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d virtual methods    (~%3d%%)", jitConfig->unresolvedVirtualMethodRefs,
-                jitConfig->totalVirtualMethodRefs,
-                (jitConfig->totalVirtualMethodRefs ?
-                 (UDATA) (
-                          ((SYS_FLOAT) jitConfig->unresolvedVirtualMethodRefs /
-                           (SYS_FLOAT) jitConfig->totalVirtualMethodRefs) * 100.0) : 0));
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d static variables   (~%3d%%)", jitConfig->unresolvedStaticVariableRefs,
-                jitConfig->totalStaticVariableRefs,
-                (jitConfig->totalStaticVariableRefs ?
-                 (UDATA) (
-                          ((SYS_FLOAT) jitConfig->unresolvedStaticVariableRefs /
-                           (SYS_FLOAT) jitConfig->totalStaticVariableRefs) * 100.0) : 0));
-
-   TR_VerboseLog::writeLine(TR_Vlog_INFO,"  %6d of %6d instance variables (~%3d%%)", jitConfig->unresolvedInstanceFieldRefs,
-                jitConfig->totalInstanceFieldRefs,
-                (jitConfig->totalInstanceFieldRefs ?
-                 (UDATA) (
-                          ((SYS_FLOAT) jitConfig->unresolvedInstanceFieldRefs /
-                           (SYS_FLOAT) jitConfig->totalInstanceFieldRefs) * 100.0) : 0));
-
-#if defined(DEBUG) && defined(TR_HOST_X86) && defined(TR_TARGET_X86) && defined(TR_TARGET_32BIT)
-   extern uint32_t totalMonEnters;
-   extern uint32_t totalNestedMonEnters;
-   extern uint32_t totalUncontendedMonEnters;
-   if (debug("monenterstats"))
-      {
-      TR_VerboseLog::writeLine(TR_Vlog_INFO,"");
-      TR_VerboseLog::writeLine(TR_Vlog_INFO,"Total number of monenters executed inline = %d", totalMonEnters);
-      TR_VerboseLog::writeLine(TR_Vlog_INFO,"Total number of nested monenters executed inline = %d", totalNestedMonEnters);
-      TR_VerboseLog::writeLine(TR_Vlog_INFO,"Total number of uncontended monenters executed inline = %d", totalUncontendedMonEnters);
-      TR_VerboseLog::writeLine(TR_Vlog_INFO,"Total number of contended monenters executed out of line = %d", totalMonEnters - totalNestedMonEnters - totalUncontendedMonEnters);
-      }
-#endif
-
-   if (debug ("spillStats"))
-      {
-      TR_FrontEnd * vm = TR_J9VMBase::get(jitConfig, 0);
-      TR::CodeGenerator::dumpSpillStats(vm);
-      }
-
-#endif
-   }
 
 #if defined(J9VM_INTERP_PROFILING_BYTECODES)
 // Below, options and jitConfig are guaranteed to be not null
@@ -4723,10 +4665,6 @@ void JitShutdown(J9JITConfig * jitConfig)
 
    if (!vm->isAOT_DEPRECATED_DO_NOT_USE())
       stopSamplingThread(jitConfig);
-
-   if (jitConfig->runtimeFlags & J9JIT_DUMP_STATS)
-      dumpStats(jitConfig);
-
 
    TR_DebuggingCounters::report();
    accumulateAndPrintDebugCounters(jitConfig);
@@ -5166,7 +5104,7 @@ static void jitStateLogic(J9JITConfig * jitConfig, TR::CompilationInfo * compInf
       }
 #endif // defined(J9VM_INTERP_PROFILING_BYTECODES)
 
-   if (TR::Options::getCmdLineOptions()->getOption(TR_UseIdleTime) && 
+   if (TR::Options::getCmdLineOptions()->getOption(TR_UseIdleTime) &&
        TR::Options::getCmdLineOptions()->getOption(TR_EarlyLPQ))
       {
       if (!compInfo->getLowPriorityCompQueue().isTrackingEnabled() && timeToAllocateTrackingHT == 0xffffffffffffffff)
@@ -5383,6 +5321,9 @@ static void jitStateLogic(J9JITConfig * jitConfig, TR::CompilationInfo * compInf
 
       if (newState == IDLE_STATE)
          {
+         static char *disableIdleRATCleanup = feGetEnv("TR_disableIdleRATCleanup");
+         if (disableIdleRATCleanup == NULL)
+            persistentInfo->getRuntimeAssumptionTable()->reclaimMarkedAssumptionsFromRAT(-1);
          }
 
       // Logic related to IdleCPU exploitation
@@ -5465,7 +5406,7 @@ static void jitStateLogic(J9JITConfig * jitConfig, TR::CompilationInfo * compInf
    if (crtElapsedTime >= timeToAllocateTrackingHT)
       {
       compInfo->getLowPriorityCompQueue().startTrackingIProfiledCalls(TR::Options::_numIProfiledCallsToTriggerLowPriComp);
-      timeToAllocateTrackingHT = 0xfffffffffffffff0; // never again 
+      timeToAllocateTrackingHT = 0xfffffffffffffff0; // never again
       }
 
    // Reset stats for next interval
@@ -5681,6 +5622,7 @@ static void classLoadPhaseLogic(J9JITConfig * jitConfig, TR::CompilationInfo * c
                 !TR::Options::getCmdLineOptions()->getOption(TR_DisableSelectiveNoOptServer))
                {
                TR::Options::getCmdLineOptions()->setOption(TR_DisableSelectiveNoOptServer); // Turn this feature off
+               TR::Options::getAOTCmdLineOptions()->setOption(TR_DisableSelectiveNoOptServer); // Turn this feature off
                if (TR::Options::getCmdLineOptions()->getVerboseOption(TR_VerbosePerformance))
                   TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "t=%u selectiveNoOptServer feature turned off", crtElapsedTime);
                }
@@ -6219,7 +6161,11 @@ static int32_t J9THREAD_PROC samplerThreadProc(void * entryarg)
       j9str_ftime(timestamp, sizeof(timestamp), "%b %d %H:%M:%S %Y", persistentInfo->getStartTime());
       TR_VerboseLog::vlogAcquire();
       TR_VerboseLog::writeLine(TR_Vlog_INFO, "StartTime: %s", timestamp);
-      TR_VerboseLog::writeLine(TR_Vlog_INFO, "Free Physical Memory: %lld KB", compInfo->computeFreePhysicalMemory(incomplete) >> 10);
+      uint64_t phMemAvail = compInfo->computeAndCacheFreePhysicalMemory(incomplete);
+      if (phMemAvail != OMRPORT_MEMINFO_NOT_AVAILABLE)
+         TR_VerboseLog::writeLine(TR_Vlog_INFO, "Free Physical Memory: %lld MB %s", phMemAvail >> 20, incomplete?"estimated":"");
+      else
+         TR_VerboseLog::writeLine(TR_Vlog_INFO, "Free Physical Memory: Unavailable");
 #if defined(J9VM_OPT_SHARED_CLASSES) && defined(J9VM_INTERP_AOT_RUNTIME_SUPPORT)
       // When we read the SCC data we set isWarmSCC either to Yes or No. Otherwise it remains in maybe state.
       J9SharedClassJavacoreDataDescriptor* javacoreData = compInfo->getAddrOfJavacoreData();
@@ -6481,9 +6427,14 @@ static int32_t J9THREAD_PROC samplerThreadProc(void * entryarg)
                bool incomplete;
                TR_PersistentMemory *persistentMemory = compInfo->persistentMemory();
                TR_VerboseLog::vlogAcquire();
-               TR_VerboseLog::writeLine(TR_Vlog_MEMORY,"Free Physical Memory: %lld KB", compInfo->computeFreePhysicalMemory(incomplete) >> 10);
-               TR_VerboseLog::writeLine(TR_Vlog_MEMORY,"t=%6u JIT memory usage", (uint32_t)crtTime);
-               TR_VerboseLog::writeLine(TR_Vlog_MEMORY, "FIXME: Report JIT memory usage\n");
+               uint64_t phMemAvail = compInfo->computeAndCacheFreePhysicalMemory(incomplete);
+               if (phMemAvail != OMRPORT_MEMINFO_NOT_AVAILABLE)
+                  TR_VerboseLog::writeLine(TR_Vlog_INFO, "Free Physical Memory: %lld MB %s", phMemAvail >> 20, incomplete ? "estimated" : "");
+               else
+                  TR_VerboseLog::writeLine(TR_Vlog_INFO, "Free Physical Memory: Unavailable");
+
+               //TR_VerboseLog::writeLine(TR_Vlog_MEMORY,"t=%6u JIT memory usage", (uint32_t)crtTime);
+               //TR_VerboseLog::writeLine(TR_Vlog_MEMORY, "FIXME: Report JIT memory usage\n");
                // Show stats on assumptions
                // assumptionTableMutex is not used, so the numbers may be a little off
                TR_VerboseLog::writeLine(TR_Vlog_MEMORY,"\tStats on assumptions:");
@@ -6841,7 +6792,7 @@ static void jitHookReleaseCodeGlobalGCEnd(J9HookInterface **hook, UDATA eventNum
    MM_GlobalGCEndEvent *event = (MM_GlobalGCEndEvent *)eventData;
    J9VMThread  *vmThread  = (J9VMThread*)event->currentThread->_language_vmthread;
    jitReleaseCodeStackWalk(vmThread->omrVMThread);
-   jitReclaimMarkedAssumptions();
+   jitReclaimMarkedAssumptions(true);
    }
 
 static void jitHookReleaseCodeGCCycleEnd(J9HookInterface **hook, UDATA eventNum, void *eventData, void *userData)
@@ -6853,14 +6804,14 @@ static void jitHookReleaseCodeGCCycleEnd(J9HookInterface **hook, UDATA eventNum,
       condYield = event->condYieldFromGCFunction;
 
    jitReleaseCodeStackWalk(omrVMThread,condYield);
-   jitReclaimMarkedAssumptions();
+   jitReclaimMarkedAssumptions(true);
    }
 
 static void jitHookReleaseCodeLocalGCEnd(J9HookInterface **hook, UDATA eventNum, void *eventData, void *userData)
    {
    MM_LocalGCEndEvent *event = (MM_LocalGCEndEvent *)eventData;
    jitReleaseCodeStackWalk(event->currentThread);
-   jitReclaimMarkedAssumptions();
+   jitReclaimMarkedAssumptions(true);
    }
 
 

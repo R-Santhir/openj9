@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,11 +23,11 @@
 #ifndef TR_PERSISTENTCHTABLE_INCL
 #define TR_PERSISTENTCHTABLE_INCL
 
-#include <stdint.h>                      // for int32_t, uint8_t
-#include "compile/CompilationTypes.hpp"  // for TR_Hotness
-#include "env/TRMemory.hpp"              // for TR_Memory, etc
-#include "il/DataTypes.hpp"              // for TR_YesNoMaybe
-#include "infra/Link.hpp"                // for TR_LinkHead
+#include <stdint.h>
+#include "compile/CompilationTypes.hpp"
+#include "env/TRMemory.hpp"
+#include "il/DataTypes.hpp"
+#include "infra/Link.hpp"
 
 #define CLASSHASHTABLE_SIZE  (4001) // close to 8000 classes will be loaded in WebSphere
 
@@ -50,7 +50,7 @@ class TR_PersistentCHTable
 
    TR_PersistentClassInfo * findClassInfo(TR_OpaqueClassBlock * classId);
 
-   TR_PersistentClassInfo * findClassInfoAfterLocking(TR_OpaqueClassBlock * classId, TR::Compilation *, bool returnClassInfoForAOT = false);
+   TR_PersistentClassInfo * findClassInfoAfterLocking(TR_OpaqueClassBlock * classId, TR::Compilation *, bool returnClassInfoForAOT = false, bool validate = true);
    TR_PersistentClassInfo * findClassInfoAfterLocking(TR_OpaqueClassBlock * classId, TR_FrontEnd *, bool returnClassInfoForAOT = false);
 
    void dumpMethodCounts(TR_FrontEnd *fe, TR_Memory &trMemory);         // A routine to dump initial method compilation counts
@@ -58,15 +58,15 @@ class TR_PersistentCHTable
    void commitSideEffectGuards(TR::Compilation *c);
    bool isOverriddenInThisHierarchy(TR_ResolvedMethod *, TR_OpaqueClassBlock *, int32_t, TR::Compilation *comp, bool locked = false);
 
-   TR_ResolvedMethod * findSingleInterfaceImplementer(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *, TR::Compilation *, bool locked = false);
-   TR_ResolvedMethod * findSingleAbstractImplementer(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *, TR::Compilation *, bool locked = false);
+   TR_ResolvedMethod * findSingleInterfaceImplementer(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *, TR::Compilation *, bool locked = false, bool validate = true);
+   TR_ResolvedMethod * findSingleAbstractImplementer(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *, TR::Compilation *, bool locked = false, bool validate = true);
 
    // profiler
    bool isKnownToHaveMoreThanTwoInterfaceImplementers(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *, TR::Compilation *, bool locked = false);
 
    // optimizer
-   TR_OpaqueClassBlock *findSingleConcreteSubClass(TR_OpaqueClassBlock *, TR::Compilation *);
-   TR_ResolvedMethod * findSingleImplementer(TR_OpaqueClassBlock * thisClass, int32_t cpIndexOrVftSlot, TR_ResolvedMethod * callerMethod, TR::Compilation * comp, bool locked, TR_YesNoMaybe useGetResolvedInterfaceMethod);
+   TR_OpaqueClassBlock *findSingleConcreteSubClass(TR_OpaqueClassBlock *, TR::Compilation *, bool validate = true);
+   TR_ResolvedMethod * findSingleImplementer(TR_OpaqueClassBlock * thisClass, int32_t cpIndexOrVftSlot, TR_ResolvedMethod * callerMethod, TR::Compilation * comp, bool locked, TR_YesNoMaybe useGetResolvedInterfaceMethod, bool validate = true);
 
    bool hasThreeOrMoreCompiledImplementors(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *, TR::Compilation *, TR_Hotness hotness = warm, bool locked = false);
    int32_t findnInterfaceImplementers(TR_OpaqueClassBlock *, int32_t, TR_ResolvedMethod *implArray[], int32_t, TR_ResolvedMethod *, TR::Compilation *, bool locked = false);
@@ -89,7 +89,7 @@ class TR_PersistentCHTable
 #endif
 
    protected:
-   void removeAssumptionFromList(OMR::RuntimeAssumption **list, OMR::RuntimeAssumption *assumption, OMR::RuntimeAssumption *prev);
+   void removeAssumptionFromRAT(OMR::RuntimeAssumption *assumption);
 
    private:
    uint8_t _buffer[sizeof(TR_LinkHead<TR_PersistentClassInfo>) * (CLASSHASHTABLE_SIZE + 1)];

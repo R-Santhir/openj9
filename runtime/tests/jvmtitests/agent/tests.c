@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -61,7 +61,9 @@ static jvmtiTest jvmtiTestList[] =
 	{ "gaste001", gaste001, "com.ibm.jvmti.tests.getAllStackTracesExtended.gaste001", "GetAllStackTracesExtended" },
 	{ "gtlste001", gtlste001, "com.ibm.jvmti.tests.getThreadListStackTracesExtended.gtlste001", "GetThreadListStackTracesExtended" },
 	{ "gomsdi001", gomsdi001, "com.ibm.jvmti.tests.getOwnedMonitorStackDepthInfo.gomsdi001", "GetOwnedMonitorStackDepthInfo" },
+	{ "gomsdi002", gomsdi002, "com.ibm.jvmti.tests.getOwnedMonitorStackDepthInfo.gomsdi002", "GetOwnedMonitorStackDepthInfo" },
 	{ "gomi001", gomi001, "com.ibm.jvmti.tests.getOwnedMonitorInfo.gomi001", "GetOwnedMonitorInfo" },
+	{ "gomi002", gomi002, "com.ibm.jvmti.tests.getOwnedMonitorInfo.gomi002", "GetOwnedMonitorInfo" },
 	{ "abcl001", abcl001, "com.ibm.jvmti.tests.addToBootstrapClassLoaderSearch.abcl001", "AddToBootstrapClassLoaderSearch during OnLoad" },
 	{ "abcl002", abcl002, "com.ibm.jvmti.tests.addToBootstrapClassLoaderSearch.abcl002", "AddToBootstrapClassLoaderSearch during live" },
 	{ "abcl003", abcl003, "com.ibm.jvmti.tests.addToBootstrapClassLoaderSearch.abcl003", "AddToBootstrapClassLoaderSearch reject bad jar during live" },
@@ -123,9 +125,15 @@ static jvmtiTest jvmtiTestList[] =
 	{ "rnwr001",   rnwr001,   "com.ibm.jvmti.tests.registerNativesWithRetransformation.rnwr001", "Test RegisterNatives JNI API in FSD" },
 	{ "aln001",    aln001,    "com.ibm.jvmti.tests.agentLibraryNatives.aln001",               "Test natives in agent libraries" },
 	{ "rbc001",   rbc001,   "com.ibm.jvmti.tests.redefineBreakpointCombo.rbc001", "Test Redefine-breakpoint combination"},
+#if JAVA_SPEC_VERSION >= 9
 	{ "mt001",   mt001,   "com.ibm.jvmti.tests.modularityTests.mt001", "Test Modularity functions"},
+#endif /* JAVA_SPEC_VERSION >= 9 */
 	{ "nmr001",     nmr001,    "com.ibm.jvmti.tests.nestMatesRedefinition.nmr001", "Test nestmates redefinition"},
 	{ "snmp001",     snmp001,    "com.ibm.jvmti.tests.setNativeMethodPrefix.snmp001", "Tests setting a native method prefix and disposing a subsequent environment"},
+#if JAVA_SPEC_VERSION >= 11	
+	{ "soae001", soae001, "com.ibm.jvmti.tests.samplingObjectAllocation.soae001", "Test JEP331 low-overhead sampling heap object allocation" },
+#endif /* JAVA_SPEC_VERSION >= 11 */
+	{ "gsp001", gsp001, "com.ibm.jvmti.tests.getSystemProperty.gsp001", "Ensure JVMTI GetSystemProperty can retrieve certain system properties at early phrase" },
 	{ NULL, NULL, NULL, NULL }
 };
 

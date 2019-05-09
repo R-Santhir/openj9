@@ -1,8 +1,6 @@
 /*[INCLUDE-IF Sidecar17]*/
-package java.lang;
-
 /*******************************************************************************
- * Copyright (c) 2007, 2018 IBM Corp. and others
+ * Copyright (c) 2007, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,6 +20,7 @@ package java.lang;
  *
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
+package java.lang;
 
 import java.security.AccessControlContext;
 import java.security.ProtectionDomain;
@@ -44,7 +43,6 @@ import sun.nio.ch.Interruptible;
 import sun.reflect.annotation.AnnotationType;
 
 /*[IF Sidecar19-SE]
-/*[IF Sidecar19-SE-OpenJ9]
 import java.lang.Module;
 import java.util.Iterator;
 import java.util.List;
@@ -52,10 +50,11 @@ import java.util.List;
 import java.nio.charset.Charset;
 import java.nio.charset.CharacterCodingException;
 /*[ENDIF]*/
+/*[IF Java12]*/
+import jdk.internal.access.JavaLangAccess;
 /*[ELSE]
-import java.lang.reflect.Module;
-/*[ENDIF]*/
 import jdk.internal.misc.JavaLangAccess;
+/*[ENDIF]*/
 import jdk.internal.module.ServicesCatalog;
 import jdk.internal.reflect.ConstantPool;
 import java.lang.module.ModuleDescriptor;
@@ -69,7 +68,6 @@ import sun.reflect.ConstantPool;
  * from outside the java.lang package.  The sun.misc.SharedSecrets class 
  * uses an instance of this class to access private java.lang members.
  */
-
 final class Access implements JavaLangAccess {
 
 	/** Set thread's blocker field. */
@@ -212,31 +210,26 @@ final class Access implements JavaLangAccess {
 		 */
 		throw new Error("invokeFinalize unimplemented"); //$NON-NLS-1$
 	}
-	
+
 /*[IF Sidecar19-SE]*/
 	public Class<?> findBootstrapClassOrNull(ClassLoader classLoader, String name) {
 		return VMAccess.findClassOrNull(name, ClassLoader.bootstrapClassLoader);
-	 }
-	
-	public 
-/*[IF Sidecar19-SE-OpenJ9]	
-	java.lang.ModuleLayer
-/*[ELSE]*/
-	java.lang.reflect.Layer
-/*[ENDIF]*/	
-	getBootLayer() {
+	}
+
+	public ModuleLayer getBootLayer() {
 		return System.bootLayer;
 	}
-	
+
 	public ServicesCatalog createOrGetServicesCatalog(ClassLoader classLoader) {
 		return classLoader.createOrGetServicesCatalog();
 	}
-	
-	/* removed in build 160 */
+
+/*[IF !Java10]*/
 	@Deprecated
 	public ServicesCatalog getServicesCatalog(ClassLoader classLoader) {
 		return classLoader.getServicesCatalog();
 	}
+/*[ENDIF]*/	
 
 	public String fastUUID(long param1, long param2) {
 		return Long.fastUUID(param1, param2); 
@@ -263,8 +256,6 @@ final class Access implements JavaLangAccess {
 		return classLoader.packages();
 	}
 	
-	/* removed in build 160 */
-	@Deprecated
 	public ConcurrentHashMap<?, ?> createOrGetClassLoaderValueMap(
 			java.lang.ClassLoader classLoader) {
 		return classLoader.createOrGetClassLoaderValueMap();
@@ -278,14 +269,17 @@ final class Access implements JavaLangAccess {
 		}
 	}
 
-	/* TODO add proper implementation: RTC 125523: Implement java.lang.Access.invalidatePackageAccessCache */
 	public void invalidatePackageAccessCache() {
+/*[IF Java10]*/
+		java.lang.SecurityManager.invalidatePackageAccessCache();
+/*[ELSE]*/
 		return;
+/*[ENDIF]*/
 	}
 
 	public Class<?> defineClass(ClassLoader classLoader, String className, byte[] classRep, ProtectionDomain protectionDomain, String str) {
 		ClassLoader targetClassLoader = (null == classLoader) ? ClassLoader.bootstrapClassLoader : classLoader;
-		return targetClassLoader.defineClass(className, classRep, 0, classRep.length, protectionDomain);
+		return targetClassLoader.defineClassInternal(className, classRep, 0, classRep.length, protectionDomain, true /* allowNullProtectionDomain */);
 	}
 
 /*[IF Sidecar19-SE-OpenJ9]*/	
@@ -373,6 +367,12 @@ final class Access implements JavaLangAccess {
 		return StringCoding.newStringNoRepl(bytes, charset);
 	}
 /*[ENDIF]*/
-	
+
+/*[IF Java12]*/
+	public void setCause(Throwable throwable, Throwable cause) {
+		throwable.setCause(cause);
+	}
+/*[ENDIF]*/
+
 /*[ENDIF] Sidecar19-SE */
 }

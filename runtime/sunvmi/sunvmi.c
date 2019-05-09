@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2018 IBM Corp. and others
+ * Copyright (c) 2002, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -94,7 +94,7 @@ latestUserDefinedLoaderIterator(J9VMThread * currentThread, J9StackWalkState * w
 	 * In Java 9+, vm->extensionClassLoader is the PlatformClassLoader.
 	 */
 	BOOLEAN isPlatformClassLoader = FALSE;
-	if ((J2SE_VERSION(vm) >= J2SE_19) && (classLoader == vm->extensionClassLoader)) {
+	if ((J2SE_VERSION(vm) >= J2SE_V11) && (classLoader == vm->extensionClassLoader)) {
 		isPlatformClassLoader = TRUE;
 	}
 
@@ -172,7 +172,7 @@ getCallerClassIterator(J9VMThread * currentThread, J9StackWalkState * walkState)
 	J9JavaVM * vm = currentThread->javaVM;
 	
 
-	if ((J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers & J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) == J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) {
+	if ((J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers & J9AccMethodFrameIteratorSkip) == J9AccMethodFrameIteratorSkip) {
 		/* Skip methods with java.lang.invoke.FrameIteratorSkip annotation */
 		return J9_STACKWALK_KEEP_ITERATING;
 	}
@@ -212,7 +212,7 @@ getCallerClassJEP176Iterator(J9VMThread * currentThread, J9StackWalkState * walk
 	
 	Assert_SunVMI_mustHaveVMAccess(currentThread);
 
-	if ((J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers & J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) == J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) {
+	if ((J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers & J9AccMethodFrameIteratorSkip) == J9AccMethodFrameIteratorSkip) {
 		/* Skip methods with java.lang.invoke.FrameIteratorSkip annotation */
 		return J9_STACKWALK_KEEP_ITERATING;
 	}
@@ -221,7 +221,7 @@ getCallerClassJEP176Iterator(J9VMThread * currentThread, J9StackWalkState * walk
 	case 1:
 		/* Caller must be annotated with @sun.reflect.CallerSensitive annotation */
 		if (((vm->systemClassLoader != currentClass->classLoader) && (vm->extensionClassLoader != currentClass->classLoader))
-				|| J9_ARE_NO_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers, J9_JAVA_METHOD_CALLER_SENSITIVE)
+				|| J9_ARE_NO_BITS_SET(J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers, J9AccMethodCallerSensitive)
 		) {
 			walkState->userData3 = (void *) TRUE;
 			return J9_STACKWALK_STOP_ITERATING;
@@ -251,21 +251,21 @@ getCallerClassJEP176Iterator(J9VMThread * currentThread, J9StackWalkState * walk
  * JVM_GetCallerClass
  */
 JNIEXPORT jobject JNICALL
-#if J9VM_JCL_SE11
+#if JAVA_SPEC_VERSION >= 11
 JVM_GetCallerClass_Impl(JNIEnv *env)
-#else /* J9VM_JCL_SE11 */
+#else /* JAVA_SPEC_VERSION >= 11 */
 JVM_GetCallerClass_Impl(JNIEnv *env, jint depth)
-#endif /* J9VM_JCL_SE11 */
+#endif /* JAVA_SPEC_VERSION >= 11 */
 {
 	J9VMThread * vmThread = (J9VMThread *) env;
 	J9JavaVM * vm = vmThread->javaVM;
 	J9InternalVMFunctions *vmFuncs = vm->internalVMFunctions;
 	J9StackWalkState walkState = {0};
 	jobject result = NULL;
-#if J9VM_JCL_SE11
+#if JAVA_SPEC_VERSION >= 11
 	/* Java 11 removed getCallerClass(depth), and getCallerClass() is equivalent to getCallerClass(-1) */
 	jint depth = -1;
-#endif /* J9VM_JCL_SE11 */
+#endif /* JAVA_SPEC_VERSION >= 11 */
 	
 	Trc_SunVMI_GetCallerClass_Entry(env, depth);
 	
@@ -328,7 +328,7 @@ JVM_NewInstanceFromConstructor_Impl(JNIEnv * env, jobject c, jobjectArray args)
 
 	obj = (*env)->AllocObject(env, classRef);
 	if (obj) {
-		vmFuncs->sidecarInvokeReflectConstructor(vmThread, c, obj, args, NULL);
+		vmFuncs->sidecarInvokeReflectConstructor(vmThread, c, obj, args);
 		if ((*env)->ExceptionCheck(env)) {
 			(*env)->DeleteLocalRef(env, obj);
 			obj = (jobject) NULL;
@@ -351,7 +351,7 @@ JVM_InvokeMethod_Impl(JNIEnv * env, jobject method, jobject obj, jobjectArray ar
 
 	Trc_SunVMI_InvokeMethod_Entry(vmThread, method, obj, args);
 
-	vmThread->javaVM->internalVMFunctions->sidecarInvokeReflectMethod(vmThread, method, obj, args, NULL);
+	vmThread->javaVM->internalVMFunctions->sidecarInvokeReflectMethod(vmThread, method, obj, args);
 
 	Trc_SunVMI_InvokeMethod_Exit(vmThread, vmThread->returnValue);
 
@@ -382,7 +382,7 @@ JVM_GetClassAccessFlags_Impl(JNIEnv * env, jclass clazzRef)
 		Assert_SunVMI_true(J9VM_IS_INITIALIZED_HEAPCLASS(vmThread, *(j9object_t*)clazzRef));
 		romClass = J9VM_J9CLASS_FROM_HEAPCLASS(vmThread, *(j9object_t*)clazzRef)->romClass;
 		if (J9ROMCLASS_IS_PRIMITIVE_TYPE(romClass)) {
-			modifiers = J9_JAVA_ABSTRACT | J9_JAVA_FINAL | J9_JAVA_PUBLIC;
+			modifiers = J9AccAbstract | J9AccFinal | J9AccPublic;
 		} else {
 			modifiers = romClass->modifiers & 0xFFFF;
 		}
@@ -411,20 +411,18 @@ initializeReflectionGlobals(JNIEnv * env,BOOLEAN includeAccessors) {
 		return JNI_ERR;
 	}
 
-#if defined(J9VM_OPT_METHOD_HANDLE)
-	if (J2SE_SHAPE(vm) != J2SE_SHAPE_RAW) {
-		clazz = (*env)->FindClass(env, "java/lang/invoke/MethodHandles$Lookup");
-		if (NULL == clazz) {
-			return JNI_ERR;
-		}
-		VM.jliMethodHandles_Lookup_checkSecurity = (*env)->GetMethodID(env, clazz, "checkSecurity", "(Ljava/lang/Class;Ljava/lang/Class;I)V");
-		if (NULL == VM.jliMethodHandles_Lookup_checkSecurity) {
-			return JNI_ERR;
-		}
+#if defined(J9VM_OPT_METHOD_HANDLE) && !defined(J9VM_IVE_RAW_BUILD) /* J9VM_IVE_RAW_BUILD is not enabled by default */
+	clazz = (*env)->FindClass(env, "java/lang/invoke/MethodHandles$Lookup");
+	if (NULL == clazz) {
+		return JNI_ERR;
 	}
-#endif
+	VM.jliMethodHandles_Lookup_checkSecurity = (*env)->GetMethodID(env, clazz, "checkSecurity", "(Ljava/lang/Class;Ljava/lang/Class;I)V");
+	if (NULL == VM.jliMethodHandles_Lookup_checkSecurity) {
+		return JNI_ERR;
+	}
+#endif /* defined(J9VM_OPT_METHOD_HANDLE) && !defined(J9VM_IVE_RAW_BUILD) */
 	
-	if (J2SE_VERSION(vm) >= J2SE_19) {
+	if (J2SE_VERSION(vm) >= J2SE_V11) {
 		clazzConstructorAccessorImpl = (*env)->FindClass(env, "jdk/internal/reflect/ConstructorAccessorImpl");
 		clazzMethodAccessorImpl = (*env)->FindClass(env, "jdk/internal/reflect/MethodAccessorImpl");
 	} else {
@@ -564,7 +562,7 @@ getClassContextIterator(J9VMThread * currentThread, J9StackWalkState * walkState
 {
 	J9JavaVM * vm = currentThread->javaVM;
 
-	if ((J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers & J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) == J9_JAVA_METHOD_FRAME_ITERATOR_SKIP) {
+	if ((J9_ROM_METHOD_FROM_RAM_METHOD(walkState->method)->modifiers & J9AccMethodFrameIteratorSkip) == J9AccMethodFrameIteratorSkip) {
 		/* Skip methods with java.lang.invoke.FrameIteratorSkip annotation */
 		return J9_STACKWALK_KEEP_ITERATING;
 	}
@@ -587,12 +585,12 @@ getClassContextIterator(J9VMThread * currentThread, J9StackWalkState * walkState
 			if (walkState->userData2 != NULL) {
 				j9object_t classObject = J9VM_J9CLASS_TO_HEAPCLASS(currentClass);
 #if defined(J9VM_OPT_METHOD_HANDLE)
-				if (J2SE_SHAPE(vm) != J2SE_SHAPE_RAW) {
-					/* check for non-static MethodHandles$Lookup methods */
-					if (walkState->method == ((J9JNIMethodID*)VM.jliMethodHandles_Lookup_checkSecurity)->method) {
-						walkState->userData3 = (void*)(n + 2);
-					}
+#ifndef J9VM_IVE_RAW_BUILD /* J9VM_IVE_RAW_BUILD is not enabled by default */
+				/* check for non-static MethodHandles$Lookup methods */
+				if (walkState->method == ((J9JNIMethodID*)VM.jliMethodHandles_Lookup_checkSecurity)->method) {
+					walkState->userData3 = (void*)(n + 2);
 				}
+#endif /* !J9VM_IVE_RAW_BUILD */
 				if (walkState->userData3 == walkState->userData1) {
 					J9VMThread *walkThread = walkState->walkThread;
 					J9Class *accessClass = walkThread->methodHandlesLookupAccessClass;
@@ -734,7 +732,7 @@ JVM_GetSystemPackages_Impl(JNIEnv* env)
 						 * java.lang.Package.getSystemPackages() expects a trailing slash in Java 8
 						 * but no trailing slash in Java 9.
 						 */
-						if (J2SE_VERSION(vm) >= J2SE_19) {
+						if (J2SE_VERSION(vm) >= J2SE_V11) {
 							packageString = vm->memoryManagerFunctions->j9gc_createJavaLangString(vmThread,
 									(U_8*) packageName, packageNameLength, 0);
 						} else {
@@ -1350,4 +1348,3 @@ SunVMI_LifecycleEvent(J9JavaVM* vm, IDATA stage, void* reserved)
 	}
 	return returnVal;
 }
-

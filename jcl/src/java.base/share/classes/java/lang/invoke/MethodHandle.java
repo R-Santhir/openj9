@@ -1,6 +1,6 @@
 /*[INCLUDE-IF Sidecar17]*/
 /*******************************************************************************
- * Copyright (c) 2009, 2018 IBM Corp. and others
+ * Copyright (c) 2009, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -26,6 +26,14 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+/*[IF Java12]*/
+import java.lang.constant.ClassDesc;
+import java.lang.constant.Constable;
+import java.lang.constant.DirectMethodHandleDesc;
+import java.lang.constant.DirectMethodHandleDesc.Kind;
+import java.lang.constant.MethodHandleDesc;
+import java.lang.constant.MethodTypeDesc;
+/*[ENDIF]*/
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
@@ -35,16 +43,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.util.Objects;
+/*[IF Java12]*/
+import java.util.NoSuchElementException;
+import java.util.Optional;
+/*[ENDIF]*/
 // {{{ JIT support
 import java.util.concurrent.ConcurrentHashMap;
 
 /*[IF Sidecar19-SE]
 import jdk.internal.misc.Unsafe;
+/*[IF Java12]*/
+import jdk.internal.access.SharedSecrets;
+/*[ELSE]
 import jdk.internal.misc.SharedSecrets;
+/*[ENDIF] Java12 */
 import jdk.internal.reflect.ConstantPool;
-/*[IF Sidecar18-SE-OpenJ9]
-import java.lang.invoke.LambdaForm;
-/*[ENDIF]*/
 /*[ELSE]*/
 import sun.misc.Unsafe;
 import sun.misc.SharedSecrets;
@@ -80,7 +93,11 @@ import com.ibm.oti.vm.VMLangAccess;
  * @since 1.7
  */
 @VMCONSTANTPOOL_CLASS
-public abstract class MethodHandle {
+public abstract class MethodHandle 
+/*[IF Java12]*/
+	implements Constable
+/*[ENDIF]*/
+{
 	/* Ensure that these stay in sync with the MethodHandleInfo constants and VM constants in VM_MethodHandleKinds.h */
 	/* Order matters here - static and special are direct pointers */
 	static final byte KIND_BOUND = 0;
@@ -118,6 +135,9 @@ public abstract class MethodHandle {
 	/*[IF Panama]*/
 	static final byte KIND_NATIVE = 32;
 	/*[ENDIF]*/
+	/*[IF Java12]*/
+	static final byte KIND_FILTERARGUMENTS_WITHCOMBINER = 33;
+	/*[ENDIF] Java12 */
 
 /*[IF Sidecar18-SE-OpenJ9]
 	MethodHandle asTypeCache = null;
@@ -240,13 +260,6 @@ public abstract class MethodHandle {
 	// Until the JIT can synthesize calls to virtual methods, we must synthesize calls to these static ones instead
 	/*[ENDIF]*/
 	private static MethodHandle asType(MethodHandle mh, MethodType newType) {
-		/*
-		 * JIT can easily propagate type information and fold the if when it can prove early return always happen.
-		 * The early return also saves the JIT from having to inline full asType call
-		 */
-		if (mh.type == newType) {
-			return mh;
-		}
 		return mh.asType(newType);
 	}
 	/*[IF Sidecar19-SE]*/
@@ -336,18 +349,11 @@ public abstract class MethodHandle {
 	 */
 	public final native @PolymorphicSignature Object invoke(Object... args) throws Throwable, WrongMethodTypeException, ClassCastException;
 	
-	/*
-	 * Lookup all the VMDispatchTargets and store them into 'targets' array.
-	 * 'targets' must be large enough to hold all the dispatch targets.
-	 * 
-	 */
-	private static native boolean lookupVMDispatchTargets(long[] targets);
-	
 	/**
-     * The MethodType of the MethodHandle.  Invocation must match this MethodType.
-     *   
+	 * The MethodType of the MethodHandle.  Invocation must match this MethodType.
+	 *
 	 * @return the MethodType of the MethodHandle.  
-     */
+	 */
 	public MethodType type() {
 		return type;
 	}
@@ -539,7 +545,7 @@ public abstract class MethodHandle {
 	/**
 	 * Invoke the MethodHandle using an Object[] of arguments.  The array must contain at exactly type().parameterCount() arguments.
 	 * 
-	 * Each of the arguments in the array with be coerced to the appropriate type, if possible, based on the MethodType.
+	 * Each of the arguments in the array will be coerced to the appropriate type, if possible, based on the MethodType.
 	 * 
 	 * @param args An array of Arguments, with length at exactly type().parameterCount() to be used in the call.
 	 * @return An Object
@@ -679,11 +685,8 @@ public abstract class MethodHandle {
 		if (isVarArityNeeded) {
 			/* Convert the handle if initially not with variable arity */
 			if (!this.isVarargsCollector()) {
-				Class<?> lastClass = null;
-				try {
-					/* An exception is thrown if the MethodType has no arguments */
-					lastClass = this.type.lastParameterType();
-				} catch(RuntimeException e) {
+				Class<?> lastClass = this.type.lastParameterType();
+				if (void.class == lastClass) { /* there were no arguments */
 					throw new IllegalArgumentException();
 				}
 				/* IllegalArgumentException will be thrown out from asVarargsCollector 
@@ -730,6 +733,106 @@ public abstract class MethodHandle {
 		return this;
 	}
 	
+/*[IF Java12]*/
+	/**
+	 * Returns the nominal descriptor of this MethodHandle instance, or an empty Optional 
+	 * if construction is not possible.
+	 * 
+	 * @return Optional with a nominal descriptor of MethodHandle instance
+	 */
+	public Optional<MethodHandleDesc> describeConstable() {
+		try {
+			DirectMethodHandleDesc.Kind handleKind;
+
+			/* Define handle as a crackable type. If its not possible to do so this method should fail */
+			MethodHandleInfo handleInfo = Lookup.IMPL_LOOKUP.revealDirect(this);
+			switch(handleInfo.getReferenceKind()) {
+				case MethodHandleInfo.REF_getField:
+					handleKind = DirectMethodHandleDesc.Kind.GETTER;
+					break;
+				case MethodHandleInfo.REF_getStatic:
+					handleKind = DirectMethodHandleDesc.Kind.STATIC_GETTER;
+					break;
+				case MethodHandleInfo.REF_putField:
+					handleKind = DirectMethodHandleDesc.Kind.SETTER;
+					break;
+				case MethodHandleInfo.REF_putStatic:
+					handleKind = DirectMethodHandleDesc.Kind.STATIC_SETTER;
+					break;
+				case MethodHandleInfo.REF_invokeVirtual:
+					handleKind = DirectMethodHandleDesc.Kind.VIRTUAL;
+					break;
+				case MethodHandleInfo.REF_invokeStatic:
+					if (handleInfo.getDeclaringClass().isInterface()) {
+						handleKind = DirectMethodHandleDesc.Kind.INTERFACE_STATIC;
+					} else {
+						handleKind = DirectMethodHandleDesc.Kind.STATIC;
+					}
+					break;
+				case MethodHandleInfo.REF_invokeSpecial:
+					if (handleInfo.getDeclaringClass().isInterface()) {
+						handleKind = DirectMethodHandleDesc.Kind.INTERFACE_SPECIAL;
+					} else {
+						handleKind = DirectMethodHandleDesc.Kind.SPECIAL;
+					}
+					break;
+				case MethodHandleInfo.REF_newInvokeSpecial:
+					handleKind = DirectMethodHandleDesc.Kind.CONSTRUCTOR;	
+					break;
+				case MethodHandleInfo.REF_invokeInterface:
+					handleKind = DirectMethodHandleDesc.Kind.INTERFACE_VIRTUAL;
+					break;
+				default:
+					/* fail */
+					return Optional.empty();
+			}
+
+			/* create descriptor for the declaring class */
+			ClassDesc declaringDesc = handleInfo.getDeclaringClass().describeConstable().orElseThrow();
+
+			/* create handle descriptor */
+			MethodHandleDesc handleDesc;
+			switch(handleInfo.getReferenceKind()) {
+				/* field types */
+				case MethodHandleInfo.REF_getField:
+				case MethodHandleInfo.REF_getStatic:
+				case MethodHandleInfo.REF_putField:
+				case MethodHandleInfo.REF_putStatic:
+					ClassDesc fieldType = ((FieldHandle)this).fieldClass.describeConstable().orElseThrow();
+					handleDesc = MethodHandleDesc.ofField(handleKind, declaringDesc, handleInfo.getName(), fieldType);
+					break;
+				/* method types */
+				case MethodHandleInfo.REF_invokeVirtual:
+				case MethodHandleInfo.REF_invokeStatic:
+				case MethodHandleInfo.REF_invokeSpecial:
+				case MethodHandleInfo.REF_invokeInterface:
+					MethodTypeDesc lookupType = handleInfo.getMethodType().describeConstable().orElseThrow();
+					handleDesc = MethodHandleDesc.ofMethod(handleKind, declaringDesc, handleInfo.getName(), lookupType);
+					break;
+				/* constructor types */
+				case MethodHandleInfo.REF_newInvokeSpecial:
+					/* create list of descriptors for constructor parameters */
+					Class<?>[] handleParams = handleInfo.getMethodType().parameterArray();
+					int paramCount = handleParams.length;
+					ClassDesc[] paramDescs = new ClassDesc[paramCount];
+					for (int i = 0; i < paramCount; i++) {
+						paramDescs[i] = handleParams[i].describeConstable().orElseThrow();
+					}
+					handleDesc = MethodHandleDesc.ofConstructor(declaringDesc, paramDescs);
+					break;
+				default:
+					/* fail */
+					return Optional.empty();
+			}
+			return Optional.ofNullable(handleDesc);
+
+		} catch(IllegalArgumentException | SecurityException | NoSuchElementException e) {
+			/* fail */
+			return Optional.empty();
+		}
+	}
+/*[ENDIF]*/
+
 	public MethodHandle bindTo(Object value) throws IllegalArgumentException, ClassCastException {
 		/*
 		 * Check whether the first parameter has a reference type assignable from value. Note that MethodType.parameterType(0) will
@@ -821,6 +924,7 @@ public abstract class MethodHandle {
 	 * equivalent for MethodHandle.
 	 */
 	private static final native MethodHandle getCPMethodHandleAt(Object internalRamClass, int index);
+
 	
 	/**
 	 * Get the class name from a constant pool class element, which is located
@@ -844,118 +948,137 @@ public abstract class MethodHandle {
 	private static final int BSM_NAME_ARGUMENT_INDEX = 1;
 	private static final int BSM_TYPE_ARGUMENT_INDEX = 2;
 	private static final int BSM_OPTIONAL_ARGUMENTS_START_INDEX = 3;
+	
+/*[IF Java11]*/
+	/*
+	 * sun.reflect.ConstantPool doesn't have a getConstantDynamicAt method.  This is the 
+	 * equivalent for ConstantDynamic.
+	 */
+	private static final native Object getCPConstantDynamicAt(Object internalRamClass, int index);
 
 	@SuppressWarnings("unused")
 	private static final Object resolveConstantDynamic(long j9class, String name, String fieldDescriptor, long bsmData) throws Throwable {
 		Object result = null;
 		Class<?> typeClass = null;
 
+		VMLangAccess access = VM.getVMLangAccess();
+		Object internalRamClass = access.createInternalRamClass(j9class);
+		Class<?> classObject = null;
+		if (JITHELPERS.is32Bit()) {
+			classObject = JITHELPERS.getClassFromJ9Class32((int)j9class);
+		} else {
+			classObject = JITHELPERS.getClassFromJ9Class64(j9class);
+		}
+
+		Objects.requireNonNull(classObject);
+
+		typeClass = fromFieldDescriptorString(fieldDescriptor, access.getClassloader(classObject));
+
+		int bsmIndex = UNSAFE.getShort(bsmData);
+		int bsmArgCount = UNSAFE.getShort(bsmData + BSM_ARGUMENT_COUNT_OFFSET);
+		long bsmArgs = bsmData + BSM_ARGUMENTS_OFFSET;
+		MethodHandle bsm = getCPMethodHandleAt(internalRamClass, bsmIndex);
+		if (null == bsm) {
+			/*[MSG "K05cd", "unable to resolve 'bootstrap_method_ref' in '{0}' at index {1}"]*/
+			throw new NullPointerException(Msg.getString("K05cd", classObject.toString(), bsmIndex)); //$NON-NLS-1$
+		}
+		Object[] staticArgs = new Object[BSM_OPTIONAL_ARGUMENTS_START_INDEX + bsmArgCount];
+		/* Mandatory arguments */
+		staticArgs[BSM_LOOKUP_ARGUMENT_INDEX] = new MethodHandles.Lookup(classObject, false);
+		staticArgs[BSM_NAME_ARGUMENT_INDEX] = name;
+		staticArgs[BSM_TYPE_ARGUMENT_INDEX] = typeClass;
+
+		/* Static optional arguments */
+		/* internalRamClass is not a j.l.Class object but the ConstantPool natives know how to
+		 * get the internal constantPool from the j9class
+		 */
+		ConstantPool cp = access.getConstantPool(internalRamClass);
+
+		/* Check if we need to treat the last parameter specially when handling primitives.
+		 * The type of the varargs array will determine how primitive ints from the constantpool
+		 * get boxed: {Boolean, Byte, Short, Character or Integer}.
+		 */
+		boolean treatLastArgAsVarargs = bsm.isVarargsCollector();
+		Class<?> varargsComponentType = bsm.type.lastParameterType().getComponentType();
+		int bsmTypeArgCount = bsm.type.parameterCount();
+
+		/* JVMS JDK11 5.4.3.6 Dynamically-Computed Constant and Call Site Resolution
+		 * requires the first parameter of the bootstrap method to be java.lang.invoke.MethodHandles.Lookup
+		 * else fail resolution with BootstrapMethodError
+		 */
+		if (bsmTypeArgCount < 1 || MethodHandles.Lookup.class != bsm.type.parameterType(0)) {
+			/*[MSG "K0A01", "Constant_Dynamic references bootstrap method '{0}' does not have java.lang.invoke.MethodHandles.Lookup as first parameter."]*/
+			throw new BootstrapMethodError(Msg.getString("K0A01", bsm.getMethodName())); //$NON-NLS-1$
+		}
+
+		for (int i = 0; i < bsmArgCount; i++) {
+			int staticArgIndex = BSM_OPTIONAL_ARGUMENTS_START_INDEX + i;
+			short index = UNSAFE.getShort(bsmArgs + (i * BSM_ARGUMENT_SIZE));
+			int cpType = getCPTypeAt(internalRamClass, index);
+			Object cpEntry = null;
+			switch (cpType) {
+			case 1:
+				cpEntry = cp.getClassAt(index);
+				if (cpEntry == null) {
+					throw throwNoClassDefFoundError(classObject, index);
+				}
+				break;
+			case 2:
+				cpEntry = cp.getStringAt(index);
+				break;
+			case 3: {
+				int cpValue = cp.getIntAt(index);
+				Class<?> argClass;
+				if (treatLastArgAsVarargs && (staticArgIndex >= (bsmTypeArgCount - 1))) {
+					argClass = varargsComponentType;
+				} else {
+					argClass = bsm.type.parameterType(staticArgIndex);
+				}
+				if (argClass == Short.TYPE) {
+					cpEntry = (short) cpValue;
+				} else if (argClass == Boolean.TYPE) {
+					cpEntry = cpValue == 0 ? Boolean.FALSE : Boolean.TRUE;
+				} else if (argClass == Byte.TYPE) {
+					cpEntry = (byte) cpValue;
+				} else if (argClass == Character.TYPE) {
+					cpEntry = (char) cpValue;
+				} else {
+					cpEntry = cpValue;
+				}
+				break;
+			}
+			case 4:
+				cpEntry = cp.getFloatAt(index);
+				break;
+			case 5:
+				cpEntry = cp.getLongAt(index);
+				break;
+			case 6:
+				cpEntry = cp.getDoubleAt(index);
+				break;
+			case 13:
+				cpEntry = getCPMethodTypeAt(internalRamClass, index);
+				break;
+			case 14:
+				cpEntry = getCPMethodHandleAt(internalRamClass, index);
+				break;
+			case 17:
+				cpEntry = getCPConstantDynamicAt(internalRamClass, index);
+				break;
+			default:
+				// Do nothing. The null check below will throw the appropriate exception.
+			}
+
+			cpEntry.getClass();	// Implicit NPE
+			staticArgs[staticArgIndex] = cpEntry;
+		}
+
+		/* JVMS JDK11 5.4.3.6 Dynamically-Computed Constant and Call Site Resolution
+		 * requires that exceptions from BSM invocation be wrapped in a BootstrapMethodError
+		 * unless the exception thrown is a sub-class of Error.
+		 * Exceptions thrown before invocation should be passed through unwrapped.
+		 */
 		try {
-			VMLangAccess access = VM.getVMLangAccess();
-			Object internalRamClass = access.createInternalRamClass(j9class);
-			Class<?> classObject = null;
-			if (JITHELPERS.is32Bit()) {
-				classObject = JITHELPERS.getClassFromJ9Class32((int)j9class);
-			} else {
-				classObject = JITHELPERS.getClassFromJ9Class64(j9class);
-			}
-
-			Objects.requireNonNull(classObject);
-
-			typeClass = fromFieldDescriptorString(fieldDescriptor, access.getClassloader(classObject));
-
-			int bsmIndex = UNSAFE.getShort(bsmData);
-			int bsmArgCount = UNSAFE.getShort(bsmData + BSM_ARGUMENT_COUNT_OFFSET);
-			long bsmArgs = bsmData + BSM_ARGUMENTS_OFFSET;
-			MethodHandle bsm = getCPMethodHandleAt(internalRamClass, bsmIndex);
-			if (null == bsm) {
-				/*[MSG "K05cd", "unable to resolve 'bootstrap_method_ref' in '{0}' at index {1}"]*/
-				throw new NullPointerException(Msg.getString("K05cd", classObject.toString(), bsmIndex)); //$NON-NLS-1$
-			}
-			Object[] staticArgs = new Object[BSM_OPTIONAL_ARGUMENTS_START_INDEX + bsmArgCount];
-			/* Mandatory arguments */
-			staticArgs[BSM_LOOKUP_ARGUMENT_INDEX] = new MethodHandles.Lookup(classObject, false);
-			staticArgs[BSM_NAME_ARGUMENT_INDEX] = name;
-			staticArgs[BSM_TYPE_ARGUMENT_INDEX] = typeClass;
-		
-			/* Static optional arguments */
-			/* internalRamClass is not a j.l.Class object but the ConstantPool natives know how to
-			 * get the internal constantPool from the j9class
-			 */
-			ConstantPool cp = access.getConstantPool(internalRamClass);
-
-			/* Check if we need to treat the last parameter specially when handling primitives.
-			 * The type of the varargs array will determine how primitive ints from the constantpool
-			 * get boxed: {Boolean, Byte, Short, Character or Integer}.
-			 */ 
-			boolean treatLastArgAsVarargs = bsm.isVarargsCollector();
-			Class<?> varargsComponentType = bsm.type.lastParameterType().getComponentType();
-			int bsmTypeArgCount = bsm.type.parameterCount();
-
-			for (int i = 0; i < bsmArgCount; i++) {
-				int staticArgIndex = BSM_OPTIONAL_ARGUMENTS_START_INDEX + i;
-				short index = UNSAFE.getShort(bsmArgs + (i * BSM_ARGUMENT_SIZE));
-				int cpType = getCPTypeAt(internalRamClass, index);
-				Object cpEntry = null;
-				switch (cpType) {
-				case 1:
-					cpEntry = cp.getClassAt(index);
-					if (cpEntry == null) {
-						throw throwNoClassDefFoundError(classObject, index);
-					}
-					break;
-				case 2:
-					cpEntry = cp.getStringAt(index);
-					break;
-				case 3: {
-					int cpValue = cp.getIntAt(index);
-					Class<?> argClass;
-					if (treatLastArgAsVarargs && (staticArgIndex >= (bsmTypeArgCount - 1))) {
-						argClass = varargsComponentType;
-					} else {
-						argClass = bsm.type.parameterType(staticArgIndex);
-					}
-					if (argClass == Short.TYPE) {
-						cpEntry = (short) cpValue;
-					} else if (argClass == Boolean.TYPE) {
-						cpEntry = cpValue == 0 ? Boolean.FALSE : Boolean.TRUE;
-					} else if (argClass == Byte.TYPE) {
-						cpEntry = (byte) cpValue;
-					} else if (argClass == Character.TYPE) {
-						cpEntry = (char) cpValue;
-					} else {
-						cpEntry = cpValue;
-					}
-					break;
-				}
-				case 4:
-					cpEntry = cp.getFloatAt(index);
-					break;
-				case 5:
-					cpEntry = cp.getLongAt(index);
-					break;
-				case 6:
-					cpEntry = cp.getDoubleAt(index);
-					break;
-				case 13:
-					cpEntry = getCPMethodTypeAt(internalRamClass, index);
-					break;
-				case 14:
-					cpEntry = getCPMethodHandleAt(internalRamClass, index);
-					break;
-				case 17:
-					/* cpEntry = getCPConstantDynamicAt(internalRamClass, index);
-					 * break;
-					 */
-					throw new InternalError("Method getCPConstantDynamicAt() not implemented");
-				default:
-					// Do nothing. The null check below will throw the appropriate exception.
-				}
-				
-				cpEntry.getClass();	// Implicit NPE
-				staticArgs[staticArgIndex] = cpEntry;
-			}
-
 			/* Take advantage of the per-MH asType cache */
 			switch(staticArgs.length) {
 			case 3:
@@ -981,21 +1104,27 @@ public abstract class MethodHandle {
 			// result validation
 			result = MethodHandles.identity(typeClass).invoke(result);
 		} catch(Throwable e) {
-			/*[MSG "K0A00", "Failed to resolve Constant Dynamic entry with j9class: {0}, name: {1}, descriptor: {2}, bsmData: {3}"]*/
-			String msg = Msg.getString("K0A00", new Object[] {String.valueOf(j9class), name, fieldDescriptor, String.valueOf(bsmData)}); //$NON-NLS-1$
-			throw new BootstrapMethodError(msg, e);
-
+			if (e instanceof Error) {
+				throw e;
+			} else {
+				/*[MSG "K0A00", "Failed to resolve Constant Dynamic entry with j9class: {0}, name: {1}, descriptor: {2}, bsmData: {3}"]*/
+				String msg = Msg.getString("K0A00", new Object[] {String.valueOf(j9class), name, fieldDescriptor, String.valueOf(bsmData)}); //$NON-NLS-1$
+				throw new BootstrapMethodError(msg, e);
+			}
 		}
 		
 		return result;
 	}
+/*[ENDIF] Java11*/
 
 	@SuppressWarnings("unused")
 	private static final MethodHandle resolveInvokeDynamic(long j9class, String name, String methodDescriptor, long bsmData) throws Throwable {
 		MethodHandle result = null;
 		MethodType type = null;
 
+/*[IF !Java11]*/
 		try {
+/*[ENDIF]*/
 			VMLangAccess access = VM.getVMLangAccess();
 			Object internalRamClass = access.createInternalRamClass(j9class);
 			Class<?> classObject = null;
@@ -1008,6 +1137,14 @@ public abstract class MethodHandle {
 			Objects.requireNonNull(classObject);
 			
 			type = MethodType.vmResolveFromMethodDescriptorString(methodDescriptor, access.getClassloader(classObject), null);
+			final MethodHandles.Lookup lookup = new MethodHandles.Lookup(classObject, false);
+			try {
+				lookup.accessCheckArgRetTypes(type);
+			} catch (IllegalAccessException e) {
+				IllegalAccessError err = new IllegalAccessError();
+				err.initCause(e);
+				throw err;
+			}
 			int bsmIndex = UNSAFE.getShort(bsmData);
 			int bsmArgCount = UNSAFE.getShort(bsmData + BSM_ARGUMENT_COUNT_OFFSET);
 			long bsmArgs = bsmData + BSM_ARGUMENTS_OFFSET;
@@ -1018,7 +1155,7 @@ public abstract class MethodHandle {
 			}
 			Object[] staticArgs = new Object[BSM_OPTIONAL_ARGUMENTS_START_INDEX + bsmArgCount];
 			/* Mandatory arguments */
-			staticArgs[BSM_LOOKUP_ARGUMENT_INDEX] = new MethodHandles.Lookup(classObject, false);
+			staticArgs[BSM_LOOKUP_ARGUMENT_INDEX] = lookup;
 			staticArgs[BSM_NAME_ARGUMENT_INDEX] = name;
 			staticArgs[BSM_TYPE_ARGUMENT_INDEX] = type;
 		
@@ -1087,11 +1224,11 @@ public abstract class MethodHandle {
 				case 14:
 					cpEntry = getCPMethodHandleAt(internalRamClass, index);
 					break;
+/*[IF Java11]*/
 				case 17:
-					/* cpEntry = getCPConstantDynamicAt(internalRamClass, index);
-					 * break;
-					 */
-					throw new InternalError("Method getCPConstantDynamicAt() not implemented");
+					cpEntry = getCPConstantDynamicAt(internalRamClass, index);
+					break;
+/*[ENDIF] Java11*/
 				default:
 					// Do nothing. The null check below will throw the appropriate exception.
 				}
@@ -1100,6 +1237,14 @@ public abstract class MethodHandle {
 				staticArgs[staticArgIndex] = cpEntry;
 			}
 
+/*[IF Java11]*/
+		/* JVMS JDK11 5.4.3.6 Dynamically-Computed Constant and Call Site Resolution
+		 * requires that exceptions from BSM invocation be wrapped in a BootstrapMethodError
+		 * unless the exception thrown is a sub-class of Error.
+		 * Exceptions thrown before invocation should be passed through unwrapped.
+		 */
+		try {
+/*[ENDIF]*/
 			/* Take advantage of the per-MH asType cache */
 			CallSite cs = null;
 			switch(staticArgs.length) {
@@ -1255,47 +1400,65 @@ public abstract class MethodHandle {
 		try {
 			MethodHandles.Lookup lookup = new MethodHandles.Lookup(currentClass, false);
 			MethodType type = null;
-			
+			MethodHandle result = null;
+
 			switch(cpRefKind){
 			case 1: /* getField */
-				return lookup.findGetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, loader));
+				result = lookup.findGetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, lookup, loader));
+				break;
 			case 2: /* getStatic */
-				return lookup.findStaticGetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, loader));
+				result = lookup.findStaticGetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, lookup, loader));
+				break;
 			case 3: /* putField */
-				return lookup.findSetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, loader));
+				result = lookup.findSetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, lookup, loader));
+				break;
 			case 4: /* putStatic */
-				return lookup.findStaticSetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, loader));
+				result = lookup.findStaticSetter(referenceClazz, name, resolveFieldHandleHelper(typeDescriptor, lookup, loader));
+				break;
 			case 5: /* invokeVirtual */
 				type = MethodType.vmResolveFromMethodDescriptorString(typeDescriptor, loader, null);
-				return lookup.findVirtual(referenceClazz, name, type);
+				lookup.accessCheckArgRetTypes(type);
+				result = lookup.findVirtual(referenceClazz, name, type);
+				break;
 			case 6: /* invokeStatic */
 				type = MethodType.vmResolveFromMethodDescriptorString(typeDescriptor, loader, null);
-				return lookup.findStatic(referenceClazz, name, type);
+				lookup.accessCheckArgRetTypes(type);
+				result = lookup.findStatic(referenceClazz, name, type);
+				break;
 			case 7: /* invokeSpecial */ 
 				type = MethodType.vmResolveFromMethodDescriptorString(typeDescriptor, loader, null);
-				return lookup.findSpecial(referenceClazz, name, type, currentClass);
+				lookup.accessCheckArgRetTypes(type);
+				result = lookup.findSpecial(referenceClazz, name, type, currentClass);
+				break;
 			case 8: /* newInvokeSpecial */
 				type = MethodType.vmResolveFromMethodDescriptorString(typeDescriptor, loader, null);
-				return lookup.findConstructor(referenceClazz, type);
+				lookup.accessCheckArgRetTypes(type);
+				result = lookup.findConstructor(referenceClazz, type);
+				break;
 			case 9: /* invokeInterface */
 				type = MethodType.vmResolveFromMethodDescriptorString(typeDescriptor, loader, null);
-				return lookup.findVirtual(referenceClazz, name, type);
+				lookup.accessCheckArgRetTypes(type);
+				result = lookup.findVirtual(referenceClazz, name, type);
+				break;
+			default:
+				/* Can never happen */
+				throw new UnsupportedOperationException();
 			}
+			return result;
 		} catch (IllegalAccessException iae) {
 			// Java spec expects an IllegalAccessError instead of IllegalAccessException thrown when an application attempts 
 			// (not reflectively) to access or modify a field, or to invoke a method that it doesn't have access to.
 			throw new IllegalAccessError(iae.getMessage()).initCause(iae);
 		}
-		/* Can never happen */
-		throw new UnsupportedOperationException();
 	}
 	
 	/* Convert the field typedescriptor into a MethodType so we can reuse the parsing logic in 
-	 * #fromMethodDescritorString().  The verifier checks to ensure that the typeDescriptor is
+	 * #fromMethodDescriptorString().  The verifier checks to ensure that the typeDescriptor is
 	 * a valid field descriptor so adding the "()V" around it is valid.
 	 */
-	private static final Class<?> resolveFieldHandleHelper(String typeDescriptor, ClassLoader loader) throws Throwable {
+	private static final Class<?> resolveFieldHandleHelper(String typeDescriptor, Lookup lookup, ClassLoader loader) throws Throwable {
 		MethodType mt = MethodType.vmResolveFromMethodDescriptorString("(" + typeDescriptor + ")V", loader, null); //$NON-NLS-1$ //$NON-NLS-2$
+		lookup.accessCheckArgRetTypes(mt);
 		return mt.parameterType(0);
 	}
 	
@@ -1312,6 +1475,21 @@ public abstract class MethodHandle {
 		return this;
 	}
 	
+	/*[IF Java12]*/
+	/*[IF ]*/
+	/*
+	 * Used to preserve the MH on the stack when avoiding the call-in for
+	 * filterArgumentsWithCombinerHandle.  Must return 'this' so stackmapper will keep the MH
+	 * alive.
+	 */
+	/*[ENDIF]*/
+	@SuppressWarnings("unused")
+	@VMCONSTANTPOOL_METHOD
+	private MethodHandle filterArgumentsWithCombinerPlaceHolder() {
+		return this;
+	}
+	/*[ENDIF] Java12 */
+
 	/*[IF ]*/
 	/*
 	 * Used to preserve the MH on the stack when avoiding the call-in for

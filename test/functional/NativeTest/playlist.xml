@@ -1,36 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <!--
-  Copyright (c) 2016, 2018 IBM Corp. and others
+Copyright (c) 2016, 2019 IBM Corp. and others
 
-  This program and the accompanying materials are made available under
-  the terms of the Eclipse Public License 2.0 which accompanies this
-  distribution and is available at https://www.eclipse.org/legal/epl-2.0/
-  or the Apache License, Version 2.0 which accompanies this distribution and
-  is available at https://www.apache.org/licenses/LICENSE-2.0.
+This program and the accompanying materials are made available under
+the terms of the Eclipse Public License 2.0 which accompanies this
+distribution and is available at https://www.eclipse.org/legal/epl-2.0/
+or the Apache License, Version 2.0 which accompanies this distribution and
+is available at https://www.apache.org/licenses/LICENSE-2.0.
 
-  This Source Code may also be made available under the following
-  Secondary Licenses when the conditions for such availability set
-  forth in the Eclipse Public License, v. 2.0 are satisfied: GNU
-  General Public License, version 2 with the GNU Classpath
-  Exception [1] and GNU General Public License, version 2 with the
-  OpenJDK Assembly Exception [2].
+This Source Code may also be made available under the following
+Secondary Licenses when the conditions for such availability set
+forth in the Eclipse Public License, v. 2.0 are satisfied: GNU
+General Public License, version 2 with the GNU Classpath
+Exception [1] and GNU General Public License, version 2 with the
+OpenJDK Assembly Exception [2].
 
-  [1] https://www.gnu.org/software/classpath/license.html
-  [2] http://openjdk.java.net/legal/assembly-exception.html
+[1] https://www.gnu.org/software/classpath/license.html
+[2] http://openjdk.java.net/legal/assembly-exception.html
 
-  SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
+SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
 -->
-
 <playlist xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../TestConfig/playlist.xsd">
-
 	<test>
 		<testCaseName>algotest2</testCaseName>
 		<variations>
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)algotest' -avltest:$(TEST_RESROOT)$(D)..$(D)algotest$(D)avltest.lst -Xcheck:memory:ignoreUnfreedCallsite=zip/:dbgwrapper:unknown:wrapper; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)algotest$(SQ) -avltest:$(TEST_RESROOT)$(D)..$(D)algotest$(D)avltest.lst -Xcheck:memory:ignoreUnfreedCallsite=zip/:dbgwrapper:unknown:wrapper; \
 	$(TEST_STATUS)</command>
 		<levels>
 			<level>sanity</level>
@@ -38,11 +35,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -51,7 +50,7 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)ctest' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)ctest$(SQ) ; \
 	$(TEST_STATUS)</command>
 		<levels>
 			<level>sanity</level>
@@ -59,19 +58,23 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
 		<testCaseName>jniargtests</testCaseName>
 		<variations>
 			<variation>NoOptions</variation>
+			<variation>-Xjit:count=0</variation>
 		</variations>
-		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) -Xint \
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+	$(JAVA_COMMAND) $(JVM_OPTIONS) -Xint \
 	-cp $(Q)$(TEST_RESROOT)$(D)jniargtests$(D)jniargtests.jar$(Q) JniArgTests ; \
 	$(TEST_STATUS)</command>
 		<levels>
@@ -80,11 +83,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -93,7 +98,7 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmtest'  ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmtest$(SQ) ; \
 	$(TEST_STATUS)</command>
 		<levels>
 			<level>sanity</level>
@@ -101,11 +106,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -114,20 +121,24 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)jsigjnitest' \
-	'$(JAVA_BIN)$(D)j9vm' $(JVM_OPTIONS) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)jsigjnitest$(SQ) \
+	$(SQ)$(J9VM_PATH)$(SQ) $(JVM_OPTIONS) ; \
 	$(TEST_STATUS)</command>
+		<!-- temporarily disable this test on windows; https://github.com/eclipse/openj9/issues/3212 -->
+		<platformRequirements>^os.win</platformRequirements>
 		<levels>
 			<level>sanity</level>
 		</levels>
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -137,7 +148,7 @@
 		</variations>
 		<command>chmod u+x $(JAVA_SHARED_LIBRARIES_DIR)$(D)gc_rwlocktest; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)gc_rwlocktest' -verbose; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)gc_rwlocktest$(SQ) -verbose; \
 	$(TEST_STATUS)</command>
 		<platformRequirements>^os.win</platformRequirements>
 		<levels>
@@ -146,11 +157,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -159,7 +172,7 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)gc_rwlocktest' -verbose; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)gc_rwlocktest$(SQ) -verbose; \
 	$(TEST_STATUS)</command>
 		<platformRequirements>os.win</platformRequirements>
 		<levels>
@@ -168,11 +181,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -182,7 +197,7 @@
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)'  '-Xbootclasspath/a:"dummy1$(P)dummy2$(P)dummy3"' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.linux</platformRequirements>
@@ -192,10 +207,12 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -205,7 +222,7 @@
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all zos ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)'  '-Xbootclasspath/a:"dummy1$(P)dummy2$(P)dummy3"' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.zos</platformRequirements>
@@ -215,10 +232,12 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -228,7 +247,7 @@
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all aix ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)'  '-Xbootclasspath/a:"dummy1$(P)dummy2$(P)dummy3"' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.aix</platformRequirements>
@@ -238,10 +257,12 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -250,7 +271,7 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)'  '-Xbootclasspath/a:"dummy1$(P)dummy2$(P)dummy3"' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.win</platformRequirements>
@@ -260,10 +281,12 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -273,7 +296,7 @@
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.linux</platformRequirements>
@@ -283,8 +306,11 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 	<test>
@@ -294,7 +320,7 @@
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all zos ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)' ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.zos</platformRequirements>
@@ -304,8 +330,11 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 	<test>
@@ -315,7 +344,7 @@
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all aix ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)'  ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.aix</platformRequirements>
@@ -325,8 +354,11 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 	<test>
@@ -335,7 +367,7 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)'  ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.win</platformRequirements>
@@ -345,8 +377,11 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
+			<subset>8</subset>
 		</subsets>
 	</test>
 	<test>
@@ -355,7 +390,7 @@
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)thrstatetest' $(JVM_OPTIONS)  -Djava.home='$(JAVA_BIN)$(D)..$(D)' -Dcom.ibm.tools.attach.enable=no -Dibm.java9.forceCommonCleanerShutdown=true ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)thrstatetest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) -Dcom.ibm.tools.attach.enable=no -Dibm.java9.forceCommonCleanerShutdown=true ; \
 	$(TEST_STATUS)
 	</command>
 		<levels>
@@ -364,11 +399,13 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
 	</test>
 	<test>
@@ -382,7 +419,7 @@
 			<variation>Mode551</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	'$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmLifecyleTests' $(JVM_OPTIONS) -Djava.home='$(JAVA_BIN)$(D)..$(D)' -Dibm.java9.forceCommonCleanerShutdown=true ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmLifecyleTests$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) -Dibm.java9.forceCommonCleanerShutdown=true ; \
 	$(TEST_STATUS)</command>
 		<levels>
 			<level>extended</level>
@@ -390,11 +427,14 @@
 		<groups>
 			<group>functional</group>
 		</groups>
+		<types>
+			<type>native</type>
+		</types>
 		<subsets>
-			<subset>SE80</subset>
-			<subset>SE90</subset>
-			<subset>SE100</subset>
-			<subset>SE110</subset>
+			<subset>8</subset>
+			<subset>9</subset>
+			<subset>11+</subset>
 		</subsets>
+		<disabled>https://github.com/eclipse/openj9/issues/3561</disabled>
 	</test>
 </playlist>

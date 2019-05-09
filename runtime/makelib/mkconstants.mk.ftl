@@ -1,4 +1,4 @@
-# Copyright (c) 1998, 2018 IBM Corp. and others
+# Copyright (c) 1998, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -41,50 +41,31 @@ ifndef UMA_TARGET_PATH
 endif
 
 # Define all the tool used for compilation and linking.
-<#if uma.spec.tools.interp_gcc.needed>
-ifneq (default,$(origin CC))
-  ifndef INTERP_GCC
-    # If the user has overridden CC we'll want to let them know that INTERP_GCC exists.
-    ifndef PRINT_ONCE_INTERP_GCC
-      $(info ****************)
-      $(info *)
-      $(info * CC=$(CC) (overridden), note that this build will also invoke another compiler that can be overridden: INTERP_GCC=${uma.spec.tools.interp_gcc.name})
-      $(info *)
-      $(info ****************)
-      export PRINT_ONCE_INTERP_GCC=1
-    endif
-  endif
-endif
-INTERP_GCC?=${uma.spec.tools.interp_gcc.name}
-<#else>
-#INTERP_GCC not used
-</#if>
-
 <#if uma.spec.type.windows>
 <#if uma.spec.flags.build_VS12AndHigher.enabled>
 VS12AndHigher:=1
 </#if>
-ifndef NO_USE_MINGW
-USE_MINGW:=1
+ifndef NO_USE_CLANG
+USE_CLANG:=1
 endif
-ifdef USE_MINGW
-<#if uma.spec.tools.mingw_cxx.needed>
+ifdef USE_CLANG
+<#if uma.spec.tools.clang_cxx.needed>
 ifneq (default,$(origin CXX))
-  ifndef MINGW_CXX
-    # If the user has overridden CXX we'll want to let them know that MINGW_CXX exists.
-    ifndef PRINT_ONCE_MINGW_CXX
+  ifndef CLANG_CXX
+    # If the user has overridden CXX we'll want to let them know that CLANG_CXX exists.
+    ifndef PRINT_ONCE_CLANG_CXX
       $(info ****************)
       $(info *)
-      $(info * CXX=$(CXX) (overridden), note that this build will also invoke another compiler that can be overridden: MINGW_CXX=${uma.spec.tools.mingw_cxx.name})
+      $(info * CXX=$(CXX) (overridden), note that this build will also invoke another compiler that can be overridden: CLANG_CXX=${uma.spec.tools.clang_cxx.name})
       $(info *)
       $(info ****************)
-      export PRINT_ONCE_MINGW_CXX=1
+      export PRINT_ONCE_CLANG_CXX=1
     endif
   endif
 endif
-MINGW_CXX?=${uma.spec.tools.mingw_cxx.name}
+CLANG_CXX?=${uma.spec.tools.clang_cxx.name}
 <#else>
-# MINGW_CXX not used
+# CLANG_CXX not used
 </#if>
 endif
 </#if>
@@ -176,6 +157,8 @@ endif
 TR_HOST=TR_HOST_X86
 <#elseif uma.spec.processor.arm>
 TR_HOST=TR_HOST_ARM
+<#elseif uma.spec.processor.aarch64>
+TR_HOST=TR_HOST_ARM64
 <#elseif uma.spec.processor.ppc>
 TR_HOST=TR_HOST_POWER
 <#elseif uma.spec.processor.s390>

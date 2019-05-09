@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2018, 2018 IBM Corp. and others
+ * Copyright (c) 2018, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -88,7 +88,6 @@
 
 #define TR_MAX_DFP_PACKED_FAST_SIZE  (32) ///< these conversion instructions slow down when the actual length is > 32
 #define TR_MAX_DFP_PACKED_SIZE       (34) ///< max actual length (<=34) these conversion instructions can handle
-
 
 TR::MemoryReference *
 J9::Z::TreeEvaluator::asciiAndUnicodeToPackedHelper(TR::Node *node,
@@ -267,8 +266,8 @@ J9::Z::TreeEvaluator::udsl2pdEvaluator(TR::Node *node, TR::CodeGenerator *cg)
 
    if (!node->getOpCode().isSetSign())
       {
-      TR::LabelSymbol * startLabel = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * doneLabel = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+      TR::LabelSymbol * cFlowRegionStart = generateLabelSymbol(cg);
+      TR::LabelSymbol * cFlowRegionEnd = generateLabelSymbol(cg);
 
       bool isImplicitValue = node->getNumChildren() < 2;
 
@@ -292,8 +291,8 @@ J9::Z::TreeEvaluator::udsl2pdEvaluator(TR::Node *node, TR::CodeGenerator *cg)
          if (sourceMR->getBaseRegister())
             deps->addPostConditionIfNotAlreadyInserted(sourceMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
-         startLabel->setStartInternalControlFlow();
-         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, startLabel, deps);
+         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart, deps);
+         cFlowRegionStart->setStartInternalControlFlow();
 
          // The primary (and currently the only) consumer of BCD evaluators in Java is the DAA intrinsics
          // library. The DAA library assumes all BCD types are positive, unless an explicit negative sign
@@ -303,15 +302,15 @@ J9::Z::TreeEvaluator::udsl2pdEvaluator(TR::Node *node, TR::CodeGenerator *cg)
          if (cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10))
             {
             generateSILInstruction(cg, TR::InstOpCode::CLHHSI, node, generateS390LeftAlignedMemoryReference(*sourceMR, node, 0, cg, sourceSignEndByte), 0x002D);
-            generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BNE, node, doneLabel);
+            generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BNE, node, cFlowRegionEnd);
             }
          else
             {
             generateSIInstruction(cg, TR::InstOpCode::CLI, node, generateS390LeftAlignedMemoryReference(*sourceMR, node, 0, cg, sourceSignEndByte), 0x00);
-            generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BNE, node, doneLabel);
+            generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BNE, node, cFlowRegionEnd);
 
             generateSIInstruction(cg, TR::InstOpCode::CLI, node, generateS390LeftAlignedMemoryReference(*sourceMR, node, 1, cg, sourceSignEndByte), 0x2D);
-            generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BNE, node, doneLabel);
+            generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BNE, node, cFlowRegionEnd);
             }
          }
       else
@@ -325,18 +324,18 @@ J9::Z::TreeEvaluator::udsl2pdEvaluator(TR::Node *node, TR::CodeGenerator *cg)
                                 generateS390LeftAlignedMemoryReference(*sourceMR, node, 0, cg, sourceSignEndByte),
                                 minusSignMR);
 
-         startLabel->setStartInternalControlFlow();
-         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, startLabel, deps);
+         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart, deps);
+         cFlowRegionStart->setStartInternalControlFlow();
 
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK7, node, doneLabel);
+         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK7, node, cFlowRegionEnd);
          }
 
       cg->genSignCodeSetting(node, NULL, targetReg->getSize(),
                                      generateS390RightAlignedMemoryReference(*destMR, node, 0, cg),
                                      TR::DataType::getPreferredMinusCode(), targetReg, 0, false); // numericNibbleIsZero=false
 
-      doneLabel->setEndInternalControlFlow();
-      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, doneLabel, deps);
+      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionEnd, deps);
+      cFlowRegionEnd->setEndInternalControlFlow();
 
       targetReg->resetSignState();
       targetReg->setHasKnownPreferredSign();
@@ -466,8 +465,8 @@ J9::Z::TreeEvaluator::pd2udslEvaluator(TR::Node *node, TR::CodeGenerator *cg)
       TR_ASSERT(cg->getAppendInstruction()->getOpCodeValue() == TR::InstOpCode::UNPKU,
                 "the previous instruction should be an UNPKU\n");
 
-      TR::LabelSymbol * startLabel = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * doneLabel = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+      TR::LabelSymbol * cFlowRegionStart = generateLabelSymbol(cg);
+      TR::LabelSymbol * cFlowRegionEnd = generateLabelSymbol(cg);
 
       TR::RegisterDependencyConditions * targetMRDeps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 2, cg);
 
@@ -476,17 +475,17 @@ J9::Z::TreeEvaluator::pd2udslEvaluator(TR::Node *node, TR::CodeGenerator *cg)
       if (destMR->getBaseRegister())
          targetMRDeps->addPostConditionIfNotAlreadyInserted(destMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
-      startLabel->setStartInternalControlFlow();
-      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, startLabel, targetMRDeps);
+      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart, targetMRDeps);
+      cFlowRegionStart->setStartInternalControlFlow();
 
       // DAA library assumes all BCD types are positive, unless an explicit negative sign code is present
-      generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK9, node, doneLabel);
+      generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK9, node, cFlowRegionEnd);
 
       TR_ASSERT(TR::DataType::getNationalSeparateMinus() <= 0xFF, "expecting nationalSeparateMinusSign to be <= 0xFF and not 0x%x\n", TR::DataType::getNationalSeparateMinus());
       generateSIInstruction(cg, TR::InstOpCode::MVI, node, generateS390LeftAlignedMemoryReference(*destMR, node, 1, cg, destSignEndByte), TR::DataType::getNationalSeparateMinus());
 
-      doneLabel->setEndInternalControlFlow();
-      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, doneLabel, targetMRDeps);
+      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionEnd, targetMRDeps);
+      cFlowRegionEnd->setEndInternalControlFlow();
 
       targetReg->setHasKnownPreferredSign();
       }
@@ -788,15 +787,13 @@ J9::Z::TreeEvaluator::zonedToZonedSeparateSignHelper(TR::Node *node, TR_PseudoRe
    else
       {
       // DAA library assumes all BCD types are positive, unless an explicit negative sign code is present
-      TR::LabelSymbol * processSign     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * processPositive = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * processNegative = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * processEnd      = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-
-      processSign->setStartInternalControlFlow();
-      processEnd   ->setEndInternalControlFlow();
+      TR::LabelSymbol * processSign     = generateLabelSymbol(cg);
+      TR::LabelSymbol * processPositive = generateLabelSymbol(cg);
+      TR::LabelSymbol * processNegative = generateLabelSymbol(cg);
+      TR::LabelSymbol * cFlowRegionEnd  = generateLabelSymbol(cg);
 
       generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, processSign);
+      processSign->setStartInternalControlFlow();
 
       // A negative sign code is represented by 0xB and 0xD (1011 and 1101 in binary). Due to the
       // symmetry in the binary encoding of the negative sign codes we can get away with two bit
@@ -822,7 +819,7 @@ J9::Z::TreeEvaluator::zonedToZonedSeparateSignHelper(TR::Node *node, TR_PseudoRe
       // Patch in the preferred negative sign code
       generateSIInstruction(cg, TR::InstOpCode::MVI, node, generateS390LeftAlignedMemoryReference(*destSignCodeMR, node, 0, cg, destSignCodeMR->getLeftMostByte()), TR::DataType::getZonedSeparateMinus());
 
-      generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK15, node, processEnd);
+      generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK15, node, cFlowRegionEnd);
 
       // ----------------- Incoming branch -----------------
 
@@ -833,7 +830,8 @@ J9::Z::TreeEvaluator::zonedToZonedSeparateSignHelper(TR::Node *node, TR_PseudoRe
 
       // ----------------- Incoming branch -----------------
 
-      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, processEnd);
+      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionEnd);
+      cFlowRegionEnd->setEndInternalControlFlow();
 
       // Clear the embedded sign code of the source
       TR::Instruction* cursor = generateSIInstruction(cg, TR::InstOpCode::OI, node, generateS390LeftAlignedMemoryReference(*srcSignCodeMR, node, 0, cg, srcSignCodeMR->getLeftMostByte()), TR::DataType::getZonedCode());
@@ -904,11 +902,11 @@ J9::Z::TreeEvaluator::zonedSeparateSignToPackedOrZonedHelper(TR::Node *node, TR_
          if (cg->traceBCDCodeGen())
             traceMsg(comp,"\tzonedSeparateSignToPackedOrZonedHelper %p : op %s, ignoredSetSign=true case, sign 0x%x\n",node,node->getOpCode().getName(),sign);
 
-         TR::LabelSymbol * returnLabel     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-         TR::LabelSymbol * callLabel       = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+         TR::LabelSymbol * returnLabel     = generateLabelSymbol(cg);
+         TR::LabelSymbol * callLabel       = generateLabelSymbol(cg);
 
-         TR::LabelSymbol * cflowRegionStart   = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-         TR::LabelSymbol * cflowRegionEnd     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+         TR::LabelSymbol * cFlowRegionStart   = generateLabelSymbol(cg);
+         TR::LabelSymbol * cflowRegionEnd     = generateLabelSymbol(cg);
 
          TR::RegisterDependencyConditions * deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 2, cg);
 
@@ -917,8 +915,8 @@ J9::Z::TreeEvaluator::zonedSeparateSignToPackedOrZonedHelper(TR::Node *node, TR_
          if (sourceMR->getBaseRegister())
             deps->addPostConditionIfNotAlreadyInserted(sourceMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
-         cflowRegionStart->setStartInternalControlFlow();
-         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cflowRegionStart, deps);
+         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart, deps);
+         cFlowRegionStart->setStartInternalControlFlow();
 
          if (cg->traceBCDCodeGen())
             traceMsg(comp,"\t\ttargetReg->isInit=%s, targetRegSize=%d, targetRegPrec=%d, srcRegSize=%d, srcRegPrec=%d, sourceSignEndByte=%d\n",
@@ -928,8 +926,8 @@ J9::Z::TreeEvaluator::zonedSeparateSignToPackedOrZonedHelper(TR::Node *node, TR_
          generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK8, node, cflowRegionEnd);
 
 
-         cflowRegionEnd->setEndInternalControlFlow();
          generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cflowRegionEnd, deps);
+         cflowRegionEnd->setEndInternalControlFlow();
 
          targetReg->transferSignState(srcReg, isTruncation);
          }
@@ -942,12 +940,12 @@ J9::Z::TreeEvaluator::zonedSeparateSignToPackedOrZonedHelper(TR::Node *node, TR_
       }
    else
       {
-      TR::LabelSymbol * checkMinusLabel = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * returnLabel       = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * callLabel       = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+      TR::LabelSymbol * checkMinusLabel = generateLabelSymbol(cg);
+      TR::LabelSymbol * returnLabel       = generateLabelSymbol(cg);
+      TR::LabelSymbol * callLabel       = generateLabelSymbol(cg);
 
-      TR::LabelSymbol * cflowRegionStart   = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      TR::LabelSymbol * cflowRegionEnd     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+      TR::LabelSymbol * cFlowRegionStart   = generateLabelSymbol(cg);
+      TR::LabelSymbol * cflowRegionEnd     = generateLabelSymbol(cg);
 
       TR::RegisterDependencyConditions * deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 4, cg);
 
@@ -962,8 +960,8 @@ J9::Z::TreeEvaluator::zonedSeparateSignToPackedOrZonedHelper(TR::Node *node, TR_
          deps->addPostConditionIfNotAlreadyInserted(destMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
 
-      cflowRegionStart->setStartInternalControlFlow();
-      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cflowRegionStart, deps);
+      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart, deps);
+      cFlowRegionStart->setStartInternalControlFlow();
 
       if (cg->traceBCDCodeGen())
          traceMsg(comp,"\tzonedSeparateSignToPackedOrZonedHelper %p : op %s, targetReg->isInit=%s, targetRegSize=%d, targetRegPrec=%d, srcRegSize=%d, srcRegPrec=%d, sourceSignEndByte=%d\n",
@@ -983,8 +981,8 @@ J9::Z::TreeEvaluator::zonedSeparateSignToPackedOrZonedHelper(TR::Node *node, TR_
 
 
 
-      cflowRegionEnd->setEndInternalControlFlow();
       generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cflowRegionEnd, deps);
+      cflowRegionEnd->setEndInternalControlFlow();
 
       targetReg->setHasKnownPreferredSign();
       }
@@ -1497,18 +1495,16 @@ J9::Z::TreeEvaluator::zonedToPackedHelper(TR::Node *node, TR_PseudoRegister *tar
    TR::Register* signCode     = cg->allocateRegister();
    TR::Register* signCode4Bit = cg->allocateRegister();
 
-   TR::LabelSymbol * processSign     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR::LabelSymbol * processSignEnd  = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR::LabelSymbol * processNegative = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR::LabelSymbol * processEnd      = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-
-   processSign->setStartInternalControlFlow();
-   processEnd   ->setEndInternalControlFlow();
+   TR::LabelSymbol * processSign     = generateLabelSymbol(cg);
+   TR::LabelSymbol * processSignEnd  = generateLabelSymbol(cg);
+   TR::LabelSymbol * processNegative = generateLabelSymbol(cg);
+   TR::LabelSymbol * cFlowRegionEnd  = generateLabelSymbol(cg);
 
    generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, processSign);
+   processSign->setStartInternalControlFlow();
 
    // Load the sign byte of the Packed Decimal from memory
-   generateRXYInstruction(cg, TR::InstOpCode::LLC, node, signCode, generateS390LeftAlignedMemoryReference(*destMR, node, 0, cg, 1));
+   generateRXInstruction(cg, TR::InstOpCode::LLC, node, signCode, generateS390LeftAlignedMemoryReference(*destMR, node, 0, cg, 1));
 
    generateRRInstruction(cg, TR::InstOpCode::LR, node, signCode4Bit, signCode);
 
@@ -1519,7 +1515,7 @@ J9::Z::TreeEvaluator::zonedToPackedHelper(TR::Node *node, TR_PseudoRegister *tar
    generateRIInstruction(cg, TR::InstOpCode::CHI, node, signCode4Bit, TR::DataType::getPreferredMinusCode());
 
    // Branch if equal
-   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK8, node, processEnd);
+   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK8, node, cFlowRegionEnd);
 
    // Clear least significant 4 bits
    generateRIInstruction(cg, TR::InstOpCode::NILL, node, signCode, 0x00F0);
@@ -1548,8 +1544,6 @@ J9::Z::TreeEvaluator::zonedToPackedHelper(TR::Node *node, TR_PseudoRegister *tar
 
    generateRXInstruction(cg, TR::InstOpCode::STC, node, signCode, generateS390LeftAlignedMemoryReference(*destMR, node, 0, cg, 1));
 
-   TR::Instruction* cursor = generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, processEnd);
-
    // Set up the proper register dependencies
    TR::RegisterDependencyConditions* dependencies = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 2, cg);
 
@@ -1562,7 +1556,8 @@ J9::Z::TreeEvaluator::zonedToPackedHelper(TR::Node *node, TR_PseudoRegister *tar
    if (destMR->getBaseRegister())
       dependencies->addPostCondition(destMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
-   cursor->setDependencyConditions(dependencies);
+   generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionEnd, dependencies);
+   cFlowRegionEnd->setEndInternalControlFlow();
 
    // Cleanup registers before returning
    cg->stopUsingRegister(signCode);
@@ -1645,18 +1640,16 @@ J9::Z::TreeEvaluator::pd2zdSignFixup(TR::Node *node,
    TR::Register* signCode     = cg->allocateRegister();
    TR::Register* signCode4Bit = cg->allocateRegister();
 
-   TR::LabelSymbol * processSign     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR::LabelSymbol * processSignEnd  = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR::LabelSymbol * processNegative = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR::LabelSymbol * processEnd      = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-
-   processSign->setStartInternalControlFlow();
-   processEnd  ->setEndInternalControlFlow();
+   TR::LabelSymbol * processSign     = generateLabelSymbol(cg);
+   TR::LabelSymbol * processSignEnd  = generateLabelSymbol(cg);
+   TR::LabelSymbol * processNegative = generateLabelSymbol(cg);
+   TR::LabelSymbol * cFlowRegionEnd  = generateLabelSymbol(cg);
 
    generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, processSign);
+   processSign->setStartInternalControlFlow();
 
    // Load the sign byte of the Zoned Decimal from memory
-   generateRXYInstruction(cg, TR::InstOpCode::LLC, node, signCode, generateS390LeftAlignedMemoryReference(*destMR, node, 0, cg, 1));
+   generateRXInstruction(cg, TR::InstOpCode::LLC, node, signCode, generateS390LeftAlignedMemoryReference(*destMR, node, 0, cg, 1));
 
    generateRRInstruction(cg, TR::InstOpCode::LR, node, signCode4Bit, signCode);
 
@@ -1667,7 +1660,7 @@ J9::Z::TreeEvaluator::pd2zdSignFixup(TR::Node *node,
    generateRIInstruction(cg, TR::InstOpCode::CHI, node, signCode4Bit, TR::DataType::getPreferredMinusCode() << 4);
 
    // Branch if equal
-   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK8, node, processEnd);
+   generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_MASK8, node, cFlowRegionEnd);
 
    // Clear most significant 4 bits
    generateRIInstruction(cg, TR::InstOpCode::NILL, node, signCode, 0x000F);
@@ -1696,8 +1689,6 @@ J9::Z::TreeEvaluator::pd2zdSignFixup(TR::Node *node,
 
    generateRXInstruction(cg, TR::InstOpCode::STC, node, signCode, generateS390LeftAlignedMemoryReference(*destMR, node, 0, cg, 1));
 
-   TR::Instruction* cursor = generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, processEnd);
-
    // Set up the proper register dependencies
    TR::RegisterDependencyConditions* dependencies = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 2, cg);
 
@@ -1710,7 +1701,8 @@ J9::Z::TreeEvaluator::pd2zdSignFixup(TR::Node *node,
    if (destMR->getBaseRegister())
       dependencies->addPostCondition(destMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
-   cursor->setDependencyConditions(dependencies);
+   generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionEnd, dependencies);
+   cFlowRegionEnd->setEndInternalControlFlow();
 
    // Cleanup registers before returning
    cg->stopUsingRegister(signCode);
@@ -2419,8 +2411,8 @@ J9::Z::TreeEvaluator::BCDCHKEvaluatorImpl(TR::Node * node,
                        pdopNode->getOpCodeValue() == TR::pd2lOverflow ||
                        pdopNode->getOpCodeValue() == TR::lcall;
 
-   TR::LabelSymbol* handlerLabel     = TR::LabelSymbol::create(INSN_HEAP, cg);
-   TR::LabelSymbol* passThroughLabel = TR::LabelSymbol::create(INSN_HEAP,cg);
+   TR::LabelSymbol* handlerLabel     = generateLabelSymbol(cg);
+   TR::LabelSymbol* passThroughLabel = generateLabelSymbol(cg);
    cg->setCurrentBCDCHKHandlerLabel(handlerLabel);
 
    // This is where the call children node come from and the node that has the call symRef
@@ -2506,16 +2498,7 @@ J9::Z::TreeEvaluator::BCDCHKEvaluatorImpl(TR::Node * node,
       {
       if(isResultLong)
          {
-         if(TR::Compiler->target.is32Bit())
-            {
-            TR::RegisterPair* bcdOpPair = bcdOpResultReg->getRegisterPair();
-            generateRRInstruction(cg, TR::InstOpCode::LR, node, bcdOpPair->getLowOrder(), callResultReg->getLowOrder());
-            generateRRInstruction(cg, TR::InstOpCode::LR, node, bcdOpPair->getHighOrder(), callResultReg->getHighOrder());
-            }
-         else
-            {
-            generateRREInstruction(cg, TR::InstOpCode::LGR, node, bcdOpResultReg, callResultReg);
-            }
+         generateRREInstruction(cg, TR::InstOpCode::LGR, node, bcdOpResultReg, callResultReg);
          }
       else
          {
@@ -2559,7 +2542,6 @@ J9::Z::TreeEvaluator::BCDCHKEvaluatorImpl(TR::Node * node,
 TR::Register *
 J9::Z::TreeEvaluator::BCDCHKEvaluator(TR::Node * node, TR::CodeGenerator * cg)
    {
-   PRINT_ME("BCDCHK", node, cg);
    TR::Node* pdopNode = node->getFirstChild();
    TR::Register* resultReg = pdopNode->getRegister();
    bool isResultPD = pdopNode->getDataType() == TR::PackedDecimal;
@@ -2580,15 +2562,24 @@ J9::Z::TreeEvaluator::BCDCHKEvaluator(TR::Node * node, TR::CodeGenerator * cg)
       case TR::pdcmple:
       case TR::pdcmpeq:
       case TR::pdcmpne:
+         break;
+      case TR::i2pd:
+      case TR::l2pd:
       case TR::pd2l:
       case TR::pd2i:
       case TR::pd2iOverflow:
       case TR::pd2lOverflow:
-      case TR::i2pd:
-      case TR::l2pd:
+      case TR::pdadd:
+      case TR::pdsub:
+      case TR::pdmul:
+      case TR::pddiv:
+      case TR::pdrem:
       case TR::pdshlOverflow:
       case TR::pdshr:
+         {
+         cg->setIgnoreDecimalOverflowException(node->getLastChild()->getInt() == 0);
          break;
+         }
       case TR::lcall:
       case TR::icall:
          {
@@ -2600,6 +2591,10 @@ J9::Z::TreeEvaluator::BCDCHKEvaluator(TR::Node * node, TR::CodeGenerator * cg)
             case TR::com_ibm_dataaccess_DecimalData_convertPackedDecimalToLong_ByteBuffer_:
                {
                isVariableParam = true;
+
+               // Need a parameter check because variable PD2L and PD2I could have non-constant 'checkOverflow' (see IS_VARIABLE_PD2I macro).
+               TR::Node* checkOverflowNode = pdopNode->getLastChild();
+               cg->setIgnoreDecimalOverflowException(checkOverflowNode->getOpCode().isLoadConst() && (checkOverflowNode->getInt() == 0));
                break;
                }
 
@@ -2612,7 +2607,7 @@ J9::Z::TreeEvaluator::BCDCHKEvaluator(TR::Node * node, TR::CodeGenerator * cg)
                 * If this is the case, the lcall/icall must have been evaluated.
                 * We can skip the BCDCHK evaluation and return the call result.
                 */
-               TR_ASSERT_FATAL(resultReg != NULL && resultReg->getKind() == TR_GPR,
+               TR_ASSERT_FATAL(resultReg != NULL,
                                "BCDCHKEvaluator: variable precision path encounters an unrecognized and unevaluated long/int call\n");
                }
             }
@@ -2691,6 +2686,7 @@ J9::Z::TreeEvaluator::BCDCHKEvaluator(TR::Node * node, TR::CodeGenerator * cg)
       cg->setCurrentCheckNodeBeingEvaluated(NULL);
       }
 
+   cg->setIgnoreDecimalOverflowException(false);
    return resultReg;
    }
 
@@ -2698,11 +2694,11 @@ TR::Register*
 J9::Z::TreeEvaluator::pdcmpVectorEvaluatorHelper(TR::Node *node, TR::CodeGenerator *cg)
    {
    TR::Register* resultReg = cg->allocateRegister(TR_GPR);
-   generateRRInstruction(cg, TR::Compiler->target.is64Bit() ? TR::InstOpCode::XGR : TR::InstOpCode::XR, node, resultReg, resultReg);
+   generateRRInstruction(cg, TR::InstOpCode::getXORRegOpCode(), node, resultReg, resultReg);
    generateLoad32BitConstant(cg, node, 1, resultReg, true);
 
-   TR::RegisterDependencyConditions* deps = new(cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 1, cg);
-   TR::LabelSymbol* doneCompareLabel = TR::LabelSymbol::create(cg->trHeapMemory(), cg);
+   TR::RegisterDependencyConditions* deps = new(cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 2, cg);
+   deps->addPostConditionIfNotAlreadyInserted(resultReg, TR::RealRegister::AssignAny);
 
    TR::Node* pd1Node = node->getFirstChild();
    TR::Node* pd2Node = node->getSecondChild();
@@ -2713,41 +2709,46 @@ J9::Z::TreeEvaluator::pdcmpVectorEvaluatorHelper(TR::Node *node, TR::CodeGenerat
    // TODO: should we correct bad sign before comparing them
    TR::Instruction* cursor = generateVRRhInstruction(cg, TR::InstOpCode::VCP, node, pd1Value, pd2Value, 0);
 
-   cursor->setStartInternalControlFlow();
-   deps->addPostConditionIfNotAlreadyInserted(resultReg, TR::RealRegister::AssignAny);
+   TR::LabelSymbol* cFlowRegionStart = generateLabelSymbol(cg);
+   cursor = generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart);
+   cFlowRegionStart->setStartInternalControlFlow();
+
+   TR::LabelSymbol* cFlowRegionEnd = generateLabelSymbol(cg);
 
    // Generate Branch Instructions
    switch(node->getOpCodeValue())
       {
       case TR::pdcmpeq:
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC0, node, doneCompareLabel);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC0, node, cFlowRegionEnd);
          break;
       case TR::pdcmpne:
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, doneCompareLabel);
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC2, node, doneCompareLabel);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, cFlowRegionEnd);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC2, node, cFlowRegionEnd);
          break;
       case TR::pdcmplt:
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, doneCompareLabel);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, cFlowRegionEnd);
          break;
       case TR::pdcmple:
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC0, node, doneCompareLabel);
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, doneCompareLabel);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC0, node, cFlowRegionEnd);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC1, node, cFlowRegionEnd);
          break;
       case TR::pdcmpgt:
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC2, node, doneCompareLabel);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC2, node, cFlowRegionEnd);
          break;
       case TR::pdcmpge:
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC0, node, doneCompareLabel);
-         generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC2, node, doneCompareLabel);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC0, node, cFlowRegionEnd);
+         cursor = generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_CC2, node, cFlowRegionEnd);
          break;
       default:
          TR_ASSERT(0, "Unrecognized op code in pd cmp vector evaluator helper.");
       }
 
-   cursor = generateLoad32BitConstant(cg, node, 0, resultReg, true);
-   cursor = generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, doneCompareLabel);
-   cursor->setDependencyConditions(deps);
-   cursor->setEndInternalControlFlow();
+   // TODO: The only reason we keep track of the cursor here is because `deps` has to be passed in after `cursor`. We
+   // don't really need this restriction however if we rearrange the parameters.
+   cursor = generateLoad32BitConstant(cg, node, 0, resultReg, true, cursor, deps);
+
+   cursor = generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionEnd, deps);
+   cFlowRegionEnd->setEndInternalControlFlow();
 
    node->setRegister(resultReg);
 
@@ -2901,34 +2902,22 @@ setupPackedDFPConversionGPRs(TR::Register *&gpr64, TR::Register *&gpr64Hi,
    TR::RegisterDependencyConditions *deps = NULL;
    if (isLongDouble)
       {
-      gpr64 = cg->allocateConsecutiveRegisterPair(cg->allocate64bitRegister(), cg->allocate64bitRegister());
+      gpr64 = cg->allocateConsecutiveRegisterPair(cg->allocateRegister(), cg->allocateRegister());
       gpr64Hi = gpr64->getHighOrder(); // 0-63
       gpr64Lo = gpr64->getLowOrder();  // 64-127
       }
    else
       {
-      gpr64Hi = cg->allocate64bitRegister();
+      gpr64Hi = cg->allocateRegister();
       gpr64 = gpr64Hi;
       }
 
-   if (TR::Compiler->target.is64Bit() || cg->use64BitRegsOn32Bit())
+   if (isLongDouble)
       {
-      if (isLongDouble)
-         {
-         deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 3, cg);
-         deps->addPostCondition(gpr64, TR::RealRegister::EvenOddPair);
-         deps->addPostCondition(gpr64Hi, TR::RealRegister::LegalEvenOfPair);
-         deps->addPostCondition(gpr64Lo, TR::RealRegister::LegalOddOfPair);
-         }
-      }
-   else
-      {
-      uint8_t depsNeeded = isLongDouble ? 2 : 1;
-      deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, depsNeeded, cg);
-      // the 64 bit registers gpr64Hi/gpr64Lo are going to be clobbered and R0/R1 are safe to clobber regardless of the hgpr (use64BitRegsOn32Bit) setting
-      deps->addPostCondition(gpr64Hi, TR::RealRegister::GPR0);
-      if (isLongDouble)
-         deps->addPostCondition(gpr64Lo, TR::RealRegister::GPR1);
+      deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 3, cg);
+      deps->addPostCondition(gpr64, TR::RealRegister::EvenOddPair);
+      deps->addPostCondition(gpr64Hi, TR::RealRegister::LegalEvenOfPair);
+      deps->addPostCondition(gpr64Lo, TR::RealRegister::LegalOddOfPair);
       }
    return deps;
    }
@@ -3035,27 +3024,27 @@ J9::Z::TreeEvaluator::pd2ddEvaluator(TR::Node *node, TR::CodeGenerator *cg)
       switch (partialSize)
          {
          case 1:
-            generateRXYInstruction(cg, TR::InstOpCode::LLGC, srcNode, gpr64Partial, sourceMR);
+            generateRXInstruction(cg, TR::InstOpCode::LLGC, srcNode, gpr64Partial, sourceMR);
             break;
          case 2:
-            generateRXYInstruction(cg, TR::InstOpCode::LLGH, srcNode, gpr64Partial, sourceMR);
+            generateRXInstruction(cg, TR::InstOpCode::LLGH, srcNode, gpr64Partial, sourceMR);
             break;
          case 3:
             generateRRInstruction(cg, TR::InstOpCode::XGR, srcNode, gpr64Partial, gpr64Partial);
             generateRSInstruction(cg, TR::InstOpCode::ICM, srcNode, gpr64Partial, (uint32_t) 0x7, sourceMR);
             break;
          case 4:
-            generateRXYInstruction(cg, TR::InstOpCode::LLGF, srcNode, gpr64Partial, sourceMR);
+            generateRXInstruction(cg, TR::InstOpCode::LLGF, srcNode, gpr64Partial, sourceMR);
             break;
          case 5:
          case 6:
          case 7:
             generateRRInstruction(cg, TR::InstOpCode::XGR, srcNode, gpr64Partial, gpr64Partial);
-            generateRSYInstruction(cg, TR::InstOpCode::ICMH, node, gpr64Partial, (uint32_t)((1 << (partialSize-4)) - 1), sourceMR);  // 5->mask=1, 6->mask=3, 7->mask=7
-            generateRXYInstruction(cg, TR::InstOpCode::L, srcNode, gpr64Partial, generateS390LeftAlignedMemoryReference(*sourceMR, srcNode, partialSize-4, cg, sourceMR->getLeftMostByte(), enforceSSLimits));
+            generateRSInstruction(cg, TR::InstOpCode::ICMH, node, gpr64Partial, (uint32_t)((1 << (partialSize-4)) - 1), sourceMR);  // 5->mask=1, 6->mask=3, 7->mask=7
+            generateRXInstruction(cg, TR::InstOpCode::L, srcNode, gpr64Partial, generateS390LeftAlignedMemoryReference(*sourceMR, srcNode, partialSize-4, cg, sourceMR->getLeftMostByte(), enforceSSLimits));
             break;
          case 8:
-            generateRXYInstruction(cg, TR::InstOpCode::LG, srcNode, gpr64Partial, sourceMR);
+            generateRXInstruction(cg, TR::InstOpCode::LG, srcNode, gpr64Partial, sourceMR);
             break;
          default:
             TR_ASSERT(false,"unexpected partialSize %d\n",partialSize);
@@ -3064,7 +3053,7 @@ J9::Z::TreeEvaluator::pd2ddEvaluator(TR::Node *node, TR::CodeGenerator *cg)
       if (isLongDouble)
          {
          if (srcRegSize > 8)
-            generateRXYInstruction(cg, TR::InstOpCode::LG, srcNode, gpr64Lo, generateS390LeftAlignedMemoryReference(*sourceMR, srcNode, partialSize, cg, sourceMR->getLeftMostByte(), enforceSSLimits));
+            generateRXInstruction(cg, TR::InstOpCode::LG, srcNode, gpr64Lo, generateS390LeftAlignedMemoryReference(*sourceMR, srcNode, partialSize, cg, sourceMR->getLeftMostByte(), enforceSSLimits));
          else
             generateRRInstruction(cg, TR::InstOpCode::XGR, srcNode, gpr64Hi, gpr64Hi);
          }
@@ -3622,7 +3611,7 @@ J9::Z::TreeEvaluator::df2pdEvaluator(TR::Node *node, TR::CodeGenerator *cg)
          case 5:
          case 6:
          case 7:
-            generateRSYInstruction(cg, TR::InstOpCode::STCMH, node, gpr64Partial, (uint32_t)((1 << (partialSize-4)) - 1), destMR);
+            generateRSInstruction(cg, TR::InstOpCode::STCMH, node, gpr64Partial, (uint32_t)((1 << (partialSize-4)) - 1), destMR);
             generateRXInstruction(cg, TR::InstOpCode::ST, node, gpr64Partial, generateS390LeftAlignedMemoryReference(*destMR, node, partialSize-4, cg, destMR->getLeftMostByte(), enforceSSLimits));
             break;
          case 8:
@@ -3633,10 +3622,10 @@ J9::Z::TreeEvaluator::df2pdEvaluator(TR::Node *node, TR::CodeGenerator *cg)
          }
 
       if (isLongDouble && remainingTargetBytes > 8)
-         generateRXYInstruction(cg, TR::InstOpCode::STG, node, gpr64Lo, generateS390LeftAlignedMemoryReference(*destMR, node, partialSize, cg, destMR->getLeftMostByte(), enforceSSLimits));
+         generateRXInstruction(cg, TR::InstOpCode::STG, node, gpr64Lo, generateS390LeftAlignedMemoryReference(*destMR, node, partialSize, cg, destMR->getLeftMostByte(), enforceSSLimits));
 
       if (deps)
-         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, TR::LabelSymbol::create(cg->trHeapMemory(),cg), deps);
+         generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, generateLabelSymbol(cg), deps);
 
       if (needsClear)
          {
@@ -3782,25 +3771,9 @@ J9::Z::TreeEvaluator::pd2lVariableEvaluator(TR::Node* node, TR::CodeGenerator* c
    // This function handles PD2I and PD2L
    bool PD2I = pdOpNode->getOpCode().getOpCodeValue() == TR::icall;
 
-   TR::Register* returnReg = PD2I ? cg->allocateRegister() : cg->allocate64bitRegister();
+   TR::Register* returnReg = cg->allocateRegister();
 
-   TR::Register* LReg = NULL;
-   TR::Register* HReg = NULL;
-
-   TR::RegisterPair* regPair = NULL;
-
-   // We must handle 32 bit registers (only for PD2L)
-   bool useRegPair = !PD2I && !(TR::Compiler->target.is64Bit() || cg->use64BitRegsOn32Bit());
    TR::InstOpCode::Mnemonic conversionOp = PD2I ? TR::InstOpCode::VCVB : TR::InstOpCode::VCVBG;
-
-   if (useRegPair)
-      {
-      LReg = cg->allocateRegister();
-      HReg = cg->allocateRegister();
-
-      // A register pair consists of consecutive Low and High registers
-      regPair = cg->allocateConsecutiveRegisterPair(LReg, HReg);
-      }
 
    TR::Register* callAddrReg = cg->evaluate(pdAddressNode);
    TR::Register* precisionReg = cg->evaluate(pdOpNode->getChild(2));
@@ -3836,7 +3809,14 @@ J9::Z::TreeEvaluator::pd2lVariableEvaluator(TR::Node* node, TR::CodeGenerator* c
                                        node, cg->getCurrentBCDCHKHandlerLabel());
          }
 
-      generateVRRiInstruction(cg, conversionOp, node, returnReg, vPDReg, 1);      // set CC for overflow
+      uint8_t ignoreOverflowMask = 0;
+
+      if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement() && cg->getIgnoreDecimalOverflowException())
+         {
+         ignoreOverflowMask = 0x8;
+         }
+
+      generateVRRiInstruction(cg, conversionOp, node, returnReg, vPDReg, 1, ignoreOverflowMask);
       cg->stopUsingRegister(vPDReg);
       }
    else
@@ -3919,22 +3899,11 @@ J9::Z::TreeEvaluator::pd2lVariableEvaluator(TR::Node* node, TR::CodeGenerator* c
          }
       else
          {
-         generateRXYInstruction(cg, TR::InstOpCode::CVBG, node, returnReg, generateS390MemoryReference(*ZAPtargetMR, 0, cg));
+         generateRXInstruction(cg, TR::InstOpCode::CVBG, node, returnReg, generateS390MemoryReference(*ZAPtargetMR, 0, cg));
          }
 
       tempSR->setTemporaryReferenceCount(0);
       cg->stopUsingRegister(zapTargetBaseReg);
-      }
-
-   if (useRegPair)
-      {
-      generateRRInstruction(cg, TR::InstOpCode::LR,   node, LReg, returnReg);
-      generateRSInstruction(cg, TR::InstOpCode::SRLG, node, HReg, returnReg, 32);
-
-      // The result is now stored in the register pair, so we can discard the old register
-      cg->stopUsingRegister(returnReg);
-
-      returnReg = regPair;
       }
 
    cg->decReferenceCount(pdAddressNode);
@@ -3957,12 +3926,8 @@ J9::Z::TreeEvaluator::generateVectorPackedToBinaryConversion(TR::Node * node, TR
    {
    TR_ASSERT( op == TR::InstOpCode::VCVB || op == TR::InstOpCode::VCVBG,"unexpected opcode in gen vector pd2i\n");
    bool isPDToLong = (op == TR::InstOpCode::VCVBG);
-   bool isUseRegPair = isPDToLong && !(TR::Compiler->target.is64Bit() || cg->use64BitRegsOn32Bit());
 
-   TR::Register *rResultReg = (isPDToLong) ? cg->allocate64bitRegister() : cg->allocateRegister();
-   TR::Register *lowReg = NULL;
-   TR::Register *highReg = NULL;
-   TR::RegisterPair *rResultRegPair = NULL;
+   TR::Register *rResultReg = (isPDToLong) ? cg->allocateRegister() : cg->allocateRegister();
 
    // evaluate pdload
    TR::Node *pdValueNode = node->getFirstChild();
@@ -3978,21 +3943,15 @@ J9::Z::TreeEvaluator::generateVectorPackedToBinaryConversion(TR::Node * node, TR
                                     cg->getCurrentBCDCHKHandlerLabel());
       }
 
-   // Convert to signed binary of either 32-bit or 64-bit long
-   generateVRRiInstruction(cg, op, node, rResultReg, vPdValueReg, 0x1);
+   uint8_t ignoreOverflowMask = 0;
 
-   if (isUseRegPair)
+   if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement() && cg->getIgnoreDecimalOverflowException())
       {
-      lowReg = cg->allocateRegister();
-      highReg = cg->allocateRegister();
-      rResultRegPair = cg->allocateConsecutiveRegisterPair(lowReg, highReg);
-
-      generateRRInstruction(cg, TR::InstOpCode::LR, node, lowReg, rResultReg);
-      generateRSInstruction(cg, TR::InstOpCode::SRLG, node, highReg, rResultReg, 32);
-
-      cg->stopUsingRegister(rResultReg);
-      rResultReg = rResultRegPair;
+      ignoreOverflowMask = 0x8;
       }
+
+   // Convert to signed binary of either 32-bit or 64-bit long
+   generateVRRiInstruction(cg, op, node, rResultReg, vPdValueReg, 0x1, ignoreOverflowMask);
 
    cg->decReferenceCount(pdValueNode);
    node->setRegister(rResultReg);
@@ -4003,11 +3962,7 @@ TR::Register *
 J9::Z::TreeEvaluator::generatePackedToBinaryConversion(TR::Node * node, TR::InstOpCode::Mnemonic op, TR::CodeGenerator * cg)
    {
    TR_ASSERT( op == TR::InstOpCode::CVB || op == TR::InstOpCode::CVBG,"unexpected opcode in generatePackedToBinaryFixedConversion\n");
-   TR::Register *targetReg = (op == TR::InstOpCode::CVBG) ? cg->allocate64bitRegister() : cg->allocateRegister();
-   TR::RegisterPair *targetRegPair = NULL;
-   TR::Register *lowReg = NULL;
-   TR::Register *highReg = NULL;
-   bool isUseRegPair = (op == TR::InstOpCode::CVBG && !(TR::Compiler->target.is64Bit() || cg->use64BitRegsOn32Bit()));
+   TR::Register *targetReg = cg->allocateRegister();
 
    TR::Node *firstChild = node->getFirstChild();
    TR_PseudoRegister *firstReg = cg->evaluateBCDNode(firstChild);
@@ -4034,22 +3989,10 @@ J9::Z::TreeEvaluator::generatePackedToBinaryConversion(TR::Node * node, TR::Inst
    if (op == TR::InstOpCode::CVB)
       inst = generateRXInstruction(cg, op, node, targetReg, sourceMR);
    else
-      inst = generateRXYInstruction(cg, op, node, targetReg, sourceMR);
+      inst = generateRXInstruction(cg, op, node, targetReg, sourceMR);
 
    if (sourceMR->getStorageReference() == firstStorageReference)
       firstReg->setHasKnownValidSignAndData();
-
-   if (isUseRegPair)
-      {
-      lowReg = cg->allocateRegister();
-      highReg = cg->allocateRegister();
-      targetRegPair = cg->allocateConsecutiveRegisterPair(lowReg, highReg);
-
-      generateRRInstruction(cg, TR::InstOpCode::LR, node, lowReg, targetReg);
-      generateRSInstruction(cg, TR::InstOpCode::SRLG, node, highReg, targetReg, 32);
-      cg->stopUsingRegister(targetReg);
-      targetReg = targetRegPair;
-      }
 
    // Create a debug counter to track how often we execute the inline path
    cg->generateDebugCounter(TR::DebugCounter::debugCounterName(cg->comp(), "DAA/inline/(%s)/%p", cg->comp()->signature(), node), 1, TR::DebugCounter::Undetermined);
@@ -4130,21 +4073,7 @@ J9::Z::TreeEvaluator::generateBinaryToPackedConversion(TR::Node * node,
                                                                           cvdSize,
                                                                           false); // enforceSSLimits=false for CVD
 
-   bool isUseRegPair = !isI2PD && (firstReg->getRegisterPair() != NULL);
-
-   if (isUseRegPair)
-      {
-      traceMsg(comp, "Using regPair on l2pd\n");
-      TR::Register *tempReg = cg->allocate64bitRegister();
-      generateRSInstruction(cg, TR::InstOpCode::SLLG, node, tempReg, firstReg->getRegisterPair()->getHighOrder(), 32);
-      generateRRInstruction(cg, TR::InstOpCode::LR, node, tempReg, firstReg->getRegisterPair()->getLowOrder());
-      firstReg = tempReg;
-      }
-
-   if (isI2PD)
-      generateRXInstruction(cg, op, node, firstReg, targetMR);
-   else
-      generateRXYInstruction(cg, op, node, firstReg, targetMR);
+   generateRXInstruction(cg, op, node, firstReg, targetMR);
 
    targetReg->setIsInitialized();
 
@@ -4245,7 +4174,7 @@ J9::Z::TreeEvaluator::pdnegEvaluator(TR::Node * node, TR::CodeGenerator * cg)
 
       TR::Register *tempSign = cg->allocateRegister();
       TR::Register *targetSign = cg->allocateRegister();
-      TR::Register *targetData = cg->allocate64bitRegister();
+      TR::Register *targetData = cg->allocateRegister();
 
       generateRXInstruction(cg, TR::InstOpCode::LB, node, tempSign, reuseS390LeftAlignedMemoryReference(sourceMR, srcNode, srcReg->getStorageReference(), cg, 1));
 
@@ -6219,14 +6148,7 @@ J9::Z::TreeEvaluator::pdSetSignEvaluator(TR::Node *node, TR::CodeGenerator *cg)
    static char* isVectorBCDEnv = feGetEnv("TR_enableVectorBCD");
    if(TR::Compiler->target.cpu.getS390SupportsVectorPackedDecimalFacility() && !cg->comp()->getOption(TR_DisableVectorBCD) || isVectorBCDEnv)
       {
-      targetReg = vectorPerformSignOperationHelper(node,
-                                                   cg,
-                                                   false,       // change precision
-                                                   0,
-                                                   node->hasKnownOrAssumedCleanSign(),
-                                                   SignOperationType::setSign,
-                                                   false,       // signValidityCheck
-                                                   sign);
+      targetReg = vectorPerformSignOperationHelper(node, cg, false, 0, node->hasKnownOrAssumedCleanSign(), SignOperationType::setSign, false, true, sign);
       }
    else
       {
@@ -6526,37 +6448,16 @@ int32_t getAddSubComputedResultPrecision(TR::Node *node, TR::CodeGenerator * cg)
 TR::Register *
 J9::Z::TreeEvaluator::pdArithmeticVectorEvaluatorHelper(TR::Node * node, TR::InstOpCode::Mnemonic op, TR::CodeGenerator * cg)
    {
-   TR_ASSERT(node->getType().isAnyPacked(), "pd Arithmetic is only valid for Packed types");
-   //for VSDP/VMSP immediate field is shift amount.
-   //for VAP/VDP/VMP/VSP immediate field is precisioninformation,
-   int32_t immediateValue = 0;
+   int32_t immediateValue = node->getDecimalPrecision();
+   TR_ASSERT_FATAL((immediateValue >> 8) == 0, "Decimal precision (%d) exceeds 1 byte", immediateValue);
 
-   switch (op)
+   if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement() && cg->getIgnoreDecimalOverflowException())
       {
-      case TR::InstOpCode::VAP:
-      case TR::InstOpCode::VSP:
-      case TR::InstOpCode::VDP:
-      case TR::InstOpCode::VMP:
-      case TR::InstOpCode::VRP:
-         immediateValue = node->getDecimalPrecision();
-         break;
-      case TR::InstOpCode::VSDP:
-         immediateValue = node->getDecimalAdjust();
-         break;
-      case TR::InstOpCode::VMSP:
-         immediateValue = node->getDecimalAdjust() * -1;
-         break;
-      default:
-         TR_ASSERT(0,"Invalid Decimal arithmetic OpCode.");
-         break;
+      immediateValue |= 0x80;
       }
-
-   TR_ASSERT((immediateValue >> 8) == 0, "Decimal precision or adjustment value exceeds 1 byte");
-
    TR::Node* firstChild = node->getFirstChild();
    TR::Node* secondChild = node->getSecondChild();
 
-   // dec before evaluating the second child to avoid an unneeded clobber evaluate
    TR::Register* firstChildReg = cg->evaluate(firstChild);
    TR::Register* secondChildReg = cg->evaluate(secondChild);
 
@@ -6619,13 +6520,13 @@ J9::Z::TreeEvaluator::pdaddsubEvaluatorHelper(TR::Node * node, TR::InstOpCode::M
       traceMsg(comp,"\tcomputedResultPrecision %s nodePrec (%d %s %d) -- mayOverflow = %s\n",
          mayOverflow?">":"<=",computedResultPrecision,mayOverflow?">":"<=",node->getDecimalPrecision(),mayOverflow?"yes":"no");
 
-   TR::LabelSymbol * cflowRegionStart = NULL;
+   TR::LabelSymbol * cFlowRegionStart = NULL;
    TR::LabelSymbol * cflowRegionEnd = NULL;
    TR::RegisterDependencyConditions * deps = NULL;
    if (mayOverflow && produceOverflowMessage)
       {
-      cflowRegionStart   = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-      cflowRegionEnd     = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+      cFlowRegionStart   = generateLabelSymbol(cg);
+      cflowRegionEnd     = generateLabelSymbol(cg);
       deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 4, cg);
 
       if (destMR->getIndexRegister())
@@ -6637,12 +6538,11 @@ J9::Z::TreeEvaluator::pdaddsubEvaluatorHelper(TR::Node * node, TR::InstOpCode::M
       if (secondMR->getBaseRegister())
          deps->addPostConditionIfNotAlreadyInserted(secondMR->getBaseRegister(), TR::RealRegister::AssignAny);
 
-      cflowRegionStart->setStartInternalControlFlow();
-      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cflowRegionStart, deps);
+      generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cFlowRegionStart, deps);
+      cFlowRegionStart->setStartInternalControlFlow();
       }
 
-   TR::Instruction * cursor =
-      generateSS2Instruction(cg, op, node,
+   generateSS2Instruction(cg, op, node,
                              op1EncodingSize-1,
                              generateS390RightAlignedMemoryReference(*destMR, node, 0, cg),
                              secondReg->getSize()-1,
@@ -6666,13 +6566,13 @@ J9::Z::TreeEvaluator::pdaddsubEvaluatorHelper(TR::Node * node, TR::InstOpCode::M
          // would also overwrite the condition code in the isFoldedIf=true case
          TR_ASSERT(targetReg->isOddPrecision(),"expecting targetPrecision to be odd and not %d for addsubOverflowMessage\n",targetReg->getDecimalPrecision());
 
-         TR::LabelSymbol *oolEntryPoint = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-         TR::LabelSymbol *oolReturnPoint = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
+         TR::LabelSymbol *oolEntryPoint = generateLabelSymbol(cg);
+         TR::LabelSymbol *oolReturnPoint = generateLabelSymbol(cg);
 
          generateS390BranchInstruction(cg, TR::InstOpCode::BRC, TR::InstOpCode::COND_BO, node, oolEntryPoint);
 
-         cflowRegionEnd->setEndInternalControlFlow();
          generateS390LabelInstruction(cg, TR::InstOpCode::LABEL, node, cflowRegionEnd, deps);
+         cflowRegionEnd->setEndInternalControlFlow();
          }
       }
    else
@@ -6808,12 +6708,11 @@ J9::Z::TreeEvaluator::pdmulEvaluatorHelper(TR::Node * node, TR::CodeGenerator * 
    }
 
 /**
- * Handles pddiv, pdrem and pddivrem.
+ * Handles pddiv, and pdrem.
  */
 TR::Register *
 J9::Z::TreeEvaluator::pddivremEvaluator(TR::Node * node, TR::CodeGenerator * cg)
    {
-   cg->traceBCDEntry("pddivrem",node);
    cg->generateDebugCounter(TR::DebugCounter::debugCounterName(cg->comp(), "PD-Op/%s", node->getOpCode().getName()),
                             1, TR::DebugCounter::Cheap);
    TR::Register * reg = NULL;
@@ -6828,12 +6727,11 @@ J9::Z::TreeEvaluator::pddivremEvaluator(TR::Node * node, TR::CodeGenerator * cg)
       reg = pddivremEvaluatorHelper(node, cg);
       }
 
-   cg->traceBCDExit("pddivrem",node);
    return reg;
    }
 
 /**
- * Handles pddiv, pdrem and pddivrem. This is the vector evaluator helper function.
+ * Handles pddiv, and pdrem. This is the vector evaluator helper function.
  */
 TR::Register *
 J9::Z::TreeEvaluator::pddivremVectorEvaluatorHelper(TR::Node * node, TR::CodeGenerator * cg)
@@ -6848,12 +6746,8 @@ J9::Z::TreeEvaluator::pddivremVectorEvaluatorHelper(TR::Node * node, TR::CodeGen
       case TR::pdrem:
          opCode = TR::InstOpCode::VRP;
          break;
-      case TR::pddivrem:
-         // TR::divrem is not generated from DAA opetimization
-         TR_ASSERT(0, "Unexpected divrem opcode in pddivremVectorEvaluatorHelper");
-         break;
       default:
-         TR_ASSERT(0, "Unexpected opcode in pddivremVectorEvaluatorHelper");
+         TR_ASSERT(0, "Unexpected opcode in pddiv/remVectorEvaluatorHelper");
          break;
       }
 
@@ -6862,14 +6756,14 @@ J9::Z::TreeEvaluator::pddivremVectorEvaluatorHelper(TR::Node * node, TR::CodeGen
    }
 
 /**
- * Handles pddiv, pdrem and pddivrem. This is the non-vector evaluator helper function.
+ * Handles pddiv, and pdrem. This is the non-vector evaluator helper function.
  */
 TR::Register *
 J9::Z::TreeEvaluator::pddivremEvaluatorHelper(TR::Node * node, TR::CodeGenerator * cg)
    {
-   TR_ASSERT( node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem || node->getOpCodeValue() == TR::pddivrem,"pddivEvaluator only valid for pddiv/pdrem/pddivrem\n");
+   TR_ASSERT( node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem,
+              "pddivEvaluator only valid for pddiv/pdrem\n");
 
-   bool isFused = (node->getOpCodeValue() == TR::pddivrem);
    TR::Node *firstChild = node->getFirstChild();
    TR::Node *secondChild = node->getSecondChild();
    TR::Compilation *comp = cg->comp();
@@ -6897,26 +6791,11 @@ J9::Z::TreeEvaluator::pddivremEvaluatorHelper(TR::Node * node, TR::CodeGenerator
    int32_t divisorSize = 0;
    int32_t dividendSizeBumpForClear = 0;
    TR::MemoryReference *divisorMR = NULL;
-   if (isFused)
-      {
-      if (firstChild->getSize() > firstReg->getSize())
-         {
-         // if the first child is a pass through widening op then have to clear this range as well
-         dividendSizeBumpForClear = firstChild->getSize() - firstReg->getSize();
-         if (cg->traceBCDCodeGen())
-            traceMsg(cg->comp(),"\tfirstChildSize %d > firstRegSize %d in fused case : set dividendSizeBumpForClear = firstChildSize - firstRegSize = %d\n",
-               firstChild->getSize(),firstReg->getSize(),dividendSizeBumpForClear);
-         }
-      divisorMR = cg->materializeFullBCDValue(secondChild, secondReg, secondChild->getSize());
-      dividendPrecision = cg->getPDDivEncodedPrecision(node);
-      divisorSize = secondChild->getSize();
-      }
-   else
-      {
-      divisorMR = generateS390RightAlignedMemoryReference(secondChild, secondReg->getStorageReference(), cg);
-      dividendPrecision = cg->getPDDivEncodedPrecision(node, firstReg, secondReg);
-      divisorSize = secondReg->getSize();
-      }
+
+   divisorMR = generateS390RightAlignedMemoryReference(secondChild, secondReg->getStorageReference(), cg);
+   dividendPrecision = cg->getPDDivEncodedPrecision(node, firstReg, secondReg);
+   divisorSize = secondReg->getSize();
+
    targetReg->setDecimalPrecision(dividendPrecision);
    int32_t dividendSize = targetReg->getSize();
    TR_ASSERT( dividendSize <= node->getStorageReferenceSize(),"allocated symbol for pddiv/pdrem is too small\n");
@@ -6929,111 +6808,96 @@ J9::Z::TreeEvaluator::pddivremEvaluatorHelper(TR::Node * node, TR::CodeGenerator
    cg->correctBadSign(firstChild, firstReg, targetReg->getSize(), destMR);
    cg->correctBadSign(secondChild, secondReg, secondReg->getSize(), divisorMR);
 
-   TR::Instruction * cursor =
-      generateSS2Instruction(cg, TR::InstOpCode::DP, node,
-                             dividendSize-1,
-                             generateS390RightAlignedMemoryReference(*destMR, node, 0, cg),
-                             divisorSize-1,
-                             generateS390RightAlignedMemoryReference(*divisorMR, node, 0, cg));
+   generateSS2Instruction(cg, TR::InstOpCode::DP, node,
+                          dividendSize-1,
+                          generateS390RightAlignedMemoryReference(*destMR, node, 0, cg),
+                          divisorSize-1,
+                          generateS390RightAlignedMemoryReference(*divisorMR, node, 0, cg));
 
    targetReg->setHasKnownValidSignAndData();
 
-   if (isFused)
+   bool isRem = node->getOpCodeValue() == TR::pdrem;
+   int32_t deadBytes = 0;
+   bool isTruncation = false;
+   if (isRem)
       {
-      int32_t resultPrecision = TR::DataType::byteLengthToPackedDecimalPrecisionCeiling(dividendSize);
-      if (firstReg->isEvenPrecision())
-         {
-         if (cg->traceBCDCodeGen())
-            traceMsg(comp,"\tfirstRegPrec (%d) isEven=true so reduce resultPrecision %d->%d\n",firstReg->getDecimalPrecision(),resultPrecision,resultPrecision-1);
-         resultPrecision--;
-         }
-      targetReg->removeRangeOfZeroDigits(0, resultPrecision);
+      targetReg->setDecimalPrecision(secondReg->getDecimalPrecision());
+      isTruncation = node->getDecimalPrecision() < targetReg->getDecimalPrecision();
+      if (cg->traceBCDCodeGen())
+         traceMsg(comp,"\tpdrem: setting targetReg prec to divisor prec %d (node prec is %d), isTruncation=%s\n",
+            secondReg->getDecimalPrecision(),node->getDecimalPrecision(),isTruncation?"yes":"no");
+      targetReg->removeRangeOfZeroDigits(0, TR::DataType::byteLengthToPackedDecimalPrecisionCeiling(dividendSize));
       }
    else
       {
-      bool isRem = node->getOpCodeValue() == TR::pdrem;
-      int32_t deadBytes = 0;
-      bool isTruncation = false;
-      if (isRem)
+      deadBytes = divisorSize;
+      // computedQuotientPrecision is the size of the quotient as computed by the DP instruction.
+      // The actual returned node precision may be less.
+      int32_t computedQuotientPrecision = TR::DataType::byteLengthToPackedDecimalPrecisionCeiling(dividendSize - deadBytes);
+      if (firstReg->isEvenPrecision())
          {
-         targetReg->setDecimalPrecision(secondReg->getDecimalPrecision());
-         isTruncation = node->getDecimalPrecision() < targetReg->getDecimalPrecision();
          if (cg->traceBCDCodeGen())
-            traceMsg(comp,"\tpdrem: setting targetReg prec to divisor prec %d (node prec is %d), isTruncation=%s\n",
-               secondReg->getDecimalPrecision(),node->getDecimalPrecision(),isTruncation?"yes":"no");
-         targetReg->removeRangeOfZeroDigits(0, TR::DataType::byteLengthToPackedDecimalPrecisionCeiling(dividendSize));
+            traceMsg(comp,"\tfirstRegPrec (%d) isEven=true so reduce computedQuotientPrecision %d->%d\n",firstReg->getDecimalPrecision(),computedQuotientPrecision,computedQuotientPrecision-1);
+         computedQuotientPrecision--;
          }
-      else
+      isTruncation = node->getDecimalPrecision() < computedQuotientPrecision;
+      int32_t resultQuotientPrecision = std::min<int32_t>(computedQuotientPrecision, node->getDecimalPrecision());
+      targetReg->setDecimalPrecision(resultQuotientPrecision);
+      targetReg->addToRightAlignedDeadBytes(deadBytes);
+      if (cg->traceBCDCodeGen())
          {
-         deadBytes = divisorSize;
-         // computedQuotientPrecision is the size of the quotient as computed by the DP instruction.
-         // The actual returned node precision may be less.
-         int32_t computedQuotientPrecision = TR::DataType::byteLengthToPackedDecimalPrecisionCeiling(dividendSize - deadBytes);
-         if (firstReg->isEvenPrecision())
+         traceMsg(comp,"\tisDiv=true (pddivrem) : increment targetReg %s deadBytes %d -> %d (by the divisorSize)\n",
+            cg->getDebug()->getName(targetReg),targetReg->getRightAlignedDeadBytes()-deadBytes,targetReg->getRightAlignedDeadBytes());
+         traceMsg(comp,"\tsetting targetReg prec to min(computedQuotPrec, nodePrec) = min(%d, %d) = %d (size %d), isTruncation=%s\n",
+            computedQuotientPrecision,node->getDecimalPrecision(),resultQuotientPrecision,targetReg->getSize(),isTruncation?"yes":"no");
+         }
+      targetReg->removeRangeOfZeroDigits(0, computedQuotientPrecision);
+      }
+
+   if (!node->canSkipPadByteClearing() && targetReg->isEvenPrecision() && isTruncation)
+      {
+      TR_ASSERT( node->getStorageReferenceSize() >= dividendSize,"operand size should only shrink from original size\n");
+      int32_t leftMostByte = targetReg->getSize();
+      if (cg->traceBCDCodeGen())
+         traceMsg(comp,"\t%s: generating NI to clear top nibble with leftMostByte = targetReg->getSize() = %d\n",isRem ? "pdrem":"pddiv",targetReg->getSize());
+      cg->genZeroLeftMostPackedDigits(node, targetReg, leftMostByte, 1, generateS390RightAlignedMemoryReference(*destMR, node, -deadBytes, cg));
+      }
+
+   targetReg->setHasKnownPreferredSign();
+   if (isRem)
+      {
+      // sign of the remainder is the same as the sign of dividend (and then set to the preferred sign by the DP instruction)
+      if (firstReg->hasKnownOrAssumedSignCode())
+         {
+         targetReg->setKnownSignCode(firstReg->hasKnownOrAssumedPositiveSignCode() ? TR::DataType::getPreferredPlusCode() : TR::DataType::getPreferredMinusCode());
+         if (cg->traceBCDCodeGen())
+            traceMsg(comp,"\tpdrem: firstReg has the knownSignCode 0x%x so set targetReg sign code to the preferred sign 0x%x\n",
+               firstReg->getKnownOrAssumedSignCode(),targetReg->getKnownOrAssumedSignCode());
+         }
+      }
+   else
+      {
+      // when the sign of the divisor and divident are different then the quotient sign is negative otherwise if the signs are the same then the
+      // quotient sign is positive
+      if (firstReg->hasKnownOrAssumedSignCode() && secondReg->hasKnownOrAssumedSignCode())
+         {
+         bool dividendSignIsPositive = firstReg->hasKnownOrAssumedPositiveSignCode();
+         bool dividendSignIsNegative = !dividendSignIsPositive;
+         bool divisorSignIsPositive = secondReg->hasKnownOrAssumedPositiveSignCode();
+         bool divisorSignIsNegative = !divisorSignIsPositive;
+
+         if ((dividendSignIsPositive && divisorSignIsPositive) ||
+             (dividendSignIsNegative && divisorSignIsNegative))
             {
+            targetReg->setKnownSignCode(TR::DataType::getPreferredPlusCode());
             if (cg->traceBCDCodeGen())
-               traceMsg(comp,"\tfirstRegPrec (%d) isEven=true so reduce computedQuotientPrecision %d->%d\n",firstReg->getDecimalPrecision(),computedQuotientPrecision,computedQuotientPrecision-1);
-            computedQuotientPrecision--;
+               traceMsg(comp,"\tpddiv: dividendSign matches the divisorSign so set targetReg sign code to the preferred sign 0x%x\n", TR::DataType::getPreferredPlusCode());
             }
-         isTruncation = node->getDecimalPrecision() < computedQuotientPrecision;
-         int32_t resultQuotientPrecision = std::min<int32_t>(computedQuotientPrecision, node->getDecimalPrecision());
-         targetReg->setDecimalPrecision(resultQuotientPrecision);
-         targetReg->addToRightAlignedDeadBytes(deadBytes);
-         if (cg->traceBCDCodeGen())
+         else
             {
-            traceMsg(comp,"\tisDiv=true (pddivrem) : increment targetReg %s deadBytes %d -> %d (by the divisorSize)\n",
-               cg->getDebug()->getName(targetReg),targetReg->getRightAlignedDeadBytes()-deadBytes,targetReg->getRightAlignedDeadBytes());
-            traceMsg(comp,"\tsetting targetReg prec to min(computedQuotPrec, nodePrec) = min(%d, %d) = %d (size %d), isTruncation=%s\n",
-               computedQuotientPrecision,node->getDecimalPrecision(),resultQuotientPrecision,targetReg->getSize(),isTruncation?"yes":"no");
-            }
-         targetReg->removeRangeOfZeroDigits(0, computedQuotientPrecision);
-         }
-
-      if (!node->canSkipPadByteClearing() && targetReg->isEvenPrecision() && isTruncation)
-         {
-         TR_ASSERT( node->getStorageReferenceSize() >= dividendSize,"operand size should only shrink from original size\n");
-         int32_t leftMostByte = targetReg->getSize();
-         if (cg->traceBCDCodeGen())
-            traceMsg(comp,"\t%s: generating NI to clear top nibble with leftMostByte = targetReg->getSize() = %d\n",isRem ? "pdrem":"pddiv",targetReg->getSize());
-         cg->genZeroLeftMostPackedDigits(node, targetReg, leftMostByte, 1, generateS390RightAlignedMemoryReference(*destMR, node, -deadBytes, cg));
-         }
-
-      targetReg->setHasKnownPreferredSign();
-      if (isRem)
-         {
-         // sign of the remainder is the same as the sign of dividend (and then set to the preferred sign by the DP instruction)
-         if (firstReg->hasKnownOrAssumedSignCode())
-            {
-            targetReg->setKnownSignCode(firstReg->hasKnownOrAssumedPositiveSignCode() ? TR::DataType::getPreferredPlusCode() : TR::DataType::getPreferredMinusCode());
+            targetReg->setKnownSignCode(TR::DataType::getPreferredMinusCode());
             if (cg->traceBCDCodeGen())
-               traceMsg(comp,"\tpdrem: firstReg has the knownSignCode 0x%x so set targetReg sign code to the preferred sign 0x%x\n",
-                  firstReg->getKnownOrAssumedSignCode(),targetReg->getKnownOrAssumedSignCode());
-            }
-         }
-      else
-         {
-         // when the sign of the divisor and divident are different then the quotient sign is negative otherwise if the signs are the same then the
-         // quotient sign is positive
-         if (firstReg->hasKnownOrAssumedSignCode() && secondReg->hasKnownOrAssumedSignCode())
-            {
-            bool dividendSignIsPositive = firstReg->hasKnownOrAssumedPositiveSignCode();
-            bool dividendSignIsNegative = !dividendSignIsPositive;
-            bool divisorSignIsPositive = secondReg->hasKnownOrAssumedPositiveSignCode();
-            bool divisorSignIsNegative = !divisorSignIsPositive;
-
-            if ((dividendSignIsPositive && divisorSignIsPositive) ||
-                (dividendSignIsNegative && divisorSignIsNegative))
-               {
-               targetReg->setKnownSignCode(TR::DataType::getPreferredPlusCode());
-               if (cg->traceBCDCodeGen())
-                  traceMsg(comp,"\tpddiv: dividendSign matches the divisorSign so set targetReg sign code to the preferred sign 0x%x\n", TR::DataType::getPreferredPlusCode());
-               }
-            else
-               {
-               targetReg->setKnownSignCode(TR::DataType::getPreferredMinusCode());
-               if (cg->traceBCDCodeGen())
-                  traceMsg(comp,"\tpddiv: dividendSign does not match the divisorSign so set targetReg sign code to the preferred sign 0x%x\n", TR::DataType::getPreferredMinusCode());
-               }
+               traceMsg(comp,"\tpddiv: dividendSign does not match the divisorSign so set targetReg sign code to the preferred sign 0x%x\n", TR::DataType::getPreferredMinusCode());
             }
          }
       }
@@ -7272,23 +7136,33 @@ J9::Z::TreeEvaluator::pdModifyPrecisionEvaluator(TR::Node * node, TR::CodeGenera
       int32_t targetPrec = node->getDecimalPrecision();
       targetReg = cg->allocateRegister(TR_VRF);
 
-      int32_t imm = 0x0FFFF >> (TR_VECTOR_REGISTER_SIZE - TR::DataType::packedDecimalPrecisionToByteLength(targetPrec));
-      TR::Register* pdReg = cg->evaluate(node->getFirstChild());
-      TR::Register* maskReg = cg->allocateRegister(TR_VRF);
-      generateVRIaInstruction(cg, TR::InstOpCode::VGBM, node, maskReg, imm, 0);
-
-      if (targetPrec % 2 == 0)
+      if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement())
          {
-         TR::Register* shiftAmountReg = cg->allocateRegister(TR_VRF);
-         generateVRIaInstruction(cg, TR::InstOpCode::VREPI, node, shiftAmountReg, 4, 0);
-         generateVRRcInstruction(cg, TR::InstOpCode::VSRL, node, maskReg, maskReg, shiftAmountReg, 0, 0, 0);
-         cg->stopUsingRegister(shiftAmountReg);
+         // Overflow exceptions can be ignored for z15 vector packed decimal VRI-i,f,g and VRR-i instructions. Given
+         // this, VPSOP now becomes suitable for data truncations without incurring exceptions which eventually lead to
+         // performance degradations. This is usually used to truncate high nibble of an even precision PD.
+         targetReg = vectorPerformSignOperationHelper(node, cg, true, targetPrec, true, SignOperationType::maintain, false, false, 0, false, true);
          }
+      else
+         {
+         int32_t imm = 0x0FFFF >> (TR_VECTOR_REGISTER_SIZE - TR::DataType::packedDecimalPrecisionToByteLength(targetPrec));
+         TR::Register* pdReg = cg->evaluate(node->getFirstChild());
+         TR::Register* maskReg = cg->allocateRegister(TR_VRF);
+         generateVRIaInstruction(cg, TR::InstOpCode::VGBM, node, maskReg, imm, 0);
 
-      generateVRRcInstruction(cg, TR::InstOpCode::VN, node, targetReg, pdReg, maskReg, 0, 0, 0);
+         if (targetPrec % 2 == 0)
+            {
+            TR::Register* shiftAmountReg = cg->allocateRegister(TR_VRF);
+            generateVRIaInstruction(cg, TR::InstOpCode::VREPI, node, shiftAmountReg, 4, 0);
+            generateVRRcInstruction(cg, TR::InstOpCode::VSRL, node, maskReg, maskReg, shiftAmountReg, 0, 0, 0);
+            cg->stopUsingRegister(shiftAmountReg);
+            }
 
-      cg->stopUsingRegister(maskReg);
-      cg->decReferenceCount(node->getFirstChild());
+         generateVRRcInstruction(cg, TR::InstOpCode::VN, node, targetReg, pdReg, maskReg, 0, 0, 0);
+
+         cg->stopUsingRegister(maskReg);
+         cg->decReferenceCount(node->getFirstChild());
+         }
       }
    else
       {
@@ -7373,106 +7247,146 @@ J9::Z::TreeEvaluator::pdshiftEvaluatorHelper(TR::Node *node, TR::CodeGenerator *
 
    TR::MemoryReference* targetMR = generateS390RightAlignedMemoryReference(node, targetReg->getStorageReference(), cg);
    TR::MemoryReference* sourceMR = generateS390RightAlignedMemoryReference(srcNode, srcReg->getStorageReference(), cg);
+   TR_StorageReference* tmpStorageRef = NULL;
+   TR::MemoryReference* tmpMR = NULL;
 
-   bool isNeedExtraShift = false;
-   bool isSimpleCopy = false;
-
-   if(resultPrecision < srcPrecision)
+   if (cg->traceBCDCodeGen())
       {
-      if(resultPrecision % 2 == 0)
+      traceMsg(comp,"\tGen packed decimal shift: %s %p : shift by %d, roundAmount=%d, result Size=%d, precision %d, sourceSize=%d, precision %d\n",
+               node->getOpCode().getName(),
+               node,
+               shiftAmount,
+               roundAmount,
+               resultSize,
+               resultPrecision,
+               sourceSize,
+               srcNode->getDecimalPrecision());
+      }
+
+   if(shiftAmount == 0)
+      {
+      if (srcPrecision > resultPrecision)
          {
-         // MVC + SRP + ZAP + SRP
-         isNeedExtraShift = true;
-         shiftAmount += 1;
-         }
-      else
-         {
-         if(shiftAmount == 0)
+         /* Packed decimal narrrowing with exception handling:
+          *
+          * If the narrowing operation truncates non-zero digits (e.g. shift "123C" by 0 digts and keep 2 digits yields "23C")
+          * and the 'checkOverflow' parameter is true, the JIT'ed sequence should trigger HW exception and
+          * yield control to the Java code (via OOL call) so that overflow exceptions can be thrown.
+          * This is why PD arithmetic operations use 'pdshlOverflow' to perform data truncations
+          * instead of 'modifyPrecision'.
+          */
+
+         tmpStorageRef = TR_StorageReference::createTemporaryBasedStorageReference(sourceSize, comp);
+         tmpStorageRef->setTemporaryReferenceCount(1);
+         tmpMR = generateS390RightAlignedMemoryReference(node, tmpStorageRef, cg);
+
+         generateSS2Instruction(cg, TR::InstOpCode::ZAP, node,
+                                sourceSize - 1,
+                                generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
+                                sourceSize - 1,
+                                generateS390RightAlignedMemoryReference(*sourceMR, node, 0, cg));
+
+         shiftAmount = srcPrecision - resultPrecision;
+         if ((srcPrecision % 2) == 0)
             {
-            // ZAP
-            isSimpleCopy = true;
+            // Source being even precision means we need an extra left shift to get right of the source's highest nibble.
+            shiftAmount++;
             }
-         else
+
+         generateSS3Instruction(cg, TR::InstOpCode::SRP, node,
+                                sourceSize - 1,
+                                generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
+                                shiftAmount, roundAmount);
+
+         generateSS3Instruction(cg, TR::InstOpCode::SRP, node,
+                                sourceSize - 1,
+                                generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
+                                -1*shiftAmount, roundAmount);
+
+         generateSS2Instruction(cg, TR::InstOpCode::ZAP, node,
+                                resultSize - 1,
+                                generateS390RightAlignedMemoryReference(*targetMR, node, 0, cg),
+                                resultSize - 1,
+                                generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg));
+         }
+      else  // zero shift, copy or widen result
+         {
+         generateSS2Instruction(cg, TR::InstOpCode::ZAP, node,
+                                resultSize - 1,
+                                generateS390RightAlignedMemoryReference(*targetMR, node, 0, cg),
+                                sourceSize - 1,
+                                generateS390RightAlignedMemoryReference(*sourceMR, node, 0, cg));
+
+         // Top nibble cleaning if the PD widening or copying source precision is even
+         if ((srcPrecision % 2) == 0)
             {
-            // MVC + SRP + ZAP
+            cg->genZeroLeftMostPackedDigits(node, targetReg, sourceSize, 1,
+                                            generateS390RightAlignedMemoryReference(*targetMR, node, 0, cg));
             }
          }
       }
-   else
+   else // shiftAmount != 0
       {
-      if(shiftAmount == 0)
-         {
-         // ZAP
-         isSimpleCopy = true;
-         }
-      else
-         {
-         if(resultPrecision % 2 == 0)
-            {
-            // MVC + SRP + ZAP + SRP
-            isNeedExtraShift = true;
-            shiftAmount += 1;
-            }
-         else
-            {
-            // MVC + SRP + ZAP
-            }
-         }
-      }
+      int32_t tmpResultByteSize = sourceSize;
+      bool needExtraShift = false;
 
-   if(isSimpleCopy)
-      {
-      generateSS2Instruction(cg, TR::InstOpCode::ZAP, node,
-                             resultSize - 1,
-                             generateS390RightAlignedMemoryReference(*targetMR, node, 0, cg),
-                             sourceSize - 1,
-                             generateS390RightAlignedMemoryReference(*sourceMR, node, 0, cg));
-      }
-   else
-      {
-      if (cg->traceBCDCodeGen())
+      if (!isRightShift)
          {
-         traceMsg(comp,"\tGen MVC + SRP + ZAP for shift: %s %p : shift by %d, roundAmount=%d, \
-                                                                isNeedExtraShift=%d \
-                                                                result Size=%d, precision %d, \
-                                                                sourceSize=%d, precision %d\n",
-                  node->getOpCode().getName(),
-                  node,
-                  shiftAmount,
-                  roundAmount,
-                  isNeedExtraShift,
-                  resultSize,
-                  resultPrecision,
-                  sourceSize,
-                  srcNode->getDecimalPrecision());
+         if ((resultPrecision % 2) == 0)
+            {
+            /* An extra shift is needed when the left shift result's precision is even.
+             * For example, let the input be 00 12 3C (precision=5), shiftAmount=2 and let the result precision be 4.
+             * Shift this left by 2 should produce and expected result of 02 30 0C.
+             *
+             * To produce this expected result with HW exception, we need to
+             *
+             * 1. shift 00 12 3C by 3 (instead of 2) digits to produce an intermediate result 01 23 00 0C
+             * 2. use ZAP to truncate this to 23 00 0C. The purpose of this ZAP is to truncate the leading digits,
+             *    which may or may not be zero, and trigger HW exception in case they are non-zero so that the
+             *    DAA Java implementation gets a chance to thrown Java exceptions. In our example, the leading
+             *    '1' should not be silently discarded (using the NI instruction) because the API 'checkOverflow' parameter
+             *    may be true.
+             * 3. perform a right shift of 1 on the intermediate result to produce the expected result 02 30 0C.
+             *
+             */
+            shiftAmount++;
+            needExtraShift = true;
+            }
+
+         // Allocate enough temporary space to accomodate the amount of left shifts.
+         tmpResultByteSize += (shiftAmount + 1)/2;
          }
 
-      TR_StorageReference* tmpStorageRef = TR_StorageReference::createTemporaryBasedStorageReference(sourceSize, comp);
-      TR_PseudoRegister* tmpReg = cg->allocatePseudoRegister(node->getDataType());
-      tmpReg->setIsInitialized(true);
-      tmpReg->setSize(sourceSize);
-      tmpReg->setStorageReference(tmpStorageRef, node);
-      TR::MemoryReference* tmpMR = generateS390RightAlignedMemoryReference(node, tmpReg->getStorageReference(), cg);
+      tmpStorageRef = TR_StorageReference::createTemporaryBasedStorageReference(tmpResultByteSize, comp);
+      tmpStorageRef->setTemporaryReferenceCount(1);
+      tmpMR = generateS390RightAlignedMemoryReference(node, tmpStorageRef, cg);
+
+      // For this large tmp storage, we need to use XC+MVC to clear and move input into it.
+      if (!isRightShift)
+         {
+         generateSS1Instruction(cg, TR::InstOpCode::XC, node,
+                                tmpResultByteSize - 1,
+                                generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
+                                generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg));
+         }
 
       generateSS1Instruction(cg, TR::InstOpCode::MVC, node,
-                              sourceSize - 1,
-                              generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
-                              sourceMR);
+                             sourceSize - 1,
+                             generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
+                             sourceMR);
 
       generateSS3Instruction(cg, TR::InstOpCode::SRP, node,
-                             sourceSize - 1,
+                             tmpResultByteSize - 1,
                              generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg),
                              shiftAmount, roundAmount);
 
       generateSS2Instruction(cg, TR::InstOpCode::ZAP, node,
                              resultSize - 1,
                              generateS390RightAlignedMemoryReference(*targetMR, node, 0, cg),
-                             sourceSize - 1,
+                             tmpResultByteSize - 1,
                              generateS390RightAlignedMemoryReference(*tmpMR, node, 0, cg));
 
-      cg->stopUsingRegister(tmpReg);
-
-      if(isNeedExtraShift)
+      if (needExtraShift)
          {
          generateSS3Instruction(cg, TR::InstOpCode::SRP, node,
                                 resultSize - 1,
@@ -7487,16 +7401,6 @@ J9::Z::TreeEvaluator::pdshiftEvaluatorHelper(TR::Node *node, TR::CodeGenerator *
    return targetReg;
    }
 
-/**
- * Helper to create VPSOP instruction.
- *
- * @param setPrecision true if the VPSOP will set precision.
- * @param signedStatus true if this is this node is signed false if unsigned (0xF)
- * @param soType see enum SignOperationType
- * @param signValidityCheck checks if originalSignCode is a valid sign
- * @param sign sign to set to. (0xA,0xC positive) (0xB,0xD negative) (0xF unsigned)
- * @param setConditionCode determines if this instruction sets ConditionCode or not. (by default this is false)
- */
 TR::Register*
 J9::Z::TreeEvaluator::vectorPerformSignOperationHelper(TR::Node *node,
                                                        TR::CodeGenerator *cg,
@@ -7505,26 +7409,35 @@ J9::Z::TreeEvaluator::vectorPerformSignOperationHelper(TR::Node *node,
                                                        bool signedStatus,
                                                        SignOperationType signOpType,
                                                        bool signValidityCheck,
+                                                       bool digitValidityCheck,
                                                        int32_t sign,
-                                                       bool setConditionCode)
+                                                       bool setConditionCode,
+                                                       bool ignoreDecimalOverflow)
    {
-   TR::Register *targetReg = NULL;
+   TR::Register *targetReg = cg->allocateRegister(TR_VRF);
    TR::Node *pdNode = node->getFirstChild();
 
    TR::Register *childReg = cg->evaluate(pdNode);
-   targetReg = cg->allocateRegister(TR_VRF);
 
    int32_t numPrecisionDigits = setPrecision ? precision : TR_MAX_INPUT_PACKED_DECIMAL_PRECISION;
-   if(numPrecisionDigits > TR_MAX_INPUT_PACKED_DECIMAL_PRECISION)
+   if (numPrecisionDigits > TR_MAX_INPUT_PACKED_DECIMAL_PRECISION)
       {
       numPrecisionDigits = TR_MAX_INPUT_PACKED_DECIMAL_PRECISION;
       }
 
-   uint8_t constImm4 = signOpType << 2; //bit 4-5 Sign Operation, 6 Positive Sign code, 7 Sign validation on V2
+   uint8_t constImm3 = numPrecisionDigits;
 
-   if(signOpType == SignOperationType::setSign)
+   if (ignoreDecimalOverflow)
       {
-      switch(sign)
+      constImm3 |= 0x80;
+      }
+
+   // Bit 4-5 Sign Operation, 6 Positive Sign code, 7 Sign validation on V2
+   uint8_t constImm4 = signOpType << 2; 
+
+   if (signOpType == SignOperationType::setSign)
+      {
+      switch (sign)
          {
          case TR_PREFERRED_PLUS_CODE:
          case TR_ALTERNATE_PLUS_CODE:
@@ -7535,16 +7448,21 @@ J9::Z::TreeEvaluator::vectorPerformSignOperationHelper(TR::Node *node,
          case TR_ALTERNATE_MINUS_CODE:
             break;
          default:
-            TR_ASSERT(0, "Sign code 0x%x is invalid", sign);
+            TR_ASSERT_FATAL(false, "Packed Decimal sign code 0x%x is invalid", sign);
             break;
          }
       }
 
-   constImm4 |= (signedStatus ? 0x0 : 0x2 ); //if signedStatus is true it means signed so use 0xC instead of 0xF
+   // If signedStatus is true it means signed so use 0xC instead of 0xF
+   constImm4 |= (signedStatus ? 0x0 : 0x2 );
    constImm4 |= (signValidityCheck ? 0x1 : 0x0);
-   //current use of pdclean does not want to modifyprecision or set condition code.
-   //todo: we can probably come up with more complex optimization that will collapse modify precision and setsign/pdclean to one instruction.
-   generateVRIgInstruction(cg, TR::InstOpCode::VPSOP, node, targetReg, childReg, numPrecisionDigits, constImm4, setConditionCode);
+   constImm4 |= (digitValidityCheck ? 0x0 : 0x80);
+
+   // Current use of TR::pdclean does not want to modifyprecision or set condition code.
+   // TODO: We can probably come up with more complex optimization that will collapse modify precision and TR::setsign
+   // or TR::pdclean to one instruction.
+   generateVRIgInstruction(cg, TR::InstOpCode::VPSOP, node, targetReg, childReg, constImm3, constImm4, setConditionCode);
+
    node->setRegister(targetReg);
    cg->decReferenceCount(pdNode);
    return targetReg;
@@ -7563,14 +7481,20 @@ J9::Z::TreeEvaluator::generateVectorBinaryToPackedConversion(TR::Node * node, TR
 
    if (isUseRegPair)
       {
-      TR::Register *tempReg = cg->allocate64bitRegister();
+      TR::Register *tempReg = cg->allocateRegister();
       generateRSInstruction(cg, TR::InstOpCode::SLLG, node, tempReg, sourceReg->getRegisterPair()->getHighOrder(), 32);
       generateRRInstruction(cg, TR::InstOpCode::LR, node, tempReg, sourceReg->getRegisterPair()->getLowOrder());
       sourceReg = tempReg;
       }
 
-   uint8_t precision = node->getDecimalPrecision();
-   generateVRIiInstruction(cg, op, node, vTargetReg, sourceReg, precision, 0x1);
+   uint8_t decimalPrecision = node->getDecimalPrecision();
+
+   if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement() && cg->getIgnoreDecimalOverflowException())
+      {
+      decimalPrecision |= 0x80;
+      }
+
+   generateVRIiInstruction(cg, op, node, vTargetReg, sourceReg, decimalPrecision, 0x1);
 
    if (isUseRegPair)
       {
@@ -7592,25 +7516,30 @@ J9::Z::TreeEvaluator::pdshlVectorEvaluatorHelper(TR::Node *node, TR::CodeGenerat
    TR_ASSERT(shiftAmountNode->getOpCode().isLoadConst() && shiftAmountNode->getOpCode().getSize() <= 4,
                "expecting a <= 4 size integral constant PD shift amount\n");
 
-   // If this is a pdshlOverflow with i2pd under it, the i2pd vector instruction (VCVD/VCVDG) will
+   // If this is a pdshlOverflow with i2pd and other pd-arithmetic operations under it, these vector instructions will
    // truncate the resulting PD by the amount specified by 'decimalPrecision'. Therefore, we can
    // skip the shift and just return i2pd results.
    bool isSkipShift = node->getOpCodeValue() == TR::pdshlOverflow &&
            (firstChild->getOpCodeValue() == TR::i2pd ||
-            firstChild->getOpCodeValue() == TR::l2pd) &&
+            firstChild->getOpCodeValue() == TR::l2pd ||
+            firstChild->getOpCodeValue() == TR::pdadd ||
+            firstChild->getOpCodeValue() == TR::pdsub ||
+            firstChild->getOpCodeValue() == TR::pdmul ||
+            firstChild->getOpCodeValue() == TR::pddiv ||
+            firstChild->getOpCodeValue() == TR::pdrem) &&
            firstChild->isSingleRefUnevaluated();
 
    int32_t shiftAmount = (int32_t)shiftAmountNode->get64bitIntegralValue();
    uint8_t decimalPrecision = node->getDecimalPrecision();
 
-   if(isSkipShift)
+   if (isSkipShift)
       {
       firstChild->setDecimalPrecision(decimalPrecision);
       }
 
    TR::Register * sourceReg = cg->evaluate(firstChild);
 
-   if(isSkipShift)
+   if (isSkipShift)
       {
       // Passthrough. Assign register to node before decrementing refCount of the firstChild
       // to avoid killing this live register
@@ -7618,18 +7547,15 @@ J9::Z::TreeEvaluator::pdshlVectorEvaluatorHelper(TR::Node *node, TR::CodeGenerat
       }
    else
       {
-      TR_ASSERT((shiftAmount >= -32 && shiftAmount <= 31),"TR::pdshl/r shift amount %d not in range [-32, 31]\n", shiftAmount);
-
-      // VSRP mask 5: bit 0, force source positive (P2).
-      //              bit 1, no used, set to 0
-      //              bit 2, force target positive (P1) use alternative positive sign 0xF (Unsigned)
-      //              bit 3, set condition code
-      //
-      // Default mask5 to 0x1 to set condition code
-      uint8_t mask5 = 0x1;
+      TR_ASSERT_FATAL((shiftAmount >= -32 && shiftAmount <= 31), "TR::pdshl/r shift amount (%d )not in range [-32, 31]", shiftAmount);
+      
+      if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement() && cg->getIgnoreDecimalOverflowException())
+         {
+         decimalPrecision |= 0x80;
+         }
 
       targetReg = cg->allocateRegister(TR_VRF);
-      generateVRIgInstruction(cg, TR::InstOpCode::VSRP, node, targetReg, sourceReg, decimalPrecision, shiftAmount, mask5);
+      generateVRIgInstruction(cg, TR::InstOpCode::VSRP, node, targetReg, sourceReg, decimalPrecision, shiftAmount, 0x01);
       }
 
    node->setRegister(targetReg);
@@ -7666,12 +7592,15 @@ J9::Z::TreeEvaluator::pdshrVectorEvaluatorHelper(TR::Node *node, TR::CodeGenerat
    // Get PD value
    TR::Register * pdValueReg = cg->evaluate(srcNode);
    TR::Register* targetReg = cg->allocateRegister(TR_VRF);
+   uint8_t decimalPrecision = node->getDecimalPrecision();
+
+   if (TR::Compiler->target.cpu.getS390SupportsVectorPDEnhancement() && cg->getIgnoreDecimalOverflowException())
+      {
+      decimalPrecision |= 0x80;
+      }
 
    // Perform shift and set condition code on overflows
-   generateVRIgInstruction(cg, TR::InstOpCode::VSRP, node,
-                           targetReg, pdValueReg,
-                           node->getDecimalPrecision(),
-                           shiftAmount, 0x1);
+   generateVRIgInstruction(cg, TR::InstOpCode::VSRP, node, targetReg, pdValueReg, decimalPrecision, shiftAmount, 0x1);
 
    node->setRegister(targetReg);
 

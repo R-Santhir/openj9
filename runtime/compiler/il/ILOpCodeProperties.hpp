@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,7 +23,7 @@
 #ifndef J9_OPCODEPROPERTIES_INCL
 #define J9_OPCODEPROPERTIES_INCL
 
-#include "omr/compiler/il/ILOpCodeProperties.hpp"
+#include "il/OMRILOpCodeProperties.hpp"
 
 // J9 specific opcode properties
 
@@ -5665,38 +5665,6 @@
    },
 
    {
-   /* .opcode               = */ TR::pdshrPreserveSign,
-   /* .name                 = */ "pdshrPreserveSign",
-   /* .properties1          = */ ILProp1::RightShift,
-   /* .properties2          = */ ILProp2::ValueNumberShare | ILProp2::SupportedForPRE,
-   /* .properties3          = */ ILProp3::LikeUse,
-   /* .properties4          = */ ILProp4::PreserveSign | ILProp4::BinaryCodedDecimalOp | ILProp4::CanHaveStorageReferenceHint,
-   /* .dataType             = */ TR::PackedDecimal,
-   /* .typeProperties       = */ ILTypeProp::PackedDecimal,
-   /* .childProperties      = */ TWO_SAME_CHILD(TR::PackedDecimal),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
-   /* .opcode               = */ TR::pdshlPreserveSign,
-   /* .name                 = */ "pdshlPreserveSign",
-   /* .properties1          = */ ILProp1::LeftShift,
-   /* .properties2          = */ ILProp2::ValueNumberShare | ILProp2::SupportedForPRE,
-   /* .properties3          = */ ILProp3::LikeUse,
-   /* .properties4          = */ ILProp4::PreserveSign | ILProp4::BinaryCodedDecimalOp | ILProp4::CanHaveStorageReferenceHint,
-   /* .dataType             = */ TR::PackedDecimal,
-   /* .typeProperties       = */ ILTypeProp::PackedDecimal,
-   /* .childProperties      = */ TWO_SAME_CHILD(TR::PackedDecimal),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
    /* .opcode               = */ TR::pdshlOverflow,
    /* .name                 = */ "pdshlOverflow",
    /* .properties1          = */ ILProp1::LeftShift,
@@ -6049,38 +6017,6 @@
    },
 
    {
-   /* .opcode               = */ TR::pdcheck,
-   /* .name                 = */ "pdcheck",
-   /* .properties1          = */ 0,
-   /* .properties2          = */ ILProp2::ValueNumberShare | ILProp2::SupportedForPRE,
-   /* .properties3          = */ 0,
-   /* .properties4          = */ ILProp4::BinaryCodedDecimalOp,
-   /* .dataType             = */ TR::Int32,
-   /* .typeProperties       = */ ILTypeProp::Size_4 | ILTypeProp::Integer,
-   /* .childProperties      = */ ONE_CHILD(TR::PackedDecimal),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
-   /* .opcode               = */ TR::pdfix,
-   /* .name                 = */ "pdfix",
-   /* .properties1          = */ 0,
-   /* .properties2          = */ ILProp2::ValueNumberShare | ILProp2::SupportedForPRE,
-   /* .properties3          = */ 0,
-   /* .properties4          = */ ILProp4::BinaryCodedDecimalOp | ILProp4::CanHaveStorageReferenceHint,
-   /* .dataType             = */ TR::PackedDecimal,
-   /* .typeProperties       = */ ILTypeProp::PackedDecimal,
-   /* .childProperties      = */ ONE_CHILD(TR::PackedDecimal),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
    /* .opcode               = */ TR::pdclean,
    /* .name                 = */ "pdclean",
    /* .properties1          = */ 0,
@@ -6090,38 +6026,6 @@
    /* .dataType             = */ TR::PackedDecimal,
    /* .typeProperties       = */ ILTypeProp::PackedDecimal,
    /* .childProperties      = */ ONE_CHILD(TR::PackedDecimal),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
-   /* .opcode               = */ TR::pdexp,
-   /* .name                 = */ "pdexp",
-   /* .properties1          = */ 0,
-   /* .properties2          = */ ILProp2::ValueNumberShare | ILProp2::SupportedForPRE,
-   /* .properties3          = */ ILProp3::SignedExponentiation,
-   /* .properties4          = */ ILProp4::BinaryCodedDecimalOp | ILProp4::CanHaveStorageReferenceHint | ILProp4::TrackLineNo,
-   /* .dataType             = */ TR::PackedDecimal,
-   /* .typeProperties       = */ ILTypeProp::PackedDecimal,
-   /* .childProperties      = */ TWO_CHILD(TR::PackedDecimal, ILChildProp::UnspecifiedChildType),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
-   /* .opcode               = */ TR::pduexp,
-   /* .name                 = */ "pduexp",
-   /* .properties1          = */ 0,
-   /* .properties2          = */ ILProp2::ValueNumberShare | ILProp2::SupportedForPRE,
-   /* .properties3          = */ ILProp3::UnsignedExponentiation,
-   /* .properties4          = */ ILProp4::BinaryCodedDecimalOp | ILProp4::CanHaveStorageReferenceHint,
-   /* .dataType             = */ TR::PackedDecimal,
-   /* .typeProperties       = */ ILTypeProp::PackedDecimal,
-   /* .childProperties      = */ TWO_CHILD(TR::PackedDecimal, ILChildProp::UnspecifiedChildType),
    /* .swapChildrenOpCode   = */ TR::BadILOp,
    /* .reverseBranchOpCode  = */ TR::BadILOp,
    /* .booleanCompareOpCode = */ TR::BadILOp,
@@ -6170,22 +6074,6 @@
    /* .dataType             = */ TR::PackedDecimal,
    /* .typeProperties       = */ ILTypeProp::PackedDecimal,
    /* .childProperties      = */ ONE_CHILD(TR::PackedDecimal),
-   /* .swapChildrenOpCode   = */ TR::BadILOp,
-   /* .reverseBranchOpCode  = */ TR::BadILOp,
-   /* .booleanCompareOpCode = */ TR::BadILOp,
-   /* .ifCompareOpCode      = */ TR::BadILOp,
-   },
-
-   {
-   /* .opcode               = */ TR::pddivrem,
-   /* .name                 = */ "pddivrem",
-   /* .properties1          = */ 0,
-   /* .properties2          = */ ILProp2::ValueNumberShare,
-   /* .properties3          = */ 0,
-   /* .properties4          = */ ILProp4::BinaryCodedDecimalOp | ILProp4::CanHaveStorageReferenceHint,
-   /* .dataType             = */ TR::PackedDecimal,
-   /* .typeProperties       = */ ILTypeProp::PackedDecimal,
-   /* .childProperties      = */ TWO_SAME_CHILD(TR::PackedDecimal),
    /* .swapChildrenOpCode   = */ TR::BadILOp,
    /* .reverseBranchOpCode  = */ TR::BadILOp,
    /* .booleanCompareOpCode = */ TR::BadILOp,

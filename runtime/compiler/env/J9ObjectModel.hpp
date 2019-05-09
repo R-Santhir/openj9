@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -48,8 +48,14 @@ class ObjectModel : public OMR::ObjectModelConnector
 public:
 
    ObjectModel() :
-         OMR::ObjectModelConnector(),
-      _usesDiscontiguousArraylets(false) {}
+      OMR::ObjectModelConnector(),
+      _usesDiscontiguousArraylets(false),
+      _arrayLetLeafSize(0),
+      _arrayLetLeafLogSize(0),
+      _readBarrierType(gc_modron_readbar_none),
+      _writeBarrierType(gc_modron_wrtbar_none),
+      _shouldReplaceGuardedLoadWithSoftwareReadBarrier(false)
+   {}
 
    void initialize();
 
@@ -107,32 +113,31 @@ public:
    uintptrj_t offsetOfIndexableSizeField();
 
    /**
-   * \brief: Determines whether the code generator should generate read barriers for loads of object references from the heap
-   *
-   * Instead of reaching into the VM each time, for the performance' sake,
-   * this value is cached here once at the JIT startup
-   * (since it does not change throughout the lifetime of the JIT).
-   *
-   * \return
-   *     true if concurrent scavenge of objects during garbage collection is enabled.
+   * @brief: Returns the read barrier type of VM's GC
    */
-   bool shouldGenerateReadBarriersForFieldLoads();
+   MM_GCReadBarrierType  readBarrierType()  { return _readBarrierType;  }
+
+   /**
+   * @brief: Returns the write barrier type of VM's GC
+   */
+   MM_GCWriteBarrierType writeBarrierType() { return _writeBarrierType; }
 
    /**
     * \brief Determine whether to replace guarded loads with software read barrier sequence
     *
     * \return
-    *     true if debug gc option -XXgc:softwareEvacuateReadBarrier is used
+    *     true if debug gc option -XXgc:softwareRangeCheckReadBarrier is used
     */
-   bool shouldReplaceGuardedLoadWithSoftwareReadBarrier();
+   bool shouldReplaceGuardedLoadWithSoftwareReadBarrier() { return _shouldReplaceGuardedLoadWithSoftwareReadBarrier; }
 
 private:
 
-   bool _usesDiscontiguousArraylets;
-   int32_t _arrayLetLeafSize;
-   int32_t _arrayLetLeafLogSize;
-   bool _shouldGenerateReadBarriersForFieldLoads;
-   bool _shouldReplaceGuardedLoadWithSoftwareReadBarrier;
+   bool                  _usesDiscontiguousArraylets;
+   int32_t               _arrayLetLeafSize;
+   int32_t               _arrayLetLeafLogSize;
+   MM_GCReadBarrierType  _readBarrierType;
+   MM_GCWriteBarrierType _writeBarrierType;
+   bool                  _shouldReplaceGuardedLoadWithSoftwareReadBarrier;
    };
 
 }

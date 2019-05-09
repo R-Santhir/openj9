@@ -25,14 +25,18 @@ include(phelpers.m4)
 define({CSECT_NAME},{c_cInterpreter})
 
 START_PROC(c_cInterpreter)
+ifdef({ASM_J9VM_ENV_DATA64},{
+ifdef({ASM_J9VM_ENV_LITTLE_ENDIAN},{
+	addis r2,r12,(.TOC.-c_cInterpreter)@ha
+	addi r2,r2,(.TOC.-c_cInterpreter)@l
+	.localentry c_cInterpreter,.-c_cInterpreter
+}) dnl ASM_J9VM_ENV_LITTLE_ENDIAN
+}) dnl ASM_J9VM_ENV_DATA64
 	staddru r1,-CINTERP_STACK_SIZE(r1)
 	mflr r0
 	staddr r0,LR_SAVE_OFFSET(r1)
 	mfcr r0
 	staddr r0,CR_SAVE_OFFSET(r1)
-ifdef({TOC_SAVE_OFFSET},{
-	staddr r2,TOC_SAVE_OFFSET(r1)
-})
 ifdef({SAVE_R13},{
 	SAVE_GPR(13)
 })
@@ -78,7 +82,9 @@ ifdef({SAVE_R13},{
 	staddr r0,J9TR_ELS_jitGlobalStorageBase(r4)
 	addi r0,r1,JIT_FPR_SAVE_OFFSET(0)
 	staddr r0,J9TR_ELS_jitFPRegisterStorageBase(r4)
+	li r3,-1
 ifdef({ASM_J9VM_ENV_DATA64},{
+	staddr r3,JIT_GPR_SAVE_SLOT(17)
 	laddr r3,J9TR_VMThread_javaVM(J9VMTHREAD)
 	laddr r3,J9TR_JavaVMJitConfig(r3)
 	cmpliaddr r3,0
@@ -86,11 +92,10 @@ ifdef({ASM_J9VM_ENV_DATA64},{
 	laddr r3,J9TR_JitConfig_pseudoTOC(r3)
 	staddr r3,JIT_GPR_SAVE_SLOT(16)
 .L_noJIT:
-})
-	li r3,-1
-	staddr r3,JIT_GPR_SAVE_SLOT(17)
+},{ dnl ASM_J9VM_ENV_DATA64
+	staddr r3,JIT_GPR_SAVE_SLOT(15)
+}) dnl ASM_J9VM_ENV_DATA64
 .L_cInterpOnCStack:
-	INIT_GOT(vmTOC)
 	mr r3,J9VMTHREAD
 	laddr FUNC_PTR,J9TR_VMThread_javaVM(J9VMTHREAD)
 	laddr FUNC_PTR,J9TR_JavaVM_bytecodeLoop(FUNC_PTR)

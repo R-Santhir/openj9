@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -32,7 +32,6 @@ namespace J9 { typedef CodeCache CodeCacheConnector; }
 
 
 #include "env/jittypes.h"
-//#include "runtime/CodeCacheMemorySegment.hpp"
 #include "runtime/OMRCodeCache.hpp"
 #include "env/IO.hpp"
 #include "env/VMJ9.h"
@@ -56,11 +55,6 @@ class OMR_EXTENSIBLE CodeCache : public OMR::CodeCacheConnector
 public:
    CodeCache() { }
 
-   bool                       initialize(TR::CodeCacheManager *manager,
-                                         TR::CodeCacheMemorySegment *codeCacheSegment,
-                                         size_t codeCacheSizeAllocated,
-                                         OMR::CodeCacheHashEntrySlab *hashEntrySlab);
-
    /**
     * @brief Initialize an allocated CodeCache object
     *
@@ -75,8 +69,6 @@ public:
                                          size_t allocatedCodeCacheSizeInBytes);
 
    static TR::CodeCache *     allocate(TR::CodeCacheManager *cacheManager, size_t segmentSize, int32_t reservingCompThreadID);
-
-   bool                       resizeCodeMemory(void *memoryBlock, size_t newSize);
 
    // Code Cache Reclamation
    void                       addFreeBlock(OMR::FaintCacheBlock *block);

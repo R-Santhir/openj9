@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,6 +23,7 @@
 #include "codegen/AMD64J9SystemLinkage.hpp"
 
 #include "codegen/CodeGenerator.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "env/jittypes.h"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
@@ -99,7 +100,7 @@ TR::Register *TR::AMD64J9SystemLinkage::buildDirectDispatch(
    TR::Register *returnReg;
 
    TR::X86VFPDedicateInstruction *vfpDedicateInstruction =
-      generateVFPDedicateInstruction(machine()->getX86RealRegister(getProperties().getIntegerScratchRegister(0)), callNode, cg());
+      generateVFPDedicateInstruction(machine()->getRealRegister(getProperties().getIntegerScratchRegister(0)), callNode, cg());
 
    TR::J9LinkageUtils::switchToMachineCStack(callNode, cg());
 
@@ -161,7 +162,7 @@ TR::Register *TR::AMD64J9SystemLinkage::buildDirectDispatch(
       {
       // adjust sp is neccessary, because for java, the stack is native stack, not java stack.
       // we need to restore native stack sp properly to the correct place.
-      TR::RealRegister *espReal = machine()->getX86RealRegister(TR::RealRegister::esp);
+      TR::RealRegister *espReal = machine()->getRealRegister(TR::RealRegister::esp);
       TR_X86OpCodes op = (memoryArgSize >= -128 && memoryArgSize <= 127) ? ADDRegImms() : ADDRegImm4();
       generateRegImmInstruction(op, callNode, espReal, memoryArgSize, cg());
       }

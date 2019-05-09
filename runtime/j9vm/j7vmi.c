@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2018 IBM Corp. and others
+ * Copyright (c) 2002, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -245,8 +245,7 @@ JVM_ArrayCopy(JNIEnv *env, jclass ignored, jobject src, jint src_pos, jobject ds
 			vmFuncs->setCurrentException(currentThread, J9VMCONSTANTPOOL_JAVALANGARRAYSTOREEXCEPTION, NULL);
 		}
 	}
-
-	return;
+	vmFuncs->internalExitVMToJNI(currentThread);
 }
 
 
@@ -1530,9 +1529,9 @@ JVM_InitProperties(JNIEnv* env, jobject properties)
 	 * This is only required by Java 11 raw builds.
 	 * This method is not invoked by other Java levels.
 	 */
-#if !defined(J9VM_JCL_SE11)
+#if JAVA_SPEC_VERSION < 11
 	assert(!"JVM_InitProperties should not be called!");
-#endif /* J9VM_JCL_SE11 */
+#endif /* JAVA_SPEC_VERSION < 11 */
 	return properties;
 }
 
@@ -1660,8 +1659,12 @@ JVM_IsSupportedJNIVersion(jint version)
 	case JNI_VERSION_1_4:
 	case JNI_VERSION_1_6:
 	case JNI_VERSION_1_8:
+#if JAVA_SPEC_VERSION >= 9
 	case JNI_VERSION_9:
+#endif /* JAVA_SPEC_VERSION >= 9 */
+#if JAVA_SPEC_VERSION >= 10
 	case JNI_VERSION_10:
+#endif /* JAVA_SPEC_VERSION >= 10 */
 		return JNI_TRUE;
 
 	default:
@@ -2369,11 +2372,11 @@ JVM_SocketShutdown(jint fd, jint howto)
 
 #if defined(J9UNIX)
 	retVal = shutdown(fd, howto);
-#elif defined(WIN32)
+#elif defined(WIN32) /* defined(J9UNIX) */
 	retVal = closesocket(fd);
-#else
+#else /* defined(J9UNIX) */
 	assert(!"JVM_SocketShutdown() stubbed!");
-#endif
+#endif /* defined(J9UNIX) */
 	
 	return retVal;
 }
@@ -2710,7 +2713,7 @@ JVM_DefineClassWithSourceCond(jint arg0, jint arg1, jint arg2, jint arg3, jint a
 jobject JNICALL
 JVM_EnqueueOperation(jint arg0, jint arg1, jint arg2, jint arg3, jint arg4)
 {
-	assert(!"JVM_EnqueueOperation() stubbed!");
+	assert(!"A HotSpot VM Attach API is attempting to connect to an OpenJ9 VM. This is not supported.");
 	return NULL;
 }
 

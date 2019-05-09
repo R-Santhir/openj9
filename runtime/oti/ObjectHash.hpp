@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2017 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -53,11 +53,11 @@ private:
 			oldFlags = *flagsPtr;
 			newFlags = oldFlags | OBJECT_HEADER_HAS_BEEN_HASHED_IN_CLASS;
 		}
-#if defined(J9VM_INTERP_COMPRESSED_OBJECT_HEADER)
+#if defined(OMR_GC_COMPRESSED_POINTERS)
 		while (oldFlags != VM_AtomicSupport::lockCompareExchangeU32(flagsPtr, oldFlags, newFlags));
-#else /* defined(J9VM_INTERP_COMPRESSED_OBJECT_HEADER) */
+#else /* defined(OMR_GC_COMPRESSED_POINTERS) */
 		while (oldFlags != VM_AtomicSupport::lockCompareExchange(flagsPtr, (UDATA)oldFlags, (UDATA)newFlags));
-#endif /* defined(J9VM_INTERP_COMPRESSED_OBJECT_HEADER) */
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) */
 	}
 
 	static VMINLINE U_32
@@ -173,6 +173,11 @@ public:
 		hashValue ^= hashValue >> 13;
 		hashValue *= MUL2;
 		hashValue ^= hashValue >> 16;
+
+		/* If forcing positive hash codes, AND out the sign bit */
+		if (J9_ARE_ANY_BITS_SET(vm->extendedRuntimeFlags, J9_EXTENDED_RUNTIME_POSITIVE_HASHCODE)) {
+			hashValue &= (U_32)0x7FFFFFFF;
+		}
 
 		return (I_32) hashValue;
 	}

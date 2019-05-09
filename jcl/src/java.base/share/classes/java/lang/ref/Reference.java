@@ -6,13 +6,18 @@ import java.security.PrivilegedAction;
 
 import com.ibm.oti.vm.VM;
 
-/*[IF Sidecar18-SE-OpenJ9 | Sidecar19-SE]*/
-/*[IF Sidecar19-SE]*/
+/*[IF Java12]*/
+import jdk.internal.access.JavaLangRefAccess;
+import jdk.internal.access.SharedSecrets;
+/*[ELSE]
+/*[IF Sidecar19-SE]
 import jdk.internal.misc.JavaLangRefAccess;
 import jdk.internal.misc.SharedSecrets;
 /*[ELSE]
+/*[IF Sidecar18-SE-OpenJ9]
 import sun.misc.JavaLangRefAccess;
 import sun.misc.SharedSecrets;
+/*[ENDIF]*/
 /*[ENDIF]*/
 /*[ENDIF]*/
 
@@ -88,6 +93,12 @@ public abstract class Reference<T> extends Object {
 			  }
 			});
 	}
+	
+	/* The method waitForReferenceProcessing() is not used directly, just adapt for openjdk regression tests for TLS 1.3 */
+    private static boolean waitForReferenceProcessing() throws InterruptedException {
+    		return waitForReferenceProcessingImpl();
+    }
+
 	/*[ELSE]
 	static {
 		SharedSecrets.setJavaLangRefAccess(new JavaLangRefAccess() {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -37,9 +37,9 @@
 #include "control/Options_inlines.hpp"
 #include "env/jittypes.h"
 #include "env/CompilerEnv.hpp"
+#include "runtime/J9Runtime.hpp"
 #include "runtime/MethodMetaData.h"
 #include "runtime/RelocationRuntime.hpp"
-#include "runtime/Runtime.hpp"
 
 void ppcCodeSync(unsigned char *codeStart, unsigned int codeSize);
 
@@ -290,7 +290,6 @@ TR_PPCRelocationTarget::isOrderedPairRelocation(TR_RelocationRecord *reloRecord,
       {
       case TR_AbsoluteMethodAddressOrderedPair:
       case TR_ConstantPoolOrderedPair:
-      case TR_ClassObject:
       case TR_MethodObject:
          return true;
       }
@@ -306,7 +305,6 @@ TR_PPC32RelocationTarget::isOrderedPairRelocation(TR_RelocationRecord *reloRecor
       case TR_AbsoluteMethodAddressOrderedPair:
       case TR_ConstantPoolOrderedPair:
       case TR_ClassAddress:
-      case TR_ClassObject:
       case TR_ArbitraryClassAddress:
       case TR_MethodObject:
       case TR_ArrayCopyHelper:
@@ -324,7 +322,9 @@ TR_PPC32RelocationTarget::isOrderedPairRelocation(TR_RelocationRecord *reloRecor
 
 bool TR_PPCRelocationTarget::useTrampoline(uint8_t * helperAddress, uint8_t *baseLocation)
    {
-   return !(((IDATA)(helperAddress - baseLocation) <=BRANCH_FORWARD_LIMIT) && ((IDATA)(helperAddress - baseLocation) >=BRANCH_BACKWARD_LIMIT));
+   return
+      !TR::Compiler->target.cpu.isTargetWithinIFormBranchRange((intptrj_t)helperAddress, (intptrj_t)baseLocation) ||
+      TR::Options::getCmdLineOptions()->getOption(TR_StressTrampolines);
    }
 
 uint8_t *

@@ -1,4 +1,3 @@
-
 /*******************************************************************************
  * Copyright (c) 1991, 2018 IBM Corp. and others
  *
@@ -51,7 +50,7 @@
 
 static IDATA setupArguments(struct j9cmdlineOptions* startupOptions,JavaVMInitArgs* vm_args,void **vmOptionsTable, BOOLEAN useXshareclasses, BOOLEAN enablebci);
 IDATA testOSCache(J9JavaVM* vm, struct j9cmdlineOptions *arg, const char *cmdline);
-IDATA testOSCacheMisc(J9PortLibrary *portLibrary, struct j9cmdlineOptions *arg, const char *cmdline);
+IDATA testOSCacheMisc(J9JavaVM *vm, struct j9cmdlineOptions *arg, const char *cmdline);
 IDATA testClasspathCache(J9JavaVM* vm);
 IDATA testCompositeCache(J9JavaVM* vm);
 IDATA testClasspathItem(J9JavaVM* vm);
@@ -70,6 +69,7 @@ IDATA testProtectNewROMClassData(J9JavaVM* vm);
 IDATA testCacheDirPerm(J9JavaVM *vm);
 IDATA testCacheFull(J9JavaVM *vm);
 IDATA testProtectSharedCacheData(J9JavaVM *vm);
+IDATA testStartupHints(J9JavaVM *vm);
 
 UDATA
 buildChildCmdlineOption(int argc, char **argv, const char *options, char * newargv[SHRTEST_MAX_CMD_OPTS]) {
@@ -148,7 +148,7 @@ createJavaVM(struct j9cmdlineOptions* startupOptions, J9JavaVM** vm_, BOOLEAN us
 	strcat(libjvmPath, jvmLibName);
 
 	if (j9sl_open_shared_library(libjvmPath, &handle, J9PORT_SLOPEN_DECORATE)) {
-		j9tty_printf(PORTLIB, "Failed to open JVM DLL: %s (%s)\n", J9_VM_DLL_NAME,
+		j9tty_printf(PORTLIB, "Failed to open JVM DLL: %s (%s)\n", libjvmPath,
 				j9error_last_error_message());
 		rc = 1;
 		goto cleanup;
@@ -355,7 +355,10 @@ signalProtectedMain(struct J9PortLibrary *portLibrary, void * vargs)
 #endif
 
 	HEADING(PORTLIB, "OSCacheMisc Test");
-	rc |= testOSCacheMisc(PORTLIB, args, argv[i]);
+	rc |= testOSCacheMisc(vm, args, argv[i]);
+
+	HEADING(PORTLIB, "Startup Hints Test");
+	rc |= testStartupHints(vm);
 
 	if ( (*((JavaVM*)vm))->DestroyJavaVM((JavaVM*)vm) != JNI_OK ) {
 		args->shutdownPortLib = FALSE;

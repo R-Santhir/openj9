@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -195,6 +195,8 @@ char *compilationErrorNames[]={
    "compilationFSDHasInvokeHandle", //47
    "compilationVirtualAddressExhaustion", //48
    "compilationEnforceProfiling", //49
+   "compilationSymbolValidationManagerFailure", //50
+   "compilationAOTNoSupportForAOTFailure", //51
    "compilationMaxError"
 };
 
@@ -295,7 +297,7 @@ j9jit_testarossa_err(
          // If PersistentJittedBody contains the profile Info and has BlockFrequencyInfo, it will set the 
          // isQueuedForRecompilation field which can be used by the jitted code at runtime to skip the profiling
          // code if it has made request to recompile this method. 
-         if (jbi->getProfileInfo() != NULL && jbi->getProfileInfo()->getBlockFrequencyInfo() != NULL)
+         if (jbi && jbi->getProfileInfo() != NULL && jbi->getProfileInfo()->getBlockFrequencyInfo() != NULL)
             jbi->getProfileInfo()->getBlockFrequencyInfo()->setIsQueuedForRecompilation();
 
          event._eventType = TR_MethodEvent::OtherRecompilationTrigger;
@@ -383,6 +385,15 @@ j9jit_testarossa_err(
    return result;
    }
 
+extern "C" IDATA
+retranslateWithPreparationForMethodRedefinition(
+      struct J9JITConfig *jitConfig,
+      J9VMThread *vmThread,
+      J9Method *method,
+      void *oldStartPC)
+   {
+   return retranslateWithPreparation(jitConfig, vmThread, method, oldStartPC, TR_PersistentMethodInfo::RecompDueToInlinedMethodRedefinition);
+   }
 
 extern "C" IDATA
 retranslateWithPreparation(
@@ -456,7 +467,7 @@ getNewInstancePrototype(J9VMThread * context)
             jlClass,
             (J9ROMNameAndSignature *) &newInstancePrototypeNameAndSig,
             0,
-            J9_LOOK_DIRECT_NAS | J9_LOOK_VIRTUAL | J9_LOOK_NO_THROW);
+            J9_LOOK_DIRECT_NAS | J9_LOOK_VIRTUAL | J9_LOOK_NO_JAVA);
       }
 
    return newInstanceProto;
@@ -781,7 +792,7 @@ internalCompileClass(J9VMThread * vmThread, J9Class * clazz)
    for (uint32_t m = 0; m < clazz->romClass->romMethodCount; m++)
       {
       J9Method * method = &ramMethods[m];
-      if (!(romMethod->modifiers & (J9_JAVA_NATIVE | J9_JAVA_ABSTRACT))
+      if (!(romMethod->modifiers & (J9AccNative | J9AccAbstract))
          && method != newInstanceThunk
          && !TR::CompilationInfo::isCompiled(method)
          && !fe->isThunkArchetype(method))
@@ -1041,6 +1052,7 @@ onLoadInternal(
    // java.lang.Compiler class.
    jitConfig->entryPoint = j9jit_testarossa;
    jitConfig->retranslateWithPreparation = retranslateWithPreparation;
+   jitConfig->retranslateWithPreparationForMethodRedefinition = retranslateWithPreparationForMethodRedefinition;
    jitConfig->entryPointForNewInstance = j9jit_createNewInstanceThunk;
 #if defined(TRANSLATE_METHODHANDLE_TAKES_FLAGS)
    jitConfig->translateMethodHandle = translateMethodHandle;
@@ -1086,10 +1098,6 @@ onLoadInternal(
 
    if (!TR::CompilationInfo::createCompilationInfo(jitConfig))
       return -1;
-
-#if defined(TR_TARGET_X86)
-   TR_J9VM::initializeX86ProcessorInfo(jitConfig);
-#endif
 
    if (!TR_J9VMBase::createGlobalFrontEnd(jitConfig, TR::CompilationInfo::get()))
       return -1;
@@ -1518,12 +1526,13 @@ onLoadInternal(
       if (TR::Compiler->target.cpu.getS390SupportsRI())
          ((TR_JitPrivateConfig*)(jitConfig->privateConfig))->hwProfiler = TR_ZHWProfiler::allocate(jitConfig);
 #elif defined(TR_HOST_POWER)
-#if !defined(J9OS_I5_V6R1) && !defined(J9OS_I5_V7R2) /* We may support it since i 7.3. */
+#if !defined(J9OS_I5) 
+/* We disable it on current releases. May enable in future. */
       TR_Processor processor = portLibCall_getProcessorType();
       ((TR_JitPrivateConfig*)(jitConfig->privateConfig))->hwProfiler = processor >= TR_PPCp8 ? TR_PPCHWProfiler::allocate(jitConfig) : NULL;
 #else
       ((TR_JitPrivateConfig*)(jitConfig->privateConfig))->hwProfiler = NULL;
-#endif /* !defined(J9OS_I5_V6R1) && !defined(J9OS_I5_V7R2) */
+#endif /* !defined(J9OS_I5) */
 #endif
 
       //Initialize VM support for RI.
@@ -1553,7 +1562,7 @@ onLoadInternal(
       }
 
 #if defined(TR_HOST_S390)
-   if (TR::Compiler->om.shouldGenerateReadBarriersForFieldLoads())
+   if (TR::Compiler->om.readBarrierType() != gc_modron_readbar_none)
       {
       // TODO (Guarded Storage): With the change to prevent lower trees, there's
       // an outstanding DLT issue where a LLGFSG is generated when loading the

@@ -1,6 +1,6 @@
 
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -134,14 +134,14 @@ public:
 private:
 	/**
 	 * Determine the scan type for an instant of the specified class.
-	 * The class has the J9_JAVA_CLASS_GC_SPECIAL bit set.
+	 * The class has the J9AccClassGCSpecial bit set.
 	 * @param[in] objectClazz the class of the object to identify
 	 * @return one of the ScanType constants 
 	 */
 	ScanType getSpecialClassScanType(J9Class *objectClazz);
 	
 	/**
-	 * Examine all classes as they are loaded to determine if they require the J9_JAVA_CLASS_GC_SPECIAL bit.
+	 * Examine all classes as they are loaded to determine if they require the J9AccClassGCSpecial bit.
 	 * These classes are handled specially by GC_ObjectModel::getScanType()
 	 */
 	static void internalClassLoadHook(J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
@@ -178,15 +178,15 @@ public:
 		switch(J9GC_CLASS_SHAPE(clazz)) {
 		case OBJECT_HEADER_SHAPE_MIXED:
 		{
-			UDATA classFlags = J9CLASS_FLAGS(clazz) & (J9_JAVA_CLASS_REFERENCE_MASK | J9_JAVA_CLASS_GC_SPECIAL | J9_JAVA_CLASS_OWNABLE_SYNCHRONIZER);
+			UDATA classFlags = J9CLASS_FLAGS(clazz) & (J9AccClassReferenceMask | J9AccClassGCSpecial | J9AccClassOwnableSynchronizer);
 			if (0 == classFlags) {
 				result = SCAN_MIXED_OBJECT;
 			} else {
-				if (0 != (classFlags & J9_JAVA_CLASS_REFERENCE_MASK)) {
+				if (0 != (classFlags & J9AccClassReferenceMask)) {
 					result = SCAN_REFERENCE_MIXED_OBJECT;
-				} else if (0 != (classFlags & J9_JAVA_CLASS_GC_SPECIAL)) {
+				} else if (0 != (classFlags & J9AccClassGCSpecial)) {
 					result = getSpecialClassScanType(clazz);
-				} else if (0 != (classFlags & J9_JAVA_CLASS_OWNABLE_SYNCHRONIZER)) {
+				} else if (0 != (classFlags & J9AccClassOwnableSynchronizer)) {
 					result = SCAN_OWNABLESYNCHRONIZER_OBJECT;
 				} else {
 					/* Assert_MM_unreachable(); */
@@ -574,11 +574,11 @@ public:
 		 * pointer if another thread copied the object underneath us). In non-compressed, this field should still be readable
 		 * out of the heap.
 		 */
-#if defined (OMR_INTERP_COMPRESSED_OBJECT_HEADER)
+#if defined (OMR_GC_COMPRESSED_POINTERS)
 		uint32_t size = forwardedHeader->getPreservedOverlap();
-#else /* defined (OMR_INTERP_COMPRESSED_OBJECT_HEADER) */
+#else /* defined (OMR_GC_COMPRESSED_POINTERS) */
 		uint32_t size = ((J9IndexableObjectContiguous *)forwardedHeader->getObject())->size;
-#endif /* defined (OMR_INTERP_COMPRESSED_OBJECT_HEADER) */
+#endif /* defined (OMR_GC_COMPRESSED_POINTERS) */
 
 #if defined(OMR_GC_HYBRID_ARRAYLETS)
 		if (0 == size) {
@@ -602,11 +602,11 @@ public:
 	{
 		GC_ArrayletObjectModel::ArrayLayout layout = GC_ArrayletObjectModel::InlineContiguous;
 #if defined(J9VM_GC_HYBRID_ARRAYLETS)
-#if defined (OMR_INTERP_COMPRESSED_OBJECT_HEADER)
+#if defined (OMR_GC_COMPRESSED_POINTERS)
 		uint32_t size = forwardedHeader->getPreservedOverlap();
-#else /* defined (OMR_INTERP_COMPRESSED_OBJECT_HEADER) */
+#else /* defined (OMR_GC_COMPRESSED_POINTERS) */
 		uint32_t size = ((J9IndexableObjectContiguous *)forwardedHeader->getObject())->size;
-#endif /* defined (OMR_INTERP_COMPRESSED_OBJECT_HEADER) */		
+#endif /* defined (OMR_GC_COMPRESSED_POINTERS) */		
 		
 		if (0 != size) {
 			return layout;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -40,6 +40,8 @@
 #include "il/SymbolReference.hpp"
 #include "il/symbol/LabelSymbol.hpp"
 #include "il/symbol/StaticSymbol.hpp"
+#include "runtime/RelocationRuntime.hpp"
+#include "runtime/RelocationRecord.hpp"
 
 #define  NON_HELPER         0
 
@@ -99,8 +101,6 @@ void J9::ARM::AheadOfTimeCompile::processRelocations()
       }
    }
 
-uintptr_t findCorrectInlinedSiteIndex(void *constantPool, TR::Compilation *comp, uintptr_t currentInlinedSiteIndex);
-
 uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::IteratedExternalRelocation *relocation)
    {
    TR::Compilation* comp = TR::comp();
@@ -112,7 +112,11 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
    TR_ResolvedMethod *resolvedMethod;
 
    uint8_t *cursor = relocation->getRelocationData();
-   uint8_t * aotMethodCodeStart = (uint8_t *) comp->getAotMethodCodeStart();
+
+   TR_RelocationRuntime *reloRuntime = comp->reloRuntime();
+   TR_RelocationTarget *reloTarget = reloRuntime->reloTarget();
+
+   uint8_t * aotMethodCodeStart = (uint8_t *) comp->getRelocatableMethodCodeStart();
 
    // size of relocation goes first in all types
    *(uint16_t *)cursor = relocation->getSizeOfRelocationData();
@@ -128,37 +132,17 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
    *flagsCursor = modifier;
    uint32_t *wordAfterHeader = (uint32_t*)cursor;
 
+   // This has to be created after the kind has been written into the header
+   TR_RelocationRecord storage;
+   TR_RelocationRecord *reloRecord = TR_RelocationRecord::create(&storage, reloRuntime, reloTarget, reinterpret_cast<TR_RelocationRecordBinaryTemplate *>(relocation->getRelocationData()));
+
    switch (relocation->getTargetKind())
       {
-      case TR_HelperAddress:
-         {
-         //set the eip relative relocation bit for references to code addresses
-         *flagsCursor |= RELOCATION_TYPE_EIP_OFFSET;
-         }
-      // deliberate fall-through
-      case TR_AbsoluteHelperAddress:
-         {
-         // final byte of header is the index which indicates the
-         // particular helper being relocated to
-         TR::SymbolReference *tempSR = (TR::SymbolReference *)relocation->getTargetAddress();
-         *wordAfterHeader = (uint32_t) tempSR->getReferenceNumber();
-         cursor = (uint8_t*)wordAfterHeader;
-         cursor += 4;
-         }
-         break;
-
-      case TR_RelativeMethodAddress:
-         // set the relative relocation bit for references to code addresses
-         *flagsCursor |= RELOCATION_TYPE_EIP_OFFSET;
-         // deliberate fall-through
-         //case TR_DataAddress:
-      case TR_ClassObject:
       case TR_MethodObject:
-      case TR_InterfaceObject:
          {
          TR_RelocationRecordInformation *recordInfo = (TR_RelocationRecordInformation*) relocation->getTargetAddress();
          TR::SymbolReference *tempSR = (TR::SymbolReference *) recordInfo->data1;
-         uintptr_t inlinedSiteIndex = findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), comp, recordInfo->data2);
+         uintptr_t inlinedSiteIndex = self()->findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), recordInfo->data2);
          uint8_t flags = (uint8_t) recordInfo->data3;//Sequence ID
          //TODO
          *(uintptrj_t *)cursor = inlinedSiteIndex;
@@ -170,17 +154,14 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          cursor += SIZEPOINTER;
          }
          break;
-      case TR_JNIStaticTargetAddress:
       case TR_JNISpecialTargetAddress:
-      case TR_JNIVirtualTargetAddress:
-      case TR_StaticRamMethodConst:
       case TR_VirtualRamMethodConst:
       case TR_SpecialRamMethodConst:
          {
          TR::SymbolReference *tempSR = (TR::SymbolReference *)relocation->getTargetAddress();
          uintptr_t inlinedSiteIndex = (uintptr_t)relocation->getTargetAddress2();
 
-         inlinedSiteIndex = findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), comp, inlinedSiteIndex);
+         inlinedSiteIndex = self()->findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), inlinedSiteIndex);
 
          *(uintptrj_t *)cursor = inlinedSiteIndex;  // inlinedSiteIndex
          cursor += SIZEPOINTER;
@@ -202,7 +183,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          // they'll be needed for TR_ArbitraryClassAddress as well
          uint8_t flags = (uint8_t) recordInfo->data3;
 
-         uintptr_t inlinedSiteIndex = findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), comp, recordInfo->data2);
+         uintptr_t inlinedSiteIndex = self()->findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), recordInfo->data2);
 
          *(uintptrj_t *)cursor = inlinedSiteIndex; // inlinedSiteIndex
 
@@ -219,8 +200,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          {
          TR_RelocationRecordInformation *recordInfo = (TR_RelocationRecordInformation *) relocation->getTargetAddress();
          TR::SymbolReference *tempSR = (TR::SymbolReference *) recordInfo->data1;
-         uintptr_t inlinedSiteIndex = findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(),
-                 comp, recordInfo->data2);
+         uintptr_t inlinedSiteIndex = self()->findCorrectInlinedSiteIndex(tempSR->getOwningMethod(comp)->constantPool(), recordInfo->data2);
          uint8_t flags = (uint8_t) recordInfo->data3;
          TR_ASSERT((flags & RELOCATION_CROSS_PLATFORM_FLAGS_MASK) == 0,  "reloFlags bits overlap cross-platform flags bits\n");
          *flagsCursor |= (flags & RELOCATION_RELOC_FLAGS_MASK);
@@ -252,10 +232,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          cursor += 4;
          }
          break;
-      case TR_AbsoluteMethodAddress:
       case TR_AbsoluteMethodAddressOrderedPair:
-         break;
-      case TR_BodyInfoAddress:
          break;
       case TR_BodyInfoAddressLoad:
          {
@@ -264,10 +241,8 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          *flagsCursor |= (flags & RELOCATION_RELOC_FLAGS_MASK);
          break;
          }
-      case TR_ConstantPool:
       case TR_ConstantPoolOrderedPair:
       case TR_Trampolines:
-      case TR_Thunks:
          {
          *(uintptrj_t *)cursor = (uintptrj_t)relocation->getTargetAddress2(); // inlined site index
          cursor += SIZEPOINTER;
@@ -276,6 +251,22 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          cursor += SIZEPOINTER;
          break;
          }
+
+      case TR_J2IVirtualThunkPointer:
+         {
+         auto info = (TR_RelocationRecordInformation*)relocation->getTargetAddress();
+
+         *(uintptrj_t *)cursor = (uintptrj_t)info->data2; // inlined site index
+         cursor += SIZEPOINTER;
+
+         *(uintptrj_t *)cursor = (uintptrj_t)info->data1; // constantPool
+         cursor += SIZEPOINTER;
+
+         *(uintptrj_t *)cursor = (uintptrj_t)info->data3; // offset to J2I virtual thunk pointer
+         cursor += SIZEPOINTER;
+         }
+         break;
+
       case TR_CheckMethodEnter:
       case TR_CheckMethodExit:
          {
@@ -336,11 +327,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          TR_OpaqueMethodBlock *j9method = (TR_OpaqueMethodBlock *) aconstNode->getAddress();
          TR_OpaqueClassBlock *j9class = fej9->getClassFromMethodBlock(j9method);
 
-         void *loaderForClazz = fej9->getClassLoader(j9class);
-         void *classChainIdentifyingLoaderForClazz = sharedCache->persistentClassLoaderTable()->lookupClassChainAssociatedWithClassLoader(loaderForClazz);
-         //traceMsg(comp(),"classChainIdentifyingLoaderForClazz %p\n", classChainIdentifyingLoaderForClazz);
-         uintptrj_t classChainOffsetInSharedCache = (uintptrj_t) sharedCache->offsetInSharedCacheFromPointer(classChainIdentifyingLoaderForClazz);
-         //traceMsg(comp(),"classChainOffsetInSharedCache %p\n", classChainOffsetInSharedCache);
+         uintptrj_t classChainOffsetInSharedCache = sharedCache->getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(j9class);
          *(uintptrj_t *)cursor = classChainOffsetInSharedCache;
          cursor += SIZEPOINTER;
 
@@ -362,12 +349,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          TR_OpaqueClassBlock *j9class = (TR_OpaqueClassBlock *) aconstNode->getAddress();
          //traceMsg(comp(),"j9class %p\n", j9class);
 
-         void *loaderForClazz = fej9->getClassLoader(j9class);
-         //traceMsg(comp(),"loaderForClazz %p\n", loaderForClazz);
-         void *classChainIdentifyingLoaderForClazz = sharedCache->persistentClassLoaderTable()->lookupClassChainAssociatedWithClassLoader(loaderForClazz);
-         //traceMsg(comp(),"classChainIdentifyingLoaderForClazz %p\n", classChainIdentifyingLoaderForClazz);
-         uintptrj_t classChainOffsetInSharedCache = (uintptrj_t) sharedCache->offsetInSharedCacheFromPointer(classChainIdentifyingLoaderForClazz);
-         //traceMsg(comp(),"classChainOffsetInSharedCache %p\n", classChainOffsetInSharedCache);
+         uintptrj_t classChainOffsetInSharedCache = sharedCache->getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(j9class);
          *(uintptrj_t *)cursor = classChainOffsetInSharedCache;
          cursor += SIZEPOINTER;
 
@@ -385,19 +367,14 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          auto sym = symRef->getSymbol()->castToStaticSymbol();
          auto j9class = (TR_OpaqueClassBlock *)sym->getStaticAddress();
          // flags stored in data3 are currently unused
-         uintptr_t inlinedSiteIndex = findCorrectInlinedSiteIndex(
-            symRef->getOwningMethod(comp)->constantPool(),
-            comp,
-            recordInfo->data2);
+         uintptr_t inlinedSiteIndex = self()->findCorrectInlinedSiteIndex(symRef->getOwningMethod(comp)->constantPool(), recordInfo->data2);
 
          // Data identifying the class is as though for TR_ClassPointer
          // (TR_RelocationRecordPointerBinaryTemplate)
          *(uintptrj_t *)cursor = inlinedSiteIndex;
          cursor += SIZEPOINTER;
 
-         void *loaderForClazz = fej9->getClassLoader(j9class);
-         void *classChainIdentifyingLoaderForClazz = sharedCache->persistentClassLoaderTable()->lookupClassChainAssociatedWithClassLoader(loaderForClazz);
-         uintptrj_t classChainOffsetInSharedCache = (uintptrj_t) sharedCache->offsetInSharedCacheFromPointer(classChainIdentifyingLoaderForClazz);
+         uintptrj_t classChainOffsetInSharedCache = sharedCache->getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(j9class);
          *(uintptrj_t *)cursor = classChainOffsetInSharedCache;
          cursor += SIZEPOINTER;
 
@@ -496,12 +473,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          *(uintptrj_t *) cursor = (uintptrj_t) romClassOffsetInSharedCache;
          cursor += SIZEPOINTER;
 
-         void *loaderForClazz = fej9->getClassLoader(inlinedCodeClass);
-         void *classChainIdentifyingLoaderForClazz =
-                  sharedCache->persistentClassLoaderTable()->lookupClassChainAssociatedWithClassLoader(loaderForClazz);
-         //traceMsg(comp(),"classChainIdentifyingLoaderForClazz %p\n", classChainIdentifyingLoaderForClazz);
-         uintptrj_t classChainOffsetInSharedCache = (uintptrj_t) sharedCache->offsetInSharedCacheFromPointer(classChainIdentifyingLoaderForClazz);
-         //traceMsg(comp(),"classChainOffsetInSharedCache %p\n", classChainOffsetInSharedCache);
+         uintptrj_t classChainOffsetInSharedCache = sharedCache->getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(inlinedCodeClass);
          *(uintptrj_t *) cursor = classChainOffsetInSharedCache;
          cursor += SIZEPOINTER;
 
@@ -623,9 +595,7 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          TR_OpaqueClassBlock *classToValidate = aotCI->_clazz;
 
          //store the classchain's offset for the classloader for the class
-         void *loaderForClazzToValidate = fej9->getClassLoader(classToValidate);
-         void *classChainIdentifyingLoaderForClazzToValidate = sharedCache->persistentClassLoaderTable()->lookupClassChainAssociatedWithClassLoader(loaderForClazzToValidate);
-         uintptrj_t classChainOffsetInSharedCacheForCL = (uintptrj_t) sharedCache->offsetInSharedCacheFromPointer(classChainIdentifyingLoaderForClazzToValidate);
+         uintptrj_t classChainOffsetInSharedCacheForCL = sharedCache->getClassChainOffsetOfIdentifyingLoaderForClazzInSharedCache(classToValidate);
          *(uintptrj_t *)cursor = classChainOffsetInSharedCacheForCL;
          cursor += SIZEPOINTER;
 
@@ -679,6 +649,13 @@ uint8_t *J9::ARM::AheadOfTimeCompile::initializeAOTRelocationHeader(TR::Iterated
          cursor += SIZEPOINTER;
          }
          break;
+
+      default:
+         // initializeCommonAOTRelocationHeader is currently in the process
+         // of becoming the canonical place to initialize the platform agnostic
+         // relocation headers; new relocation records' header should be
+         // initialized here.
+         cursor = self()->initializeCommonAOTRelocationHeader(relocation, reloRecord);
 
       }
       return cursor;
@@ -746,7 +723,9 @@ uint32_t J9::ARM::AheadOfTimeCompile::_relocationTargetTypeToHeaderSizeMap[TR_Nu
    0,                                        // TR_NativeMethodAbsolute                = 56,
    0,                                        // TR_NativeMethodRelative                = 57,
    16,                                       // TR_ArbitraryClassAddress               = 58,
-   28                                        // TR_DebugCounter                        = 59
+   28,                                        // TR_DebugCounter                        = 59
+   4,                                        // TR_ClassUnloadAssumption               = 60
+   16,                                       // TR_J2IVirtualThunkPointer              = 61
    };
 
 

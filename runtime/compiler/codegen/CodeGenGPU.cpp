@@ -66,6 +66,13 @@ static const char * nvvmOpCodeNames[] =
    "load",          // TR::bload
    "load",          // TR::sload
    "load",          // TR::lload
+   NULL,            // TR::irdbar
+   NULL,            // TR::frdbar
+   NULL,            // TR::drdbar
+   NULL,            // TR::ardbar
+   NULL,            // TR::brdbar
+   NULL,            // TR::srdbar
+   NULL,            // TR::lrdbar
    "load",          // TR::iloadi
    "load",          // TR::floadi
    "load",          // TR::dloadi
@@ -73,25 +80,41 @@ static const char * nvvmOpCodeNames[] =
    "load",          // TR::bloadi
    "load",          // TR::sloadi
    "load",          // TR::lloadi
-
+   NULL,            // TR::irdbari
+   NULL,            // TR::frdbari
+   NULL,            // TR::drdbari
+   NULL,            // TR::ardbari
+   NULL,            // TR::brdbari
+   NULL,            // TR::srdbari
+   NULL,            // TR::lrdbari
    "store",          // TR::istore
    "store",          // TR::lstore
    "store",          // TR::fstore
    "store",          // TR::dstore
    "store",          // TR::astore
-
-   NULL,          // TR::wrtbar
-
    "store",          // TR::bstore
    "store",          // TR::sstore
+   NULL,             // TR::iwrtbar
+   NULL,             // TR::lwrtbar
+   NULL,             // TR::fwrtbar
+   NULL,             // TR::dwrtbar
+   NULL,             // TR::awrtbar
+   NULL,             // TR::bwrtbar
+   NULL,             // TR::swrtbar
    "store",          // TR::lstorei
    "store",          // TR::fstorei
    "store",          // TR::dstorei
    "store",          // TR::astorei
-   NULL,          // TR::wrtbari
    "store",          // TR::bstorei
    "store",          // TR::sstorei
    "store",          // TR::istorei
+   NULL,             // TR::lwrtbari
+   NULL,             // TR::fwrtbari
+   NULL,             // TR::dwrtbari
+   NULL,             // TR::awrtbari
+   NULL,             // TR::bwrtbari
+   NULL,             // TR::swrtbari
+   NULL,             // TR::iwrtbari
    "br",          // TR::Goto
    "ret",          // TR::ireturn
    "ret",          // TR::lreturn
@@ -1237,8 +1260,6 @@ static const char * nvvmOpCodeNames[] =
    NULL,          // TR::pdshl
    NULL,          // TR::pdshrSetSign
    NULL,          // TR::pdshlSetSign
-   NULL,          // TR::pdshrPreserveSign
-   NULL,          // TR::pdshlPreserveSign
    NULL,          // TR::pdshlOverflow
    NULL,          // TR::pdchk
    NULL,          // TR::pd2i
@@ -1261,15 +1282,10 @@ static const char * nvvmOpCodeNames[] =
    NULL,          // TR::pdcmpge
    NULL,          // TR::pdcmpgt
    NULL,          // TR::pdcmple
-   NULL,          // TR::pdcheck
-   NULL,          // TR::pdfix
    NULL,          // TR::pdclean
-   NULL,          // TR::pdexp
-   NULL,          // TR::pduexp
    NULL,          // TR::pdclear
    NULL,          // TR::pdclearSetSign
    NULL,          // TR::pdSetSign
-   NULL,          // TR::pddivrem
    NULL,          // TR::pdModifyPrecision
    NULL,          // TR::pd2df
    NULL,          // TR::pd2dfAbs

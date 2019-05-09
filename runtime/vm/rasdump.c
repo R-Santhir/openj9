@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -386,14 +386,12 @@ j9rasSetServiceLevel(J9JavaVM *vm, const char *runtimeVersion) {
 
 	if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) == J2SE_18) {
 		javaVersion = "JRE 1.8.0";
-	} else if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) == J2SE_19) {
-		javaVersion = "JRE 9";
-	} else if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) == J2SE_V10) {
-		javaVersion = "JRE 10";
 	} else if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) == J2SE_V11) {
 		javaVersion = "JRE 11";
 	} else if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) == J2SE_V12) {
 		javaVersion = "JRE 12";
+	} else if ((J2SE_VERSION(vm) & J2SE_RELEASE_MASK) == J2SE_V13) {
+		javaVersion = "JRE 13";
 	} else {
 		javaVersion = "UNKNOWN";
 	}
@@ -428,7 +426,7 @@ j9rasSetServiceLevel(J9JavaVM *vm, const char *runtimeVersion) {
 	}
 }
 
-#if !defined(J9ZOS390) && !defined(J9ZTPF) && defined(J9VM_GC_COMPRESSED_POINTERS)
+#if !defined(J9ZOS390) && !defined(J9ZTPF) && defined(OMR_GC_COMPRESSED_POINTERS)
 #define ALLOCATE_RAS_DATA_IN_SUBALLOCATOR
 #endif
 
@@ -576,20 +574,26 @@ populateRASNetData(J9JavaVM *javaVM, J9RAS *rasStruct)
 	j9addrinfo_t hints;
 	U_64 startTime, endTime;
 	PORT_ACCESS_FROM_JAVAVM(javaVM);
+	OMRPORT_ACCESS_FROM_J9PORT(PORTLIB);
 
 	/* measure the time taken to call the socket APIs, so we can issue a warning */
 	startTime = j9time_current_time_millis();
 
 	/* get the host name and IP addresses */
-	if (0 != j9sock_gethostname((char*)rasStruct->hostname,  sizeof(rasStruct->hostname) )) {
+	if (0 != omrsysinfo_get_hostname((char*)rasStruct->hostname,  sizeof(rasStruct->hostname) )) {
 		/* error so null the buffer so we don't try to work with it on the other side */
 		memset(rasStruct->hostname, 0, sizeof(rasStruct->hostname));
 	}
 	/* ensure that the string is properly terminated */
 	rasStruct->hostname[sizeof(rasStruct->hostname)-1] = '\0';
 
+#if defined(J9OS_I5)
+	/* set AI_ADDRCONFIG(0x08) to fix low performance of inactive ipv6 resolving */
+	j9sock_getaddrinfo_create_hints( &hints, (I_16) J9ADDR_FAMILY_UNSPEC, 0, J9PROTOCOL_FAMILY_UNSPEC, 0x08 ); 
+#else
 	/* create the hints structure for both IPv4 and IPv6 */
 	j9sock_getaddrinfo_create_hints( &hints, (I_16) J9ADDR_FAMILY_UNSPEC, 0, J9PROTOCOL_FAMILY_UNSPEC, 0 );
+#endif
 	/* rasStruct->hostname can't simply be localhost since that is always 127.0.0.1 */
 	if (0 !=  j9sock_getaddrinfo((char*)rasStruct->hostname, hints, &addrinfo )) {
 		/* error so null the buffer so we don't try to work with it on the other side */

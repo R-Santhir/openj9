@@ -1,4 +1,4 @@
-# Copyright (c) 2000, 2018 IBM Corp. and others
+# Copyright (c) 2000, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -47,8 +47,8 @@ endif
 # Personally, I feel it's best to default to out-of-tree build but who knows, there may be
 # differing opinions on that.
 #
-JIT_SRCBASE?=../..
-JIT_OBJBASE?=../objs/compiler_$(BUILD_CONFIG)
+JIT_SRCBASE?=..
+JIT_OBJBASE?=$(J9SRC)/objs/compiler_$(BUILD_CONFIG)
 JIT_DLL_DIR?=$(JIT_OBJBASE)
 
 #
@@ -65,7 +65,7 @@ BUILD_CONFIG?=prod
 # Dirs used internally by the makefiles
 #
 JIT_MAKE_DIR?=$(FIXED_SRCBASE)/compiler/build
-JIT_SCRIPT_DIR?=$(FIXED_SRCBASE)/compiler/build/scripts
+JIT_SCRIPT_DIR?=$(JIT_MAKE_DIR)/scripts
 
 #
 # First we set a bunch of tokens about the platform that the rest of the
@@ -89,6 +89,15 @@ include $(JIT_MAKE_DIR)/files/common.mk
 #
 include $(JIT_MAKE_DIR)/toolcfg/common.mk
 
+# Add include directories to find j9cfg.h and omrcfg.h if needed.
+#
+# If the linter is being run after a CMake build, it
+# results in j9cfg.h and omrcfg.h to be in a location that
+# is different from an automake build.
+#
+ifneq ("$(CMAKE_BUILD_DIR)","")
+CXX_INCLUDES+=$(CMAKE_BUILD_DIR)/runtime $(CMAKE_BUILD_DIR)/runtime/omr $(CMAKE_BUILD_DIR)/runtime/nls $(CMAKE_BUILD_DIR)/runtime/include
+endif
 
 #
 # Add OMRChecker targets

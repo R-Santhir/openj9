@@ -1,7 +1,7 @@
 # buildtools Makefile
 
 ###############################################################################
-# Copyright (c) 1998, 2018 IBM Corp. and others
+# Copyright (c) 1998, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -35,6 +35,37 @@ BUILD_ID      ?= 000000
 OS            := $(shell uname)
 TRC_THRESHOLD ?= 1
 FREEMARKER_JAR ?= $(CURDIR)/buildtools/freemarker.jar
+CMAKE_ARGS :=
+
+# We grab the C/C++ compilers detected by autoconf or provided by user, not
+# the CC/CXX variables defined by the makefiles, which potentitally include
+# the ccache command which will throw off cmake
+ifneq (,$(OPENJ9_CC))
+  CMAKE_ARGS += "-DCMAKE_C_COMPILER=$(OPENJ9_CC)"
+else
+  CMAKE_ARGS += "-DCMAKE_C_COMPILER=$(ac_cv_prog_CC)"
+endif
+
+ifneq (,$(OPENJ9_CXX))
+  CMAKE_ARGS += "-DCMAKE_CXX_COMPILER=$(OPENJ9_CXX)"
+else
+  CMAKE_ARGS += "-DCMAKE_CXX_COMPILER=$(ac_cv_prog_CXX)"
+endif
+
+ifneq (,$(CCACHE))
+  # Open jdk makefiles add a  bunch of environemnt variables to the ccache command
+  # cmake will not parse this properly, so we wrap the whole thing in the env command
+  # We also need to add semicolons between arguments or else cmake will treat the whole
+  # thing as one long command name
+
+  # Note: we remove the CCACHE_COMPRESS option that openjdk adds, because it significantly
+  # slows down the build (to the point of erasing any gains from using ccache)
+  CCACHE_NOCOMPRESS := $(filter-out CCACHE_COMPRESS=1,$(CCACHE))
+  ESCAPED_CCACHE :=env$(shell printf ";%s" $(CCACHE_NOCOMPRESS))
+
+  CMAKE_ARGS += "-DCMAKE_CXX_COMPILER_LAUNCHER=$(ESCAPED_CCACHE)"
+  CMAKE_ARGS += "-DCMAKE_C_COMPILER_LAUNCHER=$(ESCAPED_CCACHE)"
+endif
 
 ifneq (,$(or $(findstring Windows,$(OS)),$(findstring CYGWIN,$(OS))))
 	PATHSEP := ;
@@ -50,7 +81,7 @@ else
 endif
 
 ifneq (,$(VERSION_MAJOR))
-	EXTRA_CMAKE_ARGS += -DJAVA_SPEC_VERSION=$(VERSION_MAJOR)
+	CMAKE_ARGS += -DJAVA_SPEC_VERSION=$(VERSION_MAJOR)
 endif
 
 default : all
@@ -147,7 +178,6 @@ OMRGLUE_INCLUDES = \
   ../gc_structs \
   ../gc_stats \
   ../gc_modron_standard \
-  ../gc_staccato \
   ../gc_realtime \
   ../gc_trace \
   ../gc_vlhgc
@@ -156,9 +186,14 @@ ifeq (true,$(OPENJ9_ENABLE_CMAKE))
 # If we are doing a cmake build, configure won't depend on UMA.
 # However we need to run constantpool and nls tools before invoking cmake.
 configure : constantpool nls
-	mkdir -p build && cd build && $(CMAKE) -C ../cmake/caches/$(SPEC).cmake $(EXTRA_CMAKE_ARGS) ..
+	mkdir -p build && cd build && $(CMAKE) -C ../cmake/caches/$(SPEC).cmake  $(CMAKE_ARGS) $(EXTRA_CMAKE_ARGS) ..
 else
-configure : uma
+.PHONY : j9includegen
+
+j9includegen : uma
+	$(MAKE) -C include j9include_generate
+
+configure : j9includegen
 	$(MAKE) -C omr -f run_configure.mk 'SPEC=$(SPEC)' 'OMRGLUE=$(OMRGLUE)' 'CONFIG_INCL_DIR=$(CONFIG_INCL_DIR)' 'OMRGLUE_INCLUDES=$(OMRGLUE_INCLUDES)' 'EXTRA_CONFIGURE_ARGS=$(EXTRA_CONFIGURE_ARGS)'
 endif
 
@@ -185,7 +220,11 @@ uma : buildtools copya2e
 
 # process constant pool definition file to generate jcl constant pool definitions and header file
 CONSTANTPOOL_TOOL    := $(JAVA) -cp "sourcetools/lib/om.jar$(PATHSEP)sourcetools/lib/j9vmcp.jar" com.ibm.oti.VMCPTool.Main
-CONSTANTPOOL_OPTIONS := -rootDir . -buildSpecId $(SPEC) -configDir $(SPEC_DIR) -jcls se7_basic,se9_before_b165,se9,se10,se11
+CONSTANTPOOL_OPTIONS := \
+	-rootDir . \
+	-buildSpecId $(SPEC) \
+	-configDir $(SPEC_DIR) \
+	-version $(VERSION_MAJOR)
 
 constantpool : buildtools
 	$(CONSTANTPOOL_TOOL) $(CONSTANTPOOL_OPTIONS)

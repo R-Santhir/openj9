@@ -1,4 +1,4 @@
-# Copyright (c) 1998, 2018 IBM Corp. and others
+# Copyright (c) 1998, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -145,7 +145,7 @@ UMA_C_INCLUDE_PREFIX=/I
 UMA_C_INCLUDE_PREFIX=-I
 </#if>
 <#if uma.spec.type.windows>
-ifdef USE_MINGW
+ifdef USE_CLANG
   UMA_C_INCLUDE_PREFIX=-I
 endif
 </#if>
@@ -191,17 +191,17 @@ CXXFLAGS+=$(UMA_C_INCLUDES)
 CPPFLAGS+=$(UMA_C_INCLUDES)
 
 UMA_LINK_PATH += $(foreach d,$(TPF_ROOT),-L$d/base/lib)
+UMA_LINK_PATH += $(foreach d,$(TPF_ROOT),-L$d/base/stdlib)
 UMA_LINK_PATH += $(foreach d,$(TPF_ROOT),-L$d/opensource/stdlib)
 
 </#if>
 
 <#if uma.spec.type.windows>
-ifdef USE_MINGW
-  MINGW_CXXFLAGS+=$(UMA_C_INCLUDES)
-  MINGW_CXXFLAGS+=-I../oti/mingw
+ifdef USE_CLANG
+  CLANG_CXXFLAGS+=$(UMA_C_INCLUDES)
   ifneq ($(OPENJ9_BUILD),true)
-    MINGW_INCLUDES:="$(subst ;," -I",$(INCLUDE))"
-    MINGW_CXXFLAGS+=$(UMA_C_INCLUDE_PREFIX)$(MINGW_INCLUDES)
+    CLANG_INCLUDES:="$(subst ;," -I",$(INCLUDE))"
+    CLANG_CXXFLAGS+=$(UMA_C_INCLUDE_PREFIX)$(CLANG_INCLUDES)
   endif # OPENJ9_BUILD
 endif
 </#if>
@@ -248,8 +248,8 @@ UMA_LINK_PATH:=$(sort $(UMA_LINK_PATH))
 CFLAGS+=$(A_CFLAGS)
 CXXFLAGS+=$(A_CXXFLAGS)
 <#if uma.spec.type.windows>
-ifdef USE_MINGW
-  MINGW_CXXFLAGS+=$(A_CXXFLAGS)
+ifdef USE_CLANG
+  CLANG_CXXFLAGS+=$(A_CXXFLAGS)
 endif
 </#if>
 CPPFLAGS+=$(A_CPPFLAGS)
@@ -270,8 +270,8 @@ UMA_EXE_PREFIX_FLAGS+=-fprofile-arcs -ftest-coverage
 CFLAGS+=$(VMDEBUG)
 CXXFLAGS+=$(VMDEBUG)
 <#if uma.spec.type.windows>
-ifdef USE_MINGW
-  MINGW_CXXFLAGS+=$(VMDEBUG)
+ifdef USE_CLANG
+  CLANG_CXXFLAGS+=$(VMDEBUG)
 endif
 </#if>
 <#if uma.spec.processor.ppc>
@@ -344,11 +344,15 @@ LIBCDEFS := $(word 1,$(wildcard $(foreach d,$(TPF_ROOT),$d/base/lib/libCDEFSFORA
 # We use sed in these scripts to retain only those lines that will be interesting
 # to omr/ddr/tools/getmacros; this reduces the total footprint of all *.i files by
 # over 1GB and reduces the workload of getmacros as it reads them.
+
+DDR_SED_COMMAND := \
+	sed -n -e '/^DDRFILE_BEGIN /,/^DDRFILE_END /s/^/@/' -e '/^@./p'
+
 %.i : %.c
-	$(CC) $(CFLAGS) -E $< | sed -n -e '/^@/p' > $@
+	$(CC) $(CFLAGS) -E $< | $(DDR_SED_COMMAND) > $@
 
 %.i : %.cpp
-	$(CXX) $(CXXFLAGS) -E $< | sed -n -e '/^@/p' > $@
+	$(CXX) $(CXXFLAGS) -E $< | $(DDR_SED_COMMAND) > $@
 
 # just create empty output files
 %.i : %.asm ; touch $@
@@ -425,9 +429,6 @@ UMA_PASM_INCLUDES:=$(addprefix -I ,$(UMA_INCLUDES))
 
 </#if>
 <#if uma.spec.type.aix>
-# compilation rule for .dbg files
-%$(UMA_DOT_O): %.dbg
-	aspp $(UMA_ASPP_DEBUG) $< $
 
 # compilation rule for .spp files - translate ! to newline
 %$(UMA_DOT_O): %.spp
@@ -489,7 +490,7 @@ UMA_PASM_INCLUDES:=$(addprefix -I ,$(UMA_INCLUDES))
 </#if>
 
 <#if uma.spec.type.windows>
-ifdef USE_MINGW
+ifdef USE_CLANG
 UMA_M4_INCLUDES = $(UMA_C_INCLUDES)
 else
 UMA_M4_INCLUDES = $(patsubst /I%,-I%,$(UMA_C_INCLUDES))
@@ -501,25 +502,25 @@ endif
 	$(AS) $(ASFLAGS) $*.asm
 	-mv -f $*.asm $*.hold
 
-ifdef USE_MINGW
-MINGW_CXXFLAGS+=-mdll -mwin32 -mthreads -fno-rtti -fno-threadsafe-statics -fno-strict-aliasing -fno-exceptions -fno-use-linker-plugin -fno-asynchronous-unwind-tables
+ifdef USE_CLANG
+CLANG_CXXFLAGS+=-fno-rtti -fno-threadsafe-statics -fno-strict-aliasing -fno-exceptions -fno-asynchronous-unwind-tables
 ifdef VS12AndHigher
-MINGW_CXXFLAGS+=-std=c++0x -D_CRT_SUPPRESS_RESTRICT -DVS12AndHigher
+CLANG_CXXFLAGS+=-std=c++0x -D_CRT_SUPPRESS_RESTRICT -DVS12AndHigher
 <#if uma.spec.processor.x86>
-	MINGW_CXXFLAGS+=-D_M_IX86
+	CLANG_CXXFLAGS+=-D_M_IX86
 <#elseif uma.spec.processor.amd64>
-	MINGW_CXXFLAGS+=-D_M_X64
+	CLANG_CXXFLAGS+=-D_M_X64
 </#if>
 endif
 # special handling BytecodeInterpreter.cpp and DebugBytecodeInterpreter.cpp
 BytecodeInterpreter$(UMA_DOT_O):BytecodeInterpreter.cpp
-	$(MINGW_CXX) $(MINGW_CXXFLAGS) -c $< -o $@
+	$(CLANG_CXX) $(CLANG_CXXFLAGS) -c $< -o $@
 
 DebugBytecodeInterpreter$(UMA_DOT_O):DebugBytecodeInterpreter.cpp
-	$(MINGW_CXX) $(MINGW_CXXFLAGS) -c $< -o $@
+	$(CLANG_CXX) $(CLANG_CXXFLAGS) -c $< -o $@
 
 MHInterpreter$(UMA_DOT_O):MHInterpreter.cpp
-	$(MINGW_CXX) $(MINGW_CXXFLAGS) -c $< -o $@
+	$(CLANG_CXX) $(CLANG_CXXFLAGS) -c $< -o $@
 
 endif
 </#if>
@@ -540,10 +541,10 @@ SharedService$(UMA_DOT_O):SharedService.c
 <#if uma.spec.processor.ppc>
 ifndef USE_PPC_GCC
 # special handling BytecodeInterpreter.cpp and DebugBytecodeInterpreter.cpp
-FLAGS_TO_REMOVE=-O3
+FLAGS_TO_REMOVE += -O3
 NEW_OPTIMIZATION_FLAG=-O2 -qdebug=lincomm:ptranl:tfbagg
 <#if uma.spec.type.linux>
-FLAGS_TO_REMOVE+=-qpic=large
+FLAGS_TO_REMOVE += -qpic=large
 NEW_OPTIMIZATION_FLAG+=-qmaxmem=-1 -qpic
 </#if>
 SPECIALCXXFLAGS=$(filter-out $(FLAGS_TO_REMOVE),$(CXXFLAGS))
@@ -633,5 +634,5 @@ EXTRA_FLAGS=-DUT_DIRECT_TRACE_REGISTRATION -D$(TR_HOST)
 CFLAGS+=$(EXTRA_FLAGS)
 CXXFLAGS+=$(EXTRA_FLAGS)
 CPPFLAGS+=$(EXTRA_FLAGS)
-MINGW_CXXFLAGS+=$(EXTRA_FLAGS)
+CLANG_CXXFLAGS+=$(EXTRA_FLAGS)
 PPC_GCC_CXXFLAGS+=$(EXTRA_FLAGS)

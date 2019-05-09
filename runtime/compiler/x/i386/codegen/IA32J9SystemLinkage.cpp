@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,6 +23,7 @@
 #if defined(TR_TARGET_32BIT)
 
 #include "codegen/IA32J9SystemLinkage.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "codegen/RegisterDependency.hpp"
 #include "codegen/X86Instruction.hpp"
 #include "x/codegen/IA32LinkageUtils.hpp"
@@ -44,28 +45,21 @@ TR::IA32J9SystemLinkage::buildVolatileAndReturnDependencies(TR::Node *callNode, 
    {
    TR::Register* returnReg = TR::IA32SystemLinkage::buildVolatileAndReturnDependencies(callNode, deps);
 
-   // For java, we generate VFPDedicate instruction to dedicate ebx as vfp
-   TR::Register *ebxReal = cg()->allocateRegister();
-   deps->addPostCondition(ebxReal, TR::RealRegister::ebx, cg());
-
    deps->addPostCondition(cg()->getMethodMetaDataRegister(), TR::RealRegister::ebp, cg());
 
-   if (cg()->useSSEForSinglePrecision() || cg()->useSSEForDoublePrecision())
-      {
-      uint8_t numXmmRegs = 0;
-      TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
-      if (!lr || lr->getNumberOfLiveRegisters() > 0)
-         numXmmRegs = (uint8_t)(TR::RealRegister::LastXMMR - TR::RealRegister::FirstXMMR+1);
+   uint8_t numXmmRegs = 0;
+   TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
+   if (!lr || lr->getNumberOfLiveRegisters() > 0)
+      numXmmRegs = (uint8_t)(TR::RealRegister::LastXMMR - TR::RealRegister::FirstXMMR+1);
 
-      if (numXmmRegs > 0)
+   if (numXmmRegs > 0)
+      {
+      for (int regIndex = TR::RealRegister::FirstXMMR; regIndex <= TR::RealRegister::LastXMMR; regIndex++)
          {
-         for (int regIndex = TR::RealRegister::FirstXMMR; regIndex <= TR::RealRegister::LastXMMR; regIndex++)
-            {
-            TR::Register *dummy = cg()->allocateRegister(TR_FPR);
-            dummy->setPlaceholderReg();
-            deps->addPostCondition(dummy, (TR::RealRegister::RegNum)regIndex, cg());
-            cg()->stopUsingRegister(dummy);
-            }
+         TR::Register *dummy = cg()->allocateRegister(TR_FPR);
+         dummy->setPlaceholderReg();
+         deps->addPostCondition(dummy, (TR::RealRegister::RegNum)regIndex, cg());
+         cg()->stopUsingRegister(dummy);
          }
       }
 
@@ -85,25 +79,32 @@ TR::IA32J9SystemLinkage::buildDirectDispatch(TR::Node *callNode, bool spillFPReg
       }
 #endif
 
-   TR::RealRegister    *stackPointerReg = machine()->getX86RealRegister(TR::RealRegister::esp);
-   TR::SymbolReference *methodSymRef    = callNode->getSymbolReference();
-   TR::MethodSymbol    *methodSymbol    = callNode->getSymbol()->castToMethodSymbol();
+   TR::RealRegister    *espReal      = machine()->getRealRegister(TR::RealRegister::esp);
+   TR::SymbolReference *methodSymRef = callNode->getSymbolReference();
+   TR::MethodSymbol    *methodSymbol = callNode->getSymbol()->castToMethodSymbol();
    uint8_t numXmmRegs = 0;
 
    if (!methodSymbol->isHelper())
       diagnostic("Building call site for %s\n", methodSymbol->getMethod()->signature(trMemory()));
 
-   TR::X86VFPDedicateInstruction  *vfpDedicateInstruction = generateVFPDedicateInstruction(machine()->getX86RealRegister(TR::RealRegister::ebx), callNode, cg());
+   int32_t argSize = buildParametersOnCStack(callNode, 0);
+
+   TR::LabelSymbol* begLabel = generateLabelSymbol(cg());
+   TR::LabelSymbol* endLabel = generateLabelSymbol(cg());
+   begLabel->setStartInternalControlFlow();
+   endLabel->setEndInternalControlFlow();
+
+   generateLabelInstruction(LABEL, callNode, begLabel, cg());
+
+   // Save VFP
+   TR::X86VFPSaveInstruction* vfpSave = generateVFPSaveInstruction(callNode, cg());
 
    TR::J9LinkageUtils::switchToMachineCStack(callNode, cg());
 
    // check to see if we need to set XMM register dependencies
-   if (cg()->useSSEForSinglePrecision() || cg()->useSSEForDoublePrecision())
-      {
-      TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
-      if (!lr || lr->getNumberOfLiveRegisters() > 0)
-         numXmmRegs = (uint8_t)(TR::RealRegister::LastXMMR - TR::RealRegister::FirstXMMR+1);
-      }
+   TR_LiveRegisters *lr = cg()->getLiveRegisters(TR_FPR);
+   if (!lr || lr->getNumberOfLiveRegisters() > 0)
+      numXmmRegs = (uint8_t)(TR::RealRegister::LastXMMR - TR::RealRegister::FirstXMMR+1);
 
    TR::RegisterDependencyConditions  *deps;
    deps = generateRegisterDependencyConditions((uint8_t)0, (uint8_t)6 + numXmmRegs, cg());
@@ -111,78 +112,39 @@ TR::IA32J9SystemLinkage::buildDirectDispatch(TR::Node *callNode, bool spillFPReg
 
    TR::RegisterDependencyConditions  *dummy = generateRegisterDependencyConditions((uint8_t)0, (uint8_t)0, cg());
 
-   uint32_t  argSize = buildArgs(callNode, dummy);
-
-   TR::Register* targetAddressReg = NULL;
-   TR::MemoryReference* targetAddressMem = NULL;
-
-   // Force the FP register stack to be spilled.
-   //
-   if (!cg()->useSSEForDoublePrecision())
-      {
-      TR::RegisterDependencyConditions  *fpSpillDependency = generateRegisterDependencyConditions(1, 0, cg());
-      fpSpillDependency->addPreCondition(NULL, TR::RealRegister::AllFPRegisters, cg());
-      generateInstruction(FPREGSPILL, callNode, fpSpillDependency, cg());
-      }
-
-
    // Call-out
-   int32_t stackAdjustment = -argSize;
-   TR::X86ImmInstruction* instr = generateImmSymInstruction(CALLImm4, callNode, (uintptr_t)methodSymbol->getMethodAddress(), methodSymRef, cg());
-   instr->setAdjustsFramePointerBy(stackAdjustment);
-
-   // Explicitly change esp to be current esp + argSize
-   //
-   generateRegImmInstruction(
-      ADD4RegImms,
-      callNode,
-      stackPointerReg,
-      argSize,
-      cg()
-      );
+   generateRegImmInstruction(argSize >= -128 && argSize <= 127 ? SUB4RegImms : SUB4RegImm4, callNode, espReal, argSize, cg());
+   generateImmSymInstruction(CALLImm4, callNode, (uintptr_t)methodSymbol->getMethodAddress(), methodSymRef, cg());
 
    if (returnReg && !(methodSymbol->isHelper()))
       TR::J9LinkageUtils::cleanupReturnValue(callNode, returnReg, returnReg, cg());
 
    TR::J9LinkageUtils::switchToJavaStack(callNode, cg());
 
-   generateVFPReleaseInstruction(vfpDedicateInstruction, callNode, cg());
-
-   // Label denoting end of dispatch code sequence; dependencies are on
-   // this label rather than on the call
-   //
-   TR::LabelSymbol *endSystemCallSequence = generateLabelSymbol(cg());
-   generateLabelInstruction(LABEL, callNode, endSystemCallSequence, deps, cg());
+   // Restore VFP
+   generateVFPRestoreInstruction(vfpSave, callNode, cg());
+   generateLabelInstruction(LABEL, callNode, endLabel, deps, cg());
 
    // Stop using the killed registers that are not going to persist
    //
    if (deps)
       stopUsingKilledRegisters(deps, returnReg);
 
-   if (cg()->useSSEForSinglePrecision() && callNode->getOpCode().isFloat())
+   if (callNode->getOpCode().isFloat())
       {
-   TR::MemoryReference  *tempMR = machine()->getDummyLocalMR(TR::Float);
+      TR::MemoryReference  *tempMR = machine()->getDummyLocalMR(TR::Float);
       generateFPMemRegInstruction(FSTPMemReg, callNode, tempMR, returnReg, cg());
       cg()->stopUsingRegister(returnReg); // zhxingl: this is added by me
       returnReg = cg()->allocateSinglePrecisionRegister(TR_FPR);
       generateRegMemInstruction(MOVSSRegMem, callNode, returnReg, generateX86MemoryReference(*tempMR, 0, cg()), cg());
       }
-   else if (cg()->useSSEForDoublePrecision() && callNode->getOpCode().isDouble())
+   else if (callNode->getOpCode().isDouble())
       {
-   TR::MemoryReference  *tempMR = machine()->getDummyLocalMR(TR::Double);
+      TR::MemoryReference  *tempMR = machine()->getDummyLocalMR(TR::Double);
       generateFPMemRegInstruction(DSTPMemReg, callNode, tempMR, returnReg, cg());
       cg()->stopUsingRegister(returnReg); // zhxingl: this is added by me
       returnReg = cg()->allocateRegister(TR_FPR);
       generateRegMemInstruction(cg()->getXMMDoubleLoadOpCode(), callNode, returnReg, generateX86MemoryReference(*tempMR, 0, cg()), cg());
-      }
-   else
-      {
-      if ((callNode->getDataType() == TR::Float ||
-           callNode->getDataType() == TR::Double) &&
-          callNode->getReferenceCount() == 1)
-         {
-         generateFPSTiST0RegRegInstruction(FSTRegReg, callNode, returnReg, returnReg, cg());
-         }
       }
 
    if (cg()->enableRegisterAssociations())
@@ -191,40 +153,98 @@ TR::IA32J9SystemLinkage::buildDirectDispatch(TR::Node *callNode, bool spillFPReg
    return returnReg;
    }
 
-int32_t
-TR::IA32J9SystemLinkage::buildArgs(
-    TR::Node *callNode,
-    TR::RegisterDependencyConditions *deps)
+int32_t TR::IA32J9SystemLinkage::buildParametersOnCStack(TR::Node *callNode, int firstParamIndex, bool passVMThread, bool wrapAddress)
    {
-   // Push args in reverse order for a system call
-   //
-   int32_t argSize = 0;
-   int32_t firstArg = callNode->getFirstArgumentIndex();
-   for (int i = callNode->getNumChildren() - 1; i >= firstArg; i--)
+   TR_J9VMBase *fej9 = (TR_J9VMBase *)(fe());
+   TR_Stack<TR::MemoryReference*> paramsSlotsOnStack(trMemory(), callNode->getNumChildren()*2, false, stackAlloc);
+   // Evaluate children that are not part of parameters
+   for (size_t i = 0; i < firstParamIndex; i++)
       {
-      TR::Node *child = callNode->getChild(i);
+      auto child = callNode->getChild(i);
+      cg()->evaluate(child);
+      cg()->decReferenceCount(child);
+      }
+   // Load C Stack Pointer
+   auto cSP = cg()->allocateRegister();
+   generateRegMemInstruction(L4RegMem, callNode, cSP, generateX86MemoryReference(cg()->getVMThreadRegister(), fej9->thisThreadGetMachineSPOffset(), cg()), cg());
+   // Pass in the env to the jni method as the lexically first arg.
+   if (passVMThread)
+      {
+      auto slot = generateX86MemoryReference(cSP, 0, cg());
+      generateMemRegInstruction(S4MemReg, callNode, slot, cg()->getVMThreadRegister(), cg());
+      paramsSlotsOnStack.push(slot);
+      }
+   // Evaluate params
+   for (size_t i = firstParamIndex; i < callNode->getNumChildren(); i++)
+      {
+      auto child = callNode->getChild(i);
+      auto param = cg()->evaluate(child);
+      auto slot = generateX86MemoryReference(cSP, 0, cg());
+      paramsSlotsOnStack.push(slot);
       switch (child->getDataType())
          {
          case TR::Int8:
          case TR::Int16:
-         case TR::Address:
          case TR::Int32:
-            TR::IA32LinkageUtils::pushIntegerWordArg(child,cg());
-            argSize += 4;
+            generateMemRegInstruction(S4MemReg, callNode, slot, param, cg());
+            break;
+         case TR::Address:
+            if (wrapAddress && child->getOpCodeValue() == TR::loadaddr)
+               {
+               TR::StaticSymbol* sym = child->getSymbolReference()->getSymbol()->getStaticSymbol();
+               if (sym && sym->isAddressOfClassObject())
+                  {
+                  generateMemRegInstruction(S4MemReg, callNode, slot, param, cg());
+                  }
+               else // must be loadaddr of parm or local
+                  {
+                  TR::Register *tmp = cg()->allocateRegister();
+                  generateRegRegInstruction(XOR4RegReg, child, tmp, tmp, cg());
+                  generateMemImmInstruction(CMP4MemImms, child, generateX86MemoryReference(child->getRegister(), 0, cg()), 0, cg());
+                  generateRegRegInstruction(CMOVNE4RegReg, child, tmp, child->getRegister(), cg());
+                  generateMemRegInstruction(S4MemReg, callNode, slot, tmp, cg());
+                  cg()->stopUsingRegister(tmp);
+                  }
+               }
+            else
+               {
+               generateMemRegInstruction(S4MemReg, callNode, slot, param, cg());
+               }
+            break;
+         case TR::Int64:
+            generateMemRegInstruction(S4MemReg, callNode, slot, param->getLowOrder(), cg());
+            {
+            auto highslot = generateX86MemoryReference(cSP, 0, cg());
+            paramsSlotsOnStack.push(highslot);
+            generateMemRegInstruction(S4MemReg, callNode, highslot, param->getHighOrder(), cg());
+            }
             break;
          case TR::Float:
-            TR::IA32LinkageUtils::pushFloatArg(child,cg());
-            argSize += 4;
+            generateMemRegInstruction(MOVSSMemReg, callNode, slot, param, cg());
             break;
          case TR::Double:
-            TR::IA32LinkageUtils::pushDoubleArg(child, cg());
-            argSize += 8;
+            paramsSlotsOnStack.push(NULL);
+            generateMemRegInstruction(MOVSDMemReg, callNode, slot, param, cg());
             break;
-         case TR::Aggregate:
-         case TR::Int64:
-         default:
-            TR_ASSERT(0, "Attempted to push unknown type");
-            break;
+         }
+      cg()->decReferenceCount(child);
+      }
+   cg()->stopUsingRegister(cSP);
+   int32_t argSize = paramsSlotsOnStack.size() * 4;
+   int32_t adjustedArgSize = 0;
+   if (argSize % 16 != 0)
+      {
+      adjustedArgSize = 16 - (argSize % 16);
+      argSize = argSize + adjustedArgSize;
+      if (comp()->getOption(TR_TraceCG))
+         traceMsg(comp(), "adjust arguments size by %d to make arguments 16 byte aligned \n", adjustedArgSize);
+      }
+   for(int offset = adjustedArgSize; !paramsSlotsOnStack.isEmpty(); offset += TR::Compiler->om.sizeofReferenceAddress())
+      {
+      auto param = paramsSlotsOnStack.pop();
+      if (param)
+         {
+         param->getSymbolReference().setOffset(-offset-4);
          }
       }
    return argSize;

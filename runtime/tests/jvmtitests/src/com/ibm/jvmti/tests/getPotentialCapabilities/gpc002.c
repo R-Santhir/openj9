@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -109,7 +109,7 @@ gpc002(agentEnv * agent_env, char * args)
 	err = (*jvmti_env)->SetEventNotificationMode(jvmti_env, JVMTI_ENABLE, JVMTI_EVENT_THREAD_START, (jthread) NULL);
 	if (err != JVMTI_ERROR_NONE)
 	{
-		error(env, err, "Failed to SetEventNotificationMode");
+		error(env, err, "Failed to SetEventNotificationMode for thread start");
 		return JNI_ERR;
 	}
 	 
@@ -181,11 +181,17 @@ getCapabilities(jvmtiCapabilities * caps, int * availableCount, int * unavailabl
 	PRINT_CAPABILITY(can_generate_resource_exhaustion_heap_events);
 	PRINT_CAPABILITY(can_generate_resource_exhaustion_threads_events);
 
-    /* JVMTI 9.0 */
-    if (JVMTI_VERSION_9_0 == env->jvmtiVersion) {
-        PRINT_CAPABILITY(can_generate_early_vmstart);
-        PRINT_CAPABILITY(can_generate_early_class_hook_events);
-    }
+#if JAVA_SPEC_VERSION >= 9
+	/* JVMTI 9.0 */
+	PRINT_CAPABILITY(can_generate_early_vmstart);
+	PRINT_CAPABILITY(can_generate_early_class_hook_events);
+#endif /* JAVA_SPEC_VERSION >= 9 */
+	/* JVMTI 11 */
+
+#if JAVA_SPEC_VERSION >= 11
+	PRINT_CAPABILITY(can_generate_sampled_object_alloc_events);
+#endif /* JAVA_SPEC_VERSION >= 11 */
+
 }
 
 

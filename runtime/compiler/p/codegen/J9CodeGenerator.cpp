@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -21,11 +21,13 @@
  *******************************************************************************/
 
 #include "j9cfg.h"
-#include "codegen/AheadOfTimeCompile.hpp"           // for AheadOfTimeCompile
+#include "codegen/AheadOfTimeCompile.hpp"
 #include "codegen/CodeGenerator.hpp"
+#include "codegen/CodeGeneratorUtils.hpp"
 #include "codegen/CodeGenerator_inlines.hpp"
 #include "codegen/GenerateInstructions.hpp"
 #include "codegen/Linkage.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "env/CompilerEnv.hpp"
 #include "env/OMRMemory.hpp"
 #include "env/VMJ9.h"
@@ -59,6 +61,11 @@ J9::Power::CodeGenerator::CodeGenerator() :
       cg->setSupportsBigDecimalLongLookasideVersioning();
       }
 
+   if (cg->getSupportsTM())
+      {
+      cg->setSupportsInlineConcurrentLinkedQueue();
+      }
+
    cg->setSupportsNewInstanceImplOpt();
 
    static char *disableMonitorCacheLookup = feGetEnv("TR_disableMonitorCacheLookup");
@@ -67,6 +74,11 @@ J9::Power::CodeGenerator::CodeGenerator() :
 
    cg->setSupportsPartialInlineOfMethodHooks();
    cg->setSupportsInliningOfTypeCoersionMethods();
+
+   if (TR::Compiler->target.cpu.id() >= TR_PPCp8 && TR::Compiler->target.cpu.getPPCSupportsVSX() &&
+      TR::Compiler->target.is64Bit() && !comp->getOption(TR_DisableFastStringIndexOf) &&
+      !TR::Compiler->om.canGenerateArraylets())
+      cg->setSupportsInlineStringIndexOf();
 
    if (!comp->getOption(TR_DisableReadMonitors))
       cg->setSupportsReadOnlyLocks();
@@ -346,11 +358,9 @@ bool J9::Power::CodeGenerator::suppressInliningOfRecognizedMethod(TR::Recognized
       }
 
    // Transactional Memory
-   if (self()->getSupportsTM())
+   if (self()->getSupportsInlineConcurrentLinkedQueue())
       {
-      if (method == TR::java_util_concurrent_ConcurrentHashMap_tmEnabled ||
-          method == TR::java_util_concurrent_ConcurrentHashMap_tmPut ||
-          method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmOffer ||
+      if (method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmOffer ||
           method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmPoll ||
           method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmEnabled)
           {
@@ -431,7 +441,7 @@ J9::Power::CodeGenerator::insertPrefetchIfNecessary(TR::Node *node, TR::Register
             TR::Register *tempReg = self()->allocateRegister();
             TR::RegisterDependencyConditions *deps = new (self()->trHeapMemory()) TR::RegisterDependencyConditions(1, 2, self()->trMemory());
             deps->addPostCondition(tempReg, TR::RealRegister::NoReg);
-            addDependency(deps, condReg, TR::RealRegister::NoReg, TR_CCR, self());
+            TR::addDependency(deps, condReg, TR::RealRegister::NoReg, TR_CCR, self());
 
             if (TR::Compiler->target.is64Bit() && !comp()->useCompressedPointers())
                {
@@ -610,7 +620,10 @@ J9::Power::CodeGenerator::insertPrefetchIfNecessary(TR::Node *node, TR::Register
       }
 
    if (node->getOpCodeValue() == TR::aloadi ||
-      (TR::Compiler->target.is64Bit() && comp()->useCompressedPointers() && node->getOpCodeValue() == TR::iloadi && comp()->getMethodHotness() >= hot))
+         (TR::Compiler->target.is64Bit() &&
+          comp()->useCompressedPointers() &&
+          (node->getOpCodeValue() == TR::iloadi || node->getOpCodeValue() == TR::irdbari) &&
+          comp()->getMethodHotness() >= hot))
       {
       TR::Node *firstChild = node->getFirstChild();
       optDisabled = disableIteratorPrefetch;
@@ -717,7 +730,7 @@ J9::Power::CodeGenerator::insertPrefetchIfNecessary(TR::Node *node, TR::Register
             }
          }
       }
-   else if (node->getOpCodeValue() == TR::wrtbari &&
+   else if (node->getOpCodeValue() == TR::awrtbari &&
             comp()->getMethodHotness() >= scorching &&
             TR::Compiler->target.cpu.id() >= TR_PPCp6 &&
               (TR::Compiler->target.is32Bit() ||

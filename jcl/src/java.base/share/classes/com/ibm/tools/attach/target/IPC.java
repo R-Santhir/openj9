@@ -2,7 +2,7 @@
 package com.ibm.tools.attach.target;
 
 /*******************************************************************************
- * Copyright (c) 2009, 2018 IBM Corp. and others
+ * Copyright (c) 2009, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -31,6 +31,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.security.SecureRandom;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Paths;
@@ -45,12 +46,14 @@ import static java.nio.file.attribute.PosixFilePermission.GROUP_READ;
 import static java.nio.file.attribute.PosixFilePermission.GROUP_WRITE;
 import static java.nio.file.attribute.PosixFilePermission.OTHERS_READ;
 import static java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE;
+import static openj9.tools.attach.diagnostics.base.DiagnosticsInfo.OPENJ9_DIAGNOSTICS_PREFIX;
 
 /**
  * Utility class for operating system calls
  */
 public class IPC {
 
+	private static final String JAVA_IO_TMPDIR = "java.io.tmpdir"; //$NON-NLS-1$
 	/**
 	 * Successful return code from natives.
 	 */
@@ -63,15 +66,34 @@ public class IPC {
 	static final String LOCAL_CONNECTOR_ADDRESS = "com.sun.management.jmxremote.localConnectorAddress"; //$NON-NLS-1$
 	private static final EnumSet<PosixFilePermission> NON_OWNER_READ_WRITE =
 				EnumSet.of(GROUP_READ, GROUP_WRITE, OTHERS_READ, OTHERS_WRITE);
-
+	static final int LOGGING_UNKNOWN = 0;
+	static final int LOGGING_DISABLED = 1;
+	static final int LOGGING_ENABLED = 2;
+	/**
+	 * Prefixes and names for Diagnostics properties
+	 */
+	public static final String INCOMPATIBLE_JAVA_VERSION = "OPENJ9_INCOMPATIBLE_JAVA_VERSION"; //$NON-NLS-1$
+	public final static String PROPERTY_DIAGNOSTICS_ERROR = OPENJ9_DIAGNOSTICS_PREFIX + "error"; //$NON-NLS-1$
+	public final static String PROPERTY_DIAGNOSTICS_ERRORTYPE = OPENJ9_DIAGNOSTICS_PREFIX + "errortype"; //$NON-NLS-1$
+	public final static String PROPERTY_DIAGNOSTICS_ERRORMSG = OPENJ9_DIAGNOSTICS_PREFIX + "errormsg"; //$NON-NLS-1$
 	/**
 	 * True if operating system is Windows.
 	 */
 	public static boolean isWindows = false;
 
 	private static Random randomGen; /* Cleanup. this is used by multiple threads */
-	static  PrintStream logStream; /* cleanup.  Used by multiple threads */
-	static volatile boolean loggingEnabled; /* set at initialization time and not changed */
+	
+	/* loggingStatus may be seen to be LOGGING_ENABLED before logStream is initialized,
+	 * so use logStream inside a synchronized (IPC.accessorMutex) block.
+	 */
+	static  PrintStream logStream;
+	
+	/* loggingStatus is set at initialization time to LOGGING_DISABLED or LOGGING_ENABLED 
+	 * and not changed thereafter.
+	 * This can be safely tested by any thread against LOGGING_DISABLED.  If it is not equal, then 
+	 * isLoggingEnabled() will check the actual status in a thread-safe manner.
+	 */
+	static int loggingStatus = LOGGING_UNKNOWN; /* set at initialization time and not changed */
 	static String defaultVmId;
 
 	/**
@@ -219,6 +241,27 @@ public class IPC {
 		int rc = processExistsImpl(pid);
 		return (rc > 0);
 	}
+	
+	/**
+	 * Check if attach API initialization has enabled logging.
+	 * Logging is enabled or disabled once, and remains enabled or disabled for the duration of the process.
+	 * @return true if logging is definitely enabled, false if is not initialized or is disabled.
+	 */
+	private static boolean isLoggingEnabled() {
+		boolean result = false;
+		if (LOGGING_DISABLED == loggingStatus) {
+			result = false;
+		} else if (LOGGING_ENABLED == loggingStatus) {
+			result = true;
+		} else synchronized (accessorMutex) {
+			/* 
+			 * We may be initializing.  If so, wait until initialization is complete.  
+			 * Otherwise, assume logging is disabled.
+			 */
+			result = (LOGGING_ENABLED == loggingStatus);			
+		}
+		return result;
+	}
 
 	private static native int processExistsImpl(long pid);
 
@@ -261,7 +304,8 @@ public class IPC {
 	static String getTmpDir() {
 		String tmpDir = getTempDirImpl();
 		if (null == tmpDir) {
-			tmpDir = com.ibm.oti.vm.VM.getVMLangAccess().internalGetProperties().getProperty("java.io.tmpdir"); //$NON-NLS-1$
+			IPC.logMessage("Could not get system temporary directory. Trying "+JAVA_IO_TMPDIR); //$NON-NLS-1$
+			tmpDir = com.ibm.oti.vm.VM.getVMLangAccess().internalGetProperties().getProperty(JAVA_IO_TMPDIR); //$NON-NLS-1$
 		}
 		return tmpDir;
 	}
@@ -310,7 +354,7 @@ public class IPC {
 	 * @param msg message to print
 	 */
 	public static void logMessage(final String msg) {
-		if (loggingEnabled ) {
+		if (isLoggingEnabled()) {
 			printLogMessage(msg);
 		}
 	}
@@ -323,7 +367,7 @@ public class IPC {
 	 * @param string2 concatenated to second argument
 	 */
 	public static void logMessage(String string1, String string2) {
-		if (loggingEnabled ) {
+		if (isLoggingEnabled()) {
 			printLogMessage(string1+string2);
 		}
 	}
@@ -336,7 +380,7 @@ public class IPC {
 	 * @param int1 concatenated to second argument
 	 */
 	public static void logMessage(String string1, int int1) {
-		if (loggingEnabled ) {
+		if (isLoggingEnabled()) {
 			printLogMessage(string1+Integer.toString(int1));
 		}
 	}
@@ -350,7 +394,7 @@ public class IPC {
 	 * @param string2 second string
 	 */
 	public static void logMessage(String string1, int int1, String string2) {
-		if (loggingEnabled ) {
+		if (isLoggingEnabled()) {
 			printLogMessage(string1+Integer.toString(int1)+string2);
 		}
 	}
@@ -365,15 +409,9 @@ public class IPC {
 	 * @param string3 third string
 	 */
 	public static void logMessage(String string1, int int1, String string2, String string3) {
-		if (loggingEnabled ) {
+		if (isLoggingEnabled()) {
 			printLogMessage(string1+Integer.toString(int1)+string2+string3);
 		}
-	}
-
-	private static void printMessageWithHeader(String msg, PrintStream log) {
-		tracepoint(TRACEPOINT_STATUS_LOGGING, msg);
-		printLogMessageHeader(log);
-		log.println(msg);
 	}
 
 	/**
@@ -383,29 +421,42 @@ public class IPC {
 	 * @param thrown throwable
 	 * @note nothing is printed if logging is disabled
 	 */
-	public synchronized static void logMessage(String msg, Throwable thrown) {
-		@SuppressWarnings("resource") /* this will be closed when the VM exits */
-		PrintStream log = getLogStream();
-		if (!Objects.isNull(log)) {
-			printMessageWithHeader(msg, log);
-			thrown.printStackTrace(log);
-			log.flush();
+	public static void logMessage(String msg, Throwable thrown) {
+		synchronized (accessorMutex) {
+			if (isLoggingEnabled()) {
+				printMessageWithHeader(msg, logStream);
+				thrown.printStackTrace(logStream);
+				logStream.flush();
+			}
 		}
 	}
 
 	/**
 	 * Print a message to the log file with time and thread information.
 	 * Also send the raw message to a tracepoint.
+	 * Call this only if isLoggingEnabled() has returned true.
 	 * @param msg message to print
 	 * @note no message is printed if logging is disabled
 	 */
-	private synchronized static void printLogMessage(final String msg) {
-		@SuppressWarnings("resource") /* this will be closed when the VM exits */
-		PrintStream log = getLogStream();
-		if (!Objects.isNull(log)) {
-			printMessageWithHeader(msg, log);
-			log.flush();
+	private static void printLogMessage(final String msg) {
+		synchronized (accessorMutex) {
+			if (!Objects.isNull(logStream)) {
+				printMessageWithHeader(msg, logStream);
+				logStream.flush();
+			}
 		}
+	}
+
+	/**
+	 * Print a message to the logging stream with metadata.
+	 * This must be called in a synchronized block.
+	 * @param msg Message to print
+	 * @param log output stream.
+	 */
+	static void printMessageWithHeader(String msg, PrintStream log) {
+		tracepoint(TRACEPOINT_STATUS_LOGGING, msg);
+		printLogMessageHeader(log);
+		log.println(msg);
 	}
 
 	/**
@@ -430,25 +481,24 @@ public class IPC {
 	}
 	
 	static final class syncObject {
+		/* empty */
 	}
-	private static final syncObject accessorMutex = new syncObject();
-
-	private static PrintStream getLogStream() {
-		synchronized(accessorMutex) {
-			return logStream;
-		}
-	}
-
-	static void setLogStream(PrintStream log) {
-		synchronized(accessorMutex) {
-			IPC.logStream = log;
-		}
-	}
+	/**
+	 * For mutual exclusion to IPC objects.
+	 */
+	public static final syncObject accessorMutex = new syncObject();
 
 	static void setDefaultVmId(String id) { /* use this while until the real vmId is set, since they will usually be the same */
 		defaultVmId = id;
 	}
 
+	/**
+	 * Send a properties file as a stream of bytes
+	 * 
+	 * @param props     Properties file
+	 * @param outStream destination of the bytes
+	 * @throws IOException on communication error
+	 */
 	public static void sendProperties(Properties props, OutputStream outStream)
 			throws IOException {
 		ByteArrayOutputStream propsBuffer = new ByteArrayOutputStream();
@@ -458,14 +508,20 @@ public class IPC {
 	}
 
 	/**
-	 * @param inStream  Source for the properties
-	 * @param requireNull Indicates if the input message must be null-terminated (typically for socket input) or end of file (typically for re-parsing an already-received message) 
+	 * @param inStream    Source for the properties
+	 * @param requireNull Indicates if the input message must be null-terminated
+	 *                    (typically for socket input) or end of file (typically for
+	 *                    re-parsing an already-received message)
 	 * @return properties object
-	 * @throws IOException
+	 * @throws IOException on communication error
 	 */
 	public static Properties receiveProperties(InputStream inStream, boolean requireNull)
 			throws IOException {
 		byte msgBuff[] = AttachmentConnection.streamReceiveBytes(inStream, 0, requireNull);
+		if (IPC.isLoggingEnabled()) {
+			String propsString = new String(msgBuff, StandardCharsets.UTF_8);
+			IPC.logMessage("Received properties file:", propsString); //$NON-NLS-1$
+		}
 		Properties props = new Properties();
 		props.load(new ByteArrayInputStream(msgBuff));
 		return props;

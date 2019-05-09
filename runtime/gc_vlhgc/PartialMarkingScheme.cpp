@@ -1,6 +1,6 @@
 
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -486,7 +486,7 @@ MM_PartialMarkingScheme::scanMixedObject(MM_EnvironmentVLHGC *env, J9Object *obj
 	markObjectClass(env, objectPtr);
 	
 	/* Object slots */
-	volatile fj9object_t* scanPtr = (fj9object_t*)( objectPtr + 1 );
+	volatile fj9object_t* scanPtr = _extensions->mixedObjectModel.getHeadlessObject(objectPtr);
 	UDATA objectSize = _extensions->mixedObjectModel.getSizeInBytesWithHeader(objectPtr);
 
 	updateScanStats(env, objectSize, reason);
@@ -497,7 +497,7 @@ MM_PartialMarkingScheme::scanMixedObject(MM_EnvironmentVLHGC *env, J9Object *obj
 	leafPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr)->instanceLeafDescription;
 #endif /* J9VM_GC_LEAF_BITS */
 
-	if(((UDATA)descriptionPtr) & 1) {
+	if (((UDATA)descriptionPtr) & 1) {
 		descriptionBits = ((UDATA)descriptionPtr) >> 1;
 #if defined(J9VM_GC_LEAF_BITS)
 		leafBits = ((UDATA)leafPtr) >> 1;
@@ -510,7 +510,7 @@ MM_PartialMarkingScheme::scanMixedObject(MM_EnvironmentVLHGC *env, J9Object *obj
 	}
 	descriptionIndex = J9_OBJECT_DESCRIPTION_SIZE - 1;
 
-	while(scanPtr < endScanPtr) {
+	while (scanPtr < endScanPtr) {
 		/* Determine if the slot should be processed */
 		if (descriptionBits & 1) {
 			/* As this function can be invoked during concurent mark the slot is
@@ -533,7 +533,7 @@ MM_PartialMarkingScheme::scanMixedObject(MM_EnvironmentVLHGC *env, J9Object *obj
 #if defined(J9VM_GC_LEAF_BITS)
 		leafBits >>= 1;
 #endif /* J9VM_GC_LEAF_BITS */
-		if(descriptionIndex-- == 0) {
+		if (descriptionIndex-- == 0) {
 			descriptionBits = *descriptionPtr++;
 #if defined(J9VM_GC_LEAF_BITS)
 			leafBits = *leafPtr++;
@@ -566,18 +566,18 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 	bool referentMustBeMarked = isReferenceCleared || !isReferenceInCollectionSet;
 	bool referentMustBeCleared = false;
 	UDATA referenceObjectOptions = env->_cycleState->_referenceObjectOptions;
-	UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(objectPtr)) & J9_JAVA_CLASS_REFERENCE_MASK;
+	UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(objectPtr)) & J9AccClassReferenceMask;
 	switch (referenceObjectType) {
-	case J9_JAVA_CLASS_REFERENCE_WEAK:
+	case J9AccClassReferenceWeak:
 		referentMustBeCleared = (0 != (referenceObjectOptions & MM_CycleState::references_clear_weak));
 		break;
-	case J9_JAVA_CLASS_REFERENCE_SOFT:
+	case J9AccClassReferenceSoft:
 		referentMustBeCleared = (0 != (referenceObjectOptions & MM_CycleState::references_clear_soft));
 		referentMustBeMarked = referentMustBeMarked || (
 			((0 == (referenceObjectOptions & MM_CycleState::references_soft_as_weak))
 			&& ((UDATA)J9GC_J9VMJAVALANGSOFTREFERENCE_AGE(env, objectPtr) < _extensions->getDynamicMaxSoftReferenceAge())));
 		break;
-	case J9_JAVA_CLASS_REFERENCE_PHANTOM:
+	case J9AccClassReferencePhantom:
 		referentMustBeCleared = (0 != (referenceObjectOptions & MM_CycleState::references_clear_phantom));
 		break;
 	default:
@@ -605,7 +605,7 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 		}
 	}
 
-	volatile fj9object_t* scanPtr = (fj9object_t*)( objectPtr + 1 );
+	volatile fj9object_t* scanPtr = _extensions->mixedObjectModel.getHeadlessObject(objectPtr);
 	UDATA objectSize = _extensions->mixedObjectModel.getSizeInBytesWithHeader(objectPtr);
 	endScanPtr = (fj9object_t*)(((U_8 *)objectPtr) + objectSize);
 
@@ -616,7 +616,7 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 	leafPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr)->instanceLeafDescription;
 #endif /* J9VM_GC_LEAF_BITS */
 
-	if(((UDATA)descriptionPtr) & 1) {
+	if (((UDATA)descriptionPtr) & 1) {
 		descriptionBits = ((UDATA)descriptionPtr) >> 1;
 #if defined(J9VM_GC_LEAF_BITS)
 		leafBits = ((UDATA)leafPtr) >> 1;
@@ -629,9 +629,9 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 	}
 	descriptionIndex = J9_OBJECT_DESCRIPTION_SIZE - 1;
 
-	while(scanPtr < endScanPtr) {
+	while (scanPtr < endScanPtr) {
 		/* Determine if the slot should be processed */
-		if((descriptionBits & 1) && ((scanPtr != referentPtr.readAddressFromSlot()) || referentMustBeMarked)) {
+		if ((descriptionBits & 1) && ((scanPtr != referentPtr.readAddressFromSlot()) || referentMustBeMarked)) {
 			/* As this function can be invoked during concurrent mark the slot is
 			 * volatile so we must ensure that the compiler generates the correct
 			 * code if markObject() is inlined.
@@ -652,7 +652,7 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 #if defined(J9VM_GC_LEAF_BITS)
 		leafBits >>= 1;
 #endif /* J9VM_GC_LEAF_BITS */
-		if(descriptionIndex-- == 0) {
+		if (descriptionIndex-- == 0) {
 			descriptionBits = *descriptionPtr++;
 #if defined(J9VM_GC_LEAF_BITS)
 			leafBits = *leafPtr++;
@@ -1727,9 +1727,9 @@ MM_PartialMarkingScheme::processReferenceList(MM_EnvironmentVLHGC *env, J9Object
 		GC_SlotObject referentSlotObject(_extensions->getOmrVM(), &J9GC_J9VMJAVALANGREFERENCE_REFERENT(env, referenceObj));
 		J9Object *referent = referentSlotObject.readReferenceFromSlot();
 		if (NULL != referent) {
-			UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(referenceObj)) & J9_JAVA_CLASS_REFERENCE_MASK;
+			UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(referenceObj)) & J9AccClassReferenceMask;
 			if (isMarked(referent)) {
-				if (J9_JAVA_CLASS_REFERENCE_SOFT == referenceObjectType) {
+				if (J9AccClassReferenceSoft == referenceObjectType) {
 					U_32 age = J9GC_J9VMJAVALANGSOFTREFERENCE_AGE(env, referenceObj);
 					if (age < _extensions->getMaxSoftReferenceAge()) {
 						/* Soft reference hasn't aged sufficiently yet - increment the age */
@@ -1746,7 +1746,7 @@ MM_PartialMarkingScheme::processReferenceList(MM_EnvironmentVLHGC *env, J9Object
 				J9GC_J9VMJAVALANGREFERENCE_STATE(env, referenceObj) = GC_ObjectModel::REF_STATE_CLEARED;
 
 				/* Phantom references keep it's referent alive in Java 8 and doesn't in Java 9 and later */
-				if ((J9_JAVA_CLASS_REFERENCE_PHANTOM == referenceObjectType) && ((J2SE_VERSION(_javaVM) & J2SE_VERSION_MASK) <= J2SE_18)) {
+				if ((J9AccClassReferencePhantom == referenceObjectType) && ((J2SE_VERSION(_javaVM) & J2SE_VERSION_MASK) <= J2SE_18)) {
 					/* Scanning will be done after the enqueuing */
 					markObject(env, referent);
 					_interRegionRememberedSet->rememberReferenceForMark(env, referenceObj, referent);

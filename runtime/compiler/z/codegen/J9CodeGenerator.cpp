@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -35,6 +35,7 @@
 #include "codegen/CodeGenerator.hpp"
 #include "codegen/CodeGenerator_inlines.hpp"
 #include "codegen/ConstantDataSnippet.hpp"
+#include "codegen/Linkage_inlines.hpp"
 #include "env/VMJ9.h"
 #include "env/jittypes.h"
 #include "il/Node.hpp"
@@ -62,40 +63,6 @@ J9::Z::CodeGenerator::CodeGenerator() :
    TR::Compilation *comp = cg->comp();
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp->fe());
 
-   // Do random Disable<Platform> when -Xjit randomGen
-   if (comp->getOption(TR_Randomize))
-      {
-      switch(randomizer.randomInt(TR::Compiler->target.cpu.id() - TR_s370gp7))
-         {
-         case 1:
-            {
-            _processorInfo.disableArch(TR_S390ProcessorInfo::TR_z196);
-            traceMsg(comp, "disablez196");
-            break;
-            }
-
-         case 2:
-            {
-            _processorInfo.disableArch(TR_S390ProcessorInfo::TR_zEC12);
-            traceMsg(comp, "disablezEC12");
-            break;
-            }
-
-         case 3:
-            {
-            _processorInfo.disableArch(TR_S390ProcessorInfo::TR_z13);
-            traceMsg(comp, "disablez13");
-            break;
-            }
-         case 4:
-            {
-            _processorInfo.disableArch(TR_S390ProcessorInfo::TR_zNext);
-            traceMsg(comp, "RandomGen: Setting disabling zNext processor architecture.");
-            break;
-            }
-         }
-      }
-
    cg->setAheadOfTimeCompile(new (cg->trHeapMemory()) TR::AheadOfTimeCompile(cg));
 
    // Java specific runtime helpers
@@ -121,6 +88,12 @@ J9::Z::CodeGenerator::CodeGenerator() :
       cg->setSupportsInlineStringHashCode();
       }
 
+   // See comment in `handleHardwareReadBarrier` implementation as to why we cannot support CTX under CS
+   if (cg->getSupportsTM() && TR::Compiler->om.readBarrierType() == gc_modron_readbar_none)
+      {
+      cg->setSupportsInlineConcurrentLinkedQueue();
+      }
+
    // Let's turn this on.  There is more work needed in the opt
    // to catch the case where the BNDSCHK is inserted after
    //
@@ -136,8 +109,6 @@ J9::Z::CodeGenerator::CodeGenerator() :
 
    // Invoke Class.newInstanceImpl() from the JIT directly
    cg->setSupportsNewInstanceImplOpt();
-
-   cg->setSupportsPostProcessArrayCopy();
 
    // Still being set in the S390CodeGenerator constructor, as zLinux sTR requires this.
    //cg->setSupportsJavaFloatSemantics();
@@ -200,7 +171,7 @@ J9::Z::CodeGenerator::CodeGenerator() :
 
    const bool accessStaticsIndirectly = !cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10) ||
          comp->getOption(TR_DisableDirectStaticAccessOnZ) ||
-         comp->compileRelocatableCode();
+         (comp->compileRelocatableCode() && !comp->getOption(TR_UseSymbolValidationManager));
 
    cg->setAccessStaticsIndirectly(accessStaticsIndirectly);
 
@@ -208,6 +179,8 @@ J9::Z::CodeGenerator::CodeGenerator() :
       {
       self()->setHasFixedFrameC_CallingConvention();
       }
+
+   cg->setIgnoreDecimalOverflowException(false);
    }
 
 
@@ -1944,133 +1917,6 @@ bool nodeMightClobberAccumulatorBeforeUse(TR::Node *node)
    return true;
    }
 
-TR::Register *
-J9::Z::CodeGenerator::evaluateAggregateToGPR(size_t destSize, TR::Node *srcNode, TR_OpaquePseudoRegister *srcReg, TR::MemoryReference *srcMR)
-   {
-   TR::CodeGenerator *cg = self();
-   TR_ASSERT(srcReg,"srcReg is NULL for srcNode %p\n",srcNode);
-   size_t srcSize = srcReg->getSize();
-
-   srcMR = reuseS390MemRefFromStorageRef(srcMR, 0, srcNode, srcReg->getStorageReference(), cg);
-
-   if (cg->traceBCDCodeGen())
-      traceMsg(self()->comp(),"\tevaluateAggregateToGPR : %s (%p) srcReg->aggrSize = %d, destSize = %d\n",srcNode->getOpCode().getName(),srcNode,srcSize,destSize);
-
-   size_t loadSize = srcSize;
-   if (srcSize > destSize)
-      {
-      loadSize = destSize;
-      srcMR->addToOffset(srcSize - destSize);
-      if (cg->traceBCDCodeGen())
-         traceMsg(self()->comp(),"\tisTruncation=true : set loadSize = %d and add %d to sourceMR offset (srcAggrSize %d > destIntSize %d)\n",destSize,srcSize - destSize,srcSize,destSize);
-      }
-
-   bool is64BitTarget = TR::Compiler->target.is64Bit() || cg->use64BitRegsOn32Bit();
-   TR::Register *targetReg = NULL;
-   if (destSize > 8)
-      {
-      TR_ASSERT(destSize <= 16,"invalid destSize %d\n",destSize);
-      targetReg = cg->allocateConsecutiveRegisterPair(cg->allocate64bitRegister(),cg->allocate64bitRegister());
-      }
-   else if (destSize > 4)
-      {
-      if (is64BitTarget)
-         targetReg = cg->allocateRegister(TR_GPR64);
-      else
-         targetReg = cg->allocateConsecutiveRegisterPair();
-      }
-   else
-      {
-      targetReg = cg->allocateRegister();
-      }
-
-   bool useICM = false;
-   // currently cannot have loadSize <= 4 and is64Bit true but keep the cases in the switch below in case there is a need to use 64 bit registers for smaller sizes
-   switch (loadSize)
-      {
-      case 1:
-      case 2:
-         if (targetReg->getKind() == TR_GPR64)
-            {
-            generateRXYInstruction(cg, loadSize == 1 ? TR::InstOpCode::LLGC : TR::InstOpCode::LLGH, srcNode, targetReg, srcMR);
-            }
-         else
-            {
-            generateRXYInstruction(cg, loadSize == 1 ? TR::InstOpCode::LLC : TR::InstOpCode::LLH, srcNode, targetReg, srcMR);
-            }
-         break;
-      case 3:
-         useICM = true;
-         break;
-      case 4:
-         if (targetReg->getKind() == TR_GPR64)
-            generateRXYInstruction(cg, TR::InstOpCode::LLGF, srcNode, targetReg, srcMR);
-         else
-            generateRXInstruction(cg, TR::InstOpCode::L, srcNode, targetReg, srcMR);
-         break;
-      case 5:
-      case 6:
-      case 7:
-         {
-         uint32_t mask = (1 << (loadSize-4)) - 1;  // 5->mask=1, 6->mask=3, 7->mask=7
-         int32_t mrOffset = loadSize-4;
-         if (targetReg->getRegisterPair())
-            {
-            generateRRInstruction(cg, TR::InstOpCode::XR, srcNode, targetReg->getHighOrder(), targetReg->getHighOrder());
-            generateRSInstruction(cg, TR::InstOpCode::ICM, srcNode, targetReg->getHighOrder(), mask, srcMR);
-            generateRXInstruction(cg, TR::InstOpCode::L, srcNode, targetReg->getLowOrder(), generateS390MemoryReference(*srcMR, mrOffset, cg));
-            }
-         else
-            {
-            TR_ASSERT(targetReg->getKind() == TR_GPR64,"targetReg should be 64 bit on node %p\n",srcNode);
-            generateRRInstruction(cg, TR::InstOpCode::XGR, srcNode, targetReg, targetReg);
-            generateRSYInstruction(cg, TR::InstOpCode::ICMH, srcNode, targetReg, mask, srcMR);
-            generateRXYInstruction(cg, TR::InstOpCode::L, srcNode, targetReg, generateS390MemoryReference(*srcMR, mrOffset, cg));
-            }
-         }
-         break;
-      case 8:
-         if (targetReg->getRegisterPair())
-            {
-            generateRXInstruction(cg, TR::InstOpCode::L, srcNode, targetReg->getHighOrder(), srcMR);
-            generateRXInstruction(cg, TR::InstOpCode::L, srcNode, targetReg->getLowOrder(), generateS390MemoryReference(*srcMR, 4, cg));
-            }
-         else
-            {
-            generateRXYInstruction(cg, TR::InstOpCode::LG, srcNode, targetReg, srcMR);
-            }
-         break;
-      case 9:
-      case 10:
-      case 11:
-      case 12:
-      case 13:
-      case 14:
-      case 15:
-         {
-         TR_ASSERT(false,"loadSize %d on node %p not implemented\n",loadSize,srcNode);
-         }
-      case 16:
-         {
-         generateRXInstruction(cg, TR::InstOpCode::LG, srcNode, targetReg->getHighOrder(), srcMR);
-         generateRXInstruction(cg, TR::InstOpCode::LG, srcNode, targetReg->getLowOrder(), generateS390MemoryReference(*srcMR, 8, cg));
-         //generateRSInstruction(cg, TR::InstOpCode::LMG, srcNode,targetReg, srcMR);
-         }
-         break;
-      default:
-         TR_ASSERT(false,"unexpected loadSize %d on node %p\n",loadSize,srcNode);
-      }
-
-   if (useICM)
-      {
-      TR_ASSERT(targetReg->getRegisterPair() == NULL,"targetReg must not be a regPair in the useICM case for node %p\n",srcNode);
-      generateRRInstruction(cg, targetReg->getKind() == TR_GPR64 ? TR::InstOpCode::XGR : TR::InstOpCode::XR, srcNode, targetReg, targetReg);
-      generateRSInstruction(cg, TR::InstOpCode::ICM, srcNode, targetReg, (uint32_t)((1 << (loadSize)) - 1), srcMR);  // 1->mask=1, 2->mask=3, 3->mask=7
-      }
-
-   return targetReg;
-   }
-
 void
 J9::Z::CodeGenerator::correctBadSign(TR::Node *node, TR_PseudoRegister *reg, int32_t endByte, TR::MemoryReference *memRef)
    {
@@ -3574,8 +3420,8 @@ J9::Z::CodeGenerator::supportsPackedShiftRight(int32_t resultPrecision, TR::Node
 int32_t
 J9::Z::CodeGenerator::getPDDivEncodedPrecision(TR::Node *node)
    {
-   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem || node->getOpCodeValue() == TR::pddivrem,
-      "getPackedDividendPrecision only valid for pddiv/pdrem/pddivrem\n");
+   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem,
+      "getPackedDividendPrecision only valid for pddiv/pdrem\n");
    return self()->getPDDivEncodedPrecisionCommon(node,
                                          node->getFirstChild()->getDecimalPrecision(),
                                          node->getSecondChild()->getDecimalPrecision(),
@@ -3585,8 +3431,8 @@ J9::Z::CodeGenerator::getPDDivEncodedPrecision(TR::Node *node)
 int32_t
 J9::Z::CodeGenerator::getPDDivEncodedPrecision(TR::Node *node, TR_PseudoRegister *dividendReg, TR_PseudoRegister *divisorReg)
    {
-   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem || node->getOpCodeValue() == TR::pddivrem,
-      "getPackedDividendPrecision only valid for pddiv/pdrem/pddivrem\n");
+   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem,
+      "getPackedDividendPrecision only valid for pddiv/pdrem\n");
    return self()->getPDDivEncodedPrecisionCommon(node,
                                          dividendReg->getDecimalPrecision(),
                                          divisorReg->getDecimalPrecision(),
@@ -3607,16 +3453,16 @@ J9::Z::CodeGenerator::getPDDivEncodedPrecisionCommon(TR::Node *node, int32_t div
 uint32_t
 J9::Z::CodeGenerator::getPDDivEncodedSize(TR::Node *node)
    {
-   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem || node->getOpCodeValue() == TR::pddivrem,
-      "getPDDivEncodedSize only valid for pddiv/pdrem/pddivrem\n");
+   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem,
+      "getPDDivEncodedSize only valid for pddiv/pdrem\n");
    return TR::DataType::packedDecimalPrecisionToByteLength(self()->getPDDivEncodedPrecision(node));
    }
 
 uint32_t
 J9::Z::CodeGenerator::getPDDivEncodedSize(TR::Node *node, TR_PseudoRegister *dividendReg, TR_PseudoRegister *divisorReg)
    {
-   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem || node->getOpCodeValue() == TR::pddivrem,
-      "getPDDivEncodedSize only valid for pddiv/pdrem/pddivrem\n");
+   TR_ASSERT(node->getOpCodeValue() == TR::pddiv || node->getOpCodeValue() == TR::pdrem,
+      "getPDDivEncodedSize only valid for pddiv/pdrem\n");
    return TR::DataType::packedDecimalPrecisionToByteLength(self()->getPDDivEncodedPrecision(node, dividendReg, divisorReg));
    }
 
@@ -3699,7 +3545,7 @@ TR::Instruction* J9::Z::CodeGenerator::generateVMCallHelperSnippet(TR::Instructi
    cursor = static_cast<TR::Instruction*>(self()->getS390PrivateLinkage()->saveArguments(cursor, false, true));
 
    // Load the EP register with the address of the next instruction
-   cursor = generateRRInstruction(self(), TR::InstOpCode::BASR, node, self()->getEntryPointRealRegister(), self()->machine()->getS390RealRegister(TR::RealRegister::GPR0), cursor);
+   cursor = generateRRInstruction(self(), TR::InstOpCode::BASR, node, self()->getEntryPointRealRegister(), self()->machine()->getRealRegister(TR::RealRegister::GPR0), cursor);
 
    TR::Instruction* basrInstruction = cursor;
 
@@ -3707,7 +3553,7 @@ TR::Instruction* J9::Z::CodeGenerator::generateVMCallHelperSnippet(TR::Instructi
    TR::MemoryReference* j9MethodAddressMemRef = generateS390MemoryReference(self()->getEntryPointRealRegister(), 0, self());
 
    // Load the address of the J9Method corresponding to this JIT compilation
-   cursor = generateRXInstruction(self(), TR::InstOpCode::getLoadOpCode(), node, self()->machine()->getS390RealRegister(TR::RealRegister::GPR1), j9MethodAddressMemRef, cursor);
+   cursor = generateRXInstruction(self(), TR::InstOpCode::getLoadOpCode(), node, self()->machine()->getRealRegister(TR::RealRegister::GPR1), j9MethodAddressMemRef, cursor);
 
    // Displacement will be updated later once we know the offset
    TR::MemoryReference* vmCallHelperAddressMemRef = generateS390MemoryReference(self()->getEntryPointRealRegister(), 0, self());
@@ -3724,14 +3570,12 @@ TR::Instruction* J9::Z::CodeGenerator::generateVMCallHelperSnippet(TR::Instructi
 
    TR::ResolvedMethodSymbol* methodSymbol = comp->getJittedMethodSymbol();
 
-   TR_RuntimeHelper helperId = methodSymbol->getVMCallHelper();
-
-   TR::SymbolReference* helperSymRef = self()->symRefTab()->findOrCreateRuntimeHelper(helperId, false, false, false);
+   TR::SymbolReference* helperSymRef = self()->symRefTab()->findOrCreateRuntimeHelper(TR_j2iTransition, false, false, false);
 
    // AOT relocation for the helper address
    TR::S390EncodingRelocation* encodingRelocation = new (self()->trHeapMemory()) TR::S390EncodingRelocation(TR_AbsoluteHelperAddress, helperSymRef);
 
-   AOTcgDiag4(comp, "Add encodingRelocation = %p reloType = %p symbolRef = %p helperId = %x\n", encodingRelocation, encodingRelocation->getReloType(), encodingRelocation->getSymbolReference(), helperId);
+   AOTcgDiag3(comp, "Add encodingRelocation = %p reloType = %p symbolRef = %p\n", encodingRelocation, encodingRelocation->getReloType(), encodingRelocation->getSymbolReference());
 
    const intptrj_t vmCallHelperAddress = reinterpret_cast<intptrj_t>(helperSymRef->getMethodAddress());
 
@@ -3752,9 +3596,8 @@ TR::Instruction* J9::Z::CodeGenerator::generateVMCallHelperSnippet(TR::Instructi
    const int32_t offsetFromEPRegisterValueToJ9MethodAddress = CalcCodeSize(basrInstruction->getNext(), cursor);
 
    j9MethodAddressMemRef->setOffset(offsetFromEPRegisterValueToJ9MethodAddress);
-
-   // Symbol reference is NULL as we don't use it when adding ExternalRelocation for J9Method
-   encodingRelocation = new (self()->trHeapMemory()) TR::S390EncodingRelocation(TR_RamMethod, NULL);
+   TR::SymbolReference *methodSymRef = new (self()->trHeapMemory()) TR::SymbolReference(self()->symRefTab(), methodSymbol);
+   encodingRelocation = new (self()->trHeapMemory()) TR::S390EncodingRelocation(TR_RamMethod, methodSymRef);
 
    AOTcgDiag2(comp, "Add encodingRelocation = %p reloType = %p\n", encodingRelocation, encodingRelocation->getReloType());
 
@@ -3894,12 +3737,9 @@ J9::Z::CodeGenerator::suppressInliningOfRecognizedMethod(TR::RecognizedMethod me
       }
 
    // Transactional Memory
-   if (self()->getSupportsTM())
+   if (self()->getSupportsInlineConcurrentLinkedQueue())
       {
-      if (method == TR::java_util_concurrent_ConcurrentHashMap_tmEnabled ||
-          method == TR::java_util_concurrent_ConcurrentHashMap_tmPut ||
-          method == TR::java_util_concurrent_ConcurrentHashMap_tmRemove ||
-          method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmOffer ||
+      if (method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmOffer ||
           method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmPoll ||
           method == TR::java_util_concurrent_ConcurrentLinkedQueue_tmEnabled)
           {
@@ -3917,8 +3757,6 @@ extern TR::Register* VMinlineCompareAndSwap( TR::Node *node, TR::CodeGenerator *
 extern TR::Register* inlineAtomicOps(TR::Node *node, TR::CodeGenerator *cg, int8_t size, TR::MethodSymbol *method, bool isArray = false);
 extern TR::Register* inlineAtomicFieldUpdater(TR::Node *node, TR::CodeGenerator *cg, TR::MethodSymbol *method);
 extern TR::Register* inlineKeepAlive(TR::Node *node, TR::CodeGenerator *cg);
-extern TR::Register* inlineConcurrentHashMapTmPut(TR::Node *node, TR::CodeGenerator * cg);
-extern TR::Register* inlineConcurrentHashMapTmRemove(TR::Node *node, TR::CodeGenerator * cg);
 extern TR::Register* inlineConcurrentLinkedQueueTMOffer(TR::Node *node, TR::CodeGenerator *cg);
 extern TR::Register* inlineConcurrentLinkedQueueTMPoll(TR::Node *node, TR::CodeGenerator *cg);
 
@@ -3950,6 +3788,8 @@ extern TR::Register *inlineBigDecimalToPackedConverter(TR::Node * node, TR::Code
 extern TR::Register *toUpperIntrinsic(TR::Node * node, TR::CodeGenerator * cg, bool isCompressedString);
 extern TR::Register *toLowerIntrinsic(TR::Node * node, TR::CodeGenerator * cg, bool isCompressedString);
 
+extern TR::Register* inlineVectorizedStringIndexOf(TR::Node* node, TR::CodeGenerator* cg, bool isCompressed);
+
 extern TR::Register *intrinsicIndexOf(TR::Node * node, TR::CodeGenerator * cg, bool isCompressed);
 
 extern TR::Register *inlineDoubleMax(TR::Node *node, TR::CodeGenerator *cg);
@@ -3972,7 +3812,6 @@ J9::Z::CodeGenerator::inlineDirectCall(
       TR::Register *&resultReg)
    {
    TR::CodeGenerator *cg = self();
-   PRINT_ME("directCall", node, cg);
 
    TR::MethodSymbol * methodSymbol = node->getSymbol()->getMethodSymbol();
 
@@ -4075,12 +3914,11 @@ J9::Z::CodeGenerator::inlineDirectCall(
       case TR::java_util_concurrent_atomic_AtomicLong_getAndIncrement:
       case TR::java_util_concurrent_atomic_AtomicLong_decrementAndGet:
       case TR::java_util_concurrent_atomic_AtomicLong_getAndDecrement:
-         if (cg->checkFieldAlignmentForAtomicLong() &&
-             cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z196) &&
-             (TR::Compiler->target.is64Bit() || TR::Compiler->target.isZOS()  ||
-              (cg->supportsHighWordFacility() && !comp->getOption(TR_DisableHighWordRA))))
+         if (cg->checkFieldAlignmentForAtomicLong() && cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z196))
             {
-            resultReg = inlineAtomicOps(node, cg, 8, methodSymbol);  // LAAG on 31-bit linux must have HPR support
+            // TODO: I'm not sure we need the z196 restriction here given that the function already checks for z196 and
+            // has a compare and swap fallback path
+            resultReg = inlineAtomicOps(node, cg, 8, methodSymbol);
             return true;
             }
          break;
@@ -4091,12 +3929,11 @@ J9::Z::CodeGenerator::inlineDirectCall(
       case TR::java_util_concurrent_atomic_AtomicLongArray_getAndIncrement:
       case TR::java_util_concurrent_atomic_AtomicLongArray_decrementAndGet:
       case TR::java_util_concurrent_atomic_AtomicLongArray_getAndDecrement:
-         if (cg->checkFieldAlignmentForAtomicLong() &&
-             cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z196) &&
-             (TR::Compiler->target.is64Bit() || TR::Compiler->target.isZOS()  ||
-              (cg->supportsHighWordFacility() && !comp->getOption(TR_DisableHighWordRA))))
+         if (cg->checkFieldAlignmentForAtomicLong() && cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z196))
             {
-            resultReg = inlineAtomicOps(node, cg, 8, methodSymbol);  // LAAG on 31-bit linux must have HPR support
+            // TODO: I'm not sure we need the z196 restriction here given that the function already checks for z196 and
+            // has a compare and swap fallback path
+            resultReg = inlineAtomicOps(node, cg, 8, methodSymbol);
             return true;
             }
          break;
@@ -4119,24 +3956,8 @@ J9::Z::CodeGenerator::inlineDirectCall(
          resultReg = inlineKeepAlive(node, cg);
          return true;
 
-      case TR::java_util_concurrent_ConcurrentHashMap_tmPut:
-         if (cg->getSupportsTM())
-            {
-            resultReg = inlineConcurrentHashMapTmPut(node, cg);
-            return true;
-            }
-         break;
-
-      case TR::java_util_concurrent_ConcurrentHashMap_tmRemove:
-         if (cg->getSupportsTM())
-            {
-            resultReg = inlineConcurrentHashMapTmRemove(node, cg);
-            return true;
-            }
-         break;
-
       case TR::java_util_concurrent_ConcurrentLinkedQueue_tmOffer:
-         if (cg->getSupportsTM())
+         if (cg->getSupportsInlineConcurrentLinkedQueue())
             {
             resultReg = inlineConcurrentLinkedQueueTMOffer(node, cg);
             return true;
@@ -4144,7 +3965,7 @@ J9::Z::CodeGenerator::inlineDirectCall(
          break;
 
       case TR::java_util_concurrent_ConcurrentLinkedQueue_tmPoll:
-         if (cg->getSupportsTM())
+         if (cg->getSupportsInlineConcurrentLinkedQueue())
             {
             resultReg = inlineConcurrentLinkedQueueTMPoll(node, cg);
             return true;
@@ -4235,17 +4056,25 @@ J9::Z::CodeGenerator::inlineDirectCall(
 
    if (cg->getSupportsInlineStringIndexOf())
       {
-         switch (methodSymbol->getRecognizedMethod())
-            {
-            case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfLatin1:
-               resultReg = intrinsicIndexOf(node, cg, true);
+      switch (methodSymbol->getRecognizedMethod())
+         {
+         case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfLatin1:
+            resultReg = intrinsicIndexOf(node, cg, true);
+            return true;
+         case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfUTF16:
+            resultReg = intrinsicIndexOf(node, cg, false);
+            return true;
+         case TR::java_lang_StringLatin1_indexOf:
+         case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfStringLatin1:
+               resultReg = inlineVectorizedStringIndexOf(node, cg, false);
                return true;
-            case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfUTF16:
-               resultReg = intrinsicIndexOf(node, cg, false);
+         case TR::java_lang_StringUTF16_indexOf:
+         case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfStringUTF16:
+               resultReg = inlineVectorizedStringIndexOf(node, cg, true);
                return true;
-            default:
-               break;
-            }
+         default:
+            break;
+         }
       }
 
       if (!comp->getOption(TR_DisableSIMDDoubleMaxMin) && cg->getSupportsVectorRegisters())

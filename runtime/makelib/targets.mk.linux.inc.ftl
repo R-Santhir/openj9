@@ -1,5 +1,5 @@
 <#--
-Copyright (c) 1998, 2018 IBM Corp. and others
+Copyright (c) 1998, 2019 IBM Corp. and others
 
 This program and the accompanying materials are made available under
 the terms of the Eclipse Public License 2.0 which accompanies this
@@ -23,6 +23,8 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 <#if uma.spec.processor.arm>
   ARM_ARCH_FLAGS := -march=armv6 -marm -mfpu=vfp -mfloat-abi=hard
   OPENJ9_CC_PREFIX ?= bcm2708hardfp
+  OBJCOPY := $(OPENJ9_CC_PREFIX)-objcopy
+<#elseif uma.spec.processor.aarch64>
   OBJCOPY := $(OPENJ9_CC_PREFIX)-objcopy
 <#else>
   OBJCOPY := objcopy
@@ -82,7 +84,7 @@ $(UMA_EXETARGET) : $(UMA_OBJECTS) $(UMA_TARGET_LIBRARIES)
   UMA_END_DASH_L = -Xlinker --end-group
 </#if>
 
-UMA_EXE_POSTFIX_FLAGS += -lm -lpthread -lc -lrt -ldl -lutil -Wl,-z,origin,-rpath,\$$ORIGIN,--disable-new-dtags,-rpath-link,$(UMA_PATH_TO_ROOT)
+UMA_EXE_POSTFIX_FLAGS += -lm -lrt -lpthread -lc -ldl -lutil -Wl,-z,origin,-rpath,\$$ORIGIN,--disable-new-dtags,-rpath-link,$(UMA_PATH_TO_ROOT)
 
 <#if uma.spec.processor.amd64>
   UMA_MASM2GAS_FLAGS += --64
@@ -106,6 +108,9 @@ ifndef UMA_DO_NOT_OPTIMIZE_CCODE
       UMA_OPTIMIZATION_CFLAGS += -g -O3 -fno-strict-aliasing $(ARM_ARCH_FLAGS) -Wno-unused-but-set-variable
     <#elseif uma.spec.processor.ppc>
       UMA_OPTIMIZATION_CFLAGS += -O3
+      <#if uma.spec.flags.env_gcc.enabled>
+        UMA_OPTIMIZATION_CFLAGS += -fno-strict-aliasing
+      </#if>
       <#if uma.spec.flags.env_littleEndian.enabled && uma.spec.type.linux>
         UMA_OPTIMIZATION_CFLAGS += -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=1
         ifndef USE_PPC_GCC
@@ -129,6 +134,9 @@ ifndef UMA_DO_NOT_OPTIMIZE_CCODE
       UMA_OPTIMIZATION_CXXFLAGS += -g -O3 -fno-strict-aliasing $(ARM_ARCH_FLAGS) -Wno-unused-but-set-variable
     <#elseif uma.spec.processor.ppc>
       UMA_OPTIMIZATION_CXXFLAGS += -O3
+      <#if uma.spec.flags.env_gcc.enabled>
+        UMA_OPTIMIZATION_CXXFLAGS += -fno-strict-aliasing
+      </#if>
       <#if uma.spec.flags.env_littleEndian.enabled && uma.spec.type.linux>
         UMA_OPTIMIZATION_CXXFLAGS += -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=1
       </#if>
@@ -294,6 +302,10 @@ endif
   CFLAGS += -DJ9ARM -DARMGNU -DARM -DFIXUP_UNALIGNED -I$(XCOMP_TOOLCHAIN_BASEDIR)/arm-bcm2708/arm-bcm2708hardfp-linux-gnueabi/arm-bcm2708hardfp-linux-gnueabi/include
   CXXFLAGS += -DJ9ARM -DARMGNU -DARM -DFIXUP_UNALIGNED -I$(XCOMP_TOOLCHAIN_BASEDIR)/arm-bcm2708/arm-bcm2708hardfp-linux-gnueabi/arm-bcm2708hardfp-linux-gnueabi/include -fno-threadsafe-statics
   CPPFLAGS += -DJ9ARM -DARMGNU -DARM -DFIXUP_UNALIGNED-I$(XCOMP_TOOLCHAIN_BASEDIR)/arm-bcm2708/arm-bcm2708hardfp-linux-gnueabi/arm-bcm2708hardfp-linux-gnueabi/include
+<#elseif uma.spec.processor.aarch64>
+  CFLAGS += -DJ9AARCH64
+  CXXFLAGS += -DJ9AARCH64
+  CPPFLAGS += -DJ9AARCH64
 <#elseif uma.spec.processor.ppc>
   CFLAGS += -DLINUXPPC
   CXXFLAGS += -DLINUXPPC
@@ -506,16 +518,6 @@ MHInterpreter$(UMA_DOT_O) : MHInterpreter.cpp
 endif
 </#if>
 <#if uma.spec.processor.amd64>
-# special handling BytecodeInterpreter.cpp and DebugBytecodeInterpreter.cpp
-BytecodeInterpreter$(UMA_DOT_O) : BytecodeInterpreter.cpp
-	$(INTERP_GCC) $(CXXFLAGS) -c $<
-
-DebugBytecodeInterpreter$(UMA_DOT_O) : DebugBytecodeInterpreter.cpp
-	$(INTERP_GCC) $(CXXFLAGS) -c $<
-
-MHInterpreter$(UMA_DOT_O) : MHInterpreter.cpp
-	$(INTERP_GCC) $(CXXFLAGS) -c $<
-
 # Special handling for unused result warnings.
 closures$(UMA_DOT_O) : closures.c
 	$(CC) $(CFLAGS) -Wno-unused-result -c -o $@ $<

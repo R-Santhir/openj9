@@ -45,9 +45,11 @@ import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpAllRegionsCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpAllRomClassLinearCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpAllSegmentsCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpContendedLoadTable;
+import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpModuleCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpModuleReadsCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpModuleExportsCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpModuleDirectedExportsCommand;
+import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpPackageCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpRamClassLinearCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpRomClassCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.DumpRomClassLinearCommand;
@@ -60,6 +62,7 @@ import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindAllModulesCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindAllReadsCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindMethodFromPcCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindModuleByNameCommand;
+import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindModulesCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindOverlappingSegmentsCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindPatternCommand;
 import com.ibm.j9ddr.vm29.tools.ddrinteractive.commands.FindStackValueCommand;
@@ -189,6 +192,9 @@ public class GetCommandsTask extends BaseJVMCommands implements IBootstrapRunnab
 		toPassBack.add(new FindAllReadsCommand());
 		toPassBack.add(new DumpModuleDirectedExportsCommand());
 		toPassBack.add(new DumpAllClassesInModuleCommand());
+		toPassBack.add(new FindModulesCommand());
+		toPassBack.add(new DumpModuleCommand());
+		toPassBack.add(new DumpPackageCommand());
 
 		loadPlugins(toPassBack, loader);
 

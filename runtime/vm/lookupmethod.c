@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -160,7 +160,7 @@ processMethod(J9VMThread * currentThread, UDATA lookupOptions, J9Method * method
 
 	/* Check that the found method is visible from the sender */
 
-	if (J9_ARE_NO_BITS_SET(lookupOptions, J9_LOOK_NO_VISIBILITY_CHECK) && (NULL != senderClass) && (!J9ROMCLASS_IS_UNSAFE(senderClass->romClass))) {
+	if (J9_ARE_NO_BITS_SET(lookupOptions, J9_LOOK_NO_VISIBILITY_CHECK) && (NULL != senderClass) && !J9CLASS_IS_EXEMPT_FROM_VALIDATION(senderClass)) {
 		U_32 newModifiers = modifiers;
 		BOOLEAN doVisibilityCheck = TRUE;
 
@@ -191,10 +191,10 @@ processMethod(J9VMThread * currentThread, UDATA lookupOptions, J9Method * method
 						 */
 						doVisibilityCheck = FALSE;
 					} else {
-							*exception = J9VMCONSTANTPOOL_JAVALANGILLEGALACCESSERROR;
-							*exceptionClass = methodClass;
-							*errorType = J9_VISIBILITY_NON_MODULE_ACCESS_ERROR;
-							return NULL;
+						*exception = J9VMCONSTANTPOOL_JAVALANGILLEGALACCESSERROR;
+						*exceptionClass = methodClass;
+						*errorType = J9_VISIBILITY_NON_MODULE_ACCESS_ERROR;
+						return NULL;
 					}
 				}
 			}
@@ -213,9 +213,9 @@ processMethod(J9VMThread * currentThread, UDATA lookupOptions, J9Method * method
 
 	/* Check that we find the right kind of method (static / virtual / interface) */
 
-	if (((lookupOptions & J9_LOOK_STATIC) && ((modifiers & J9AccStatic) == 0)) ||
-		((lookupOptions & J9_LOOK_VIRTUAL) && (modifiers & J9AccStatic)))
-	{
+	if (((lookupOptions & J9_LOOK_STATIC) && ((modifiers & J9AccStatic) == 0))
+	|| ((lookupOptions & J9_LOOK_VIRTUAL) && (modifiers & J9AccStatic))
+	) {
 		*exception = J9VMCONSTANTPOOL_JAVALANGINCOMPATIBLECLASSCHANGEERROR;
 		*exceptionClass = methodClass;
 		*errorType = J9_VISIBILITY_NON_MODULE_ACCESS_ERROR;
@@ -379,6 +379,12 @@ javaResolveInterfaceMethods(J9VMThread *currentThread, J9Class *targetClass, J9R
 			BOOLEAN shouldAdd = TRUE;
 			J9Class* newMethodClass = NULL;
 			newMethod = processMethod(currentThread, lookupOptions, foundMethod, interfaceClass, &data->exception, &data->exceptionClass, &data->errorType, nameAndSig, senderClass, targetClass);
+
+			/* Exit loop if exception have been directly set since direct exception must be from access control (Nestmates) */
+			if (NULL != currentThread->currentException) {
+				return NULL;
+			}
+
 			if (NULL == newMethod) {
 				iTable = iTable->next;
 				continue;
@@ -563,6 +569,7 @@ doneItableSearch:
  * 		J9_LOOK_NO_CLIMB						Search only the given class, no superclasses or superinterfaces
  * 		J9_LOOK_NO_INTERFACE					Do not search superinterfaces
  * 		J9_LOOK_NO_THROW						Do not set the exception if lookup fails
+ * 		J9_LOOK_NO_JAVA							Do not run java code for any reason (implies NO_THROW)
  * 		J9_LOOK_NEW_INSTANCE					Use newInstance behaviour (translate IllegalAccessError -> IllegalAccessException, all other errors -> InstantiationException)
  * 		J9_LOOK_DIRECT_NAS						NAS contains direct pointers to UTF8, not SRPs (this option is mutually exclusive with lookupOptionsJNI)
  * 		J9_LOOK_CLCONSTRAINTS					Check that the found method doesn't violate any class loading constraints between the found class and the sender class.
@@ -694,6 +701,9 @@ retry:
 
 			if (foundMethod != NULL) {
 				resultMethod = processMethod(currentThread, lookupOptions, foundMethod, lookupClass, &exception, &exceptionClass, &errorType, nameAndSig, senderClass, targetClass);
+				if (NULL != currentThread->currentException) {
+					goto end;
+				}
 
 				if (resultMethod == NULL) {
 					if (J9VMCONSTANTPOOL_JAVALANGINCOMPATIBLECLASSCHANGEERROR == exception) {
@@ -744,6 +754,10 @@ nextClass:
 			data.elements = 0;
 
 			tempResultMethod = javaResolveInterfaceMethods(currentThread, targetClass, nameAndSig, senderClass, lookupOptions, &data);
+			if (NULL != currentThread->currentException) {
+				exceptionThrown = TRUE;
+				goto done;
+			}
 			if (NULL != tempResultMethod) {
 				resultMethod = tempResultMethod;
 			}
@@ -756,7 +770,7 @@ nextClass:
 				if (NULL != foundDefaultConflicts) {
 					*foundDefaultConflicts = TRUE;
 				}
-				if ((lookupOptions & J9_LOOK_NO_THROW) == 0) {
+				if ((lookupOptions & (J9_LOOK_NO_THROW | J9_LOOK_NO_JAVA)) == 0) {
 					PORT_ACCESS_FROM_VMC(currentThread);
 					char *buf = NULL;
 					if (J9_VISIBILITY_NON_MODULE_ACCESS_ERROR == data.errorType) {
@@ -797,7 +811,7 @@ done:
 		}
 #endif
 
-		if ((lookupOptions & J9_LOOK_NO_THROW) == 0) {
+		if ((lookupOptions & (J9_LOOK_NO_THROW | J9_LOOK_NO_JAVA)) == 0) {
 			j9object_t errorString = NULL;
 
 			/* JNI throws NoSuchMethodError in all error cases */
@@ -1057,8 +1071,8 @@ illegalAccessMessage(J9VMThread *currentThread, IDATA badMemberModifier, J9Class
 	 * 		J9_VISIBILITY_MODULE_PACKAGE_EXPORT_ERROR
 	 */
 	if ((J9_VISIBILITY_NEST_HOST_LOADING_FAILURE_ERROR == errorType)
-			|| (J9_VISIBILITY_NEST_HOST_DIFFERENT_PACKAGE_ERROR == errorType)
-			|| (J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR == errorType)
+	|| (J9_VISIBILITY_NEST_HOST_DIFFERENT_PACKAGE_ERROR == errorType)
+	|| (J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR == errorType)
 	) {
 		J9Class *unverifiedNestMemberClass = NULL;
 		J9ROMClass *romClass = NULL;

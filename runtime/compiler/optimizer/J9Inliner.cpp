@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -484,8 +484,9 @@ bool TR_J9VirtualCallSite::findCallSiteForAbstractClass(TR_InlinerBase* inliner)
    TR_PersistentCHTable *chTable = comp()->getPersistentInfo()->getPersistentCHTable();
    TR_ResolvedMethod *implementer;
 
-   if (!comp()->compileRelocatableCode() && TR::Compiler->cls.isAbstractClass(comp(), _receiverClass) &&!comp()->getOption(TR_DisableAbstractInlining) &&
-               (implementer = chTable->findSingleAbstractImplementer(_receiverClass, _vftSlot, _callerResolvedMethod, comp())))
+   bool canInline = (!comp()->compileRelocatableCode() || comp()->getOption(TR_UseSymbolValidationManager));
+   if (canInline && TR::Compiler->cls.isAbstractClass(comp(), _receiverClass) &&!comp()->getOption(TR_DisableAbstractInlining) &&
+       (implementer = chTable->findSingleAbstractImplementer(_receiverClass, _vftSlot, _callerResolvedMethod, comp())))
       {
       heuristicTrace(inliner->tracer(),"Found a single Abstract Implementer %p, signature = %s",implementer,inliner->tracer()->traceSignature(implementer));
       TR_VirtualGuardSelection *guard = new (comp()->trHeapMemory()) TR_VirtualGuardSelection(TR_AbstractGuard, TR_MethodTest);
@@ -812,6 +813,7 @@ void TR_ProfileableCallSite::findSingleProfiledReceiver(ListIterator<TR_ExtraAdd
       {
       int32_t freq = profiledInfo->_frequency;
       TR_OpaqueClassBlock* tempreceiverClass = (TR_OpaqueClassBlock *) profiledInfo->_value;
+
       float val = (float)freq/(float)valueInfo->getTotalFrequency();        //x87 hardware rounds differently if you leave this division in compare
 
 
@@ -847,7 +849,15 @@ void TR_ProfileableCallSite::findSingleProfiledReceiver(ListIterator<TR_ExtraAdd
          {
          TR_OpaqueClassBlock* callSiteClass = _receiverClass ? _receiverClass : getClassFromMethod();
 
-         if (!callSiteClass || fe()->isInstanceOf (tempreceiverClass, callSiteClass, true, true, true) != TR_yes)
+         bool profiledClassIsNotInstanceOfCallSiteClass = true;
+         if (callSiteClass)
+            {
+            comp()->enterHeuristicRegion();
+            profiledClassIsNotInstanceOfCallSiteClass = (fe()->isInstanceOf(tempreceiverClass, callSiteClass, true, true, true) != TR_yes);
+            comp()->exitHeuristicRegion();
+            }
+
+         if (profiledClassIsNotInstanceOfCallSiteClass)
             {
             inliner->tracer()->insertCounter(Not_Sane,_callNodeTreeTop);
             firstInstanceOfCheckFailed = true;
@@ -858,7 +868,9 @@ void TR_ProfileableCallSite::findSingleProfiledReceiver(ListIterator<TR_ExtraAdd
             continue;
             }
 
+         comp()->enterHeuristicRegion();
          TR_ResolvedMethod* targetMethod = getResolvedMethod (tempreceiverClass);
+         comp()->exitHeuristicRegion();
 
          if (!targetMethod)
             {
@@ -871,9 +883,25 @@ void TR_ProfileableCallSite::findSingleProfiledReceiver(ListIterator<TR_ExtraAdd
          // need to be able to store class chains for these methods
          if (comp()->compileRelocatableCode())
             {
-            TR_SharedCache *sharedCache = fej9->sharedCache();
-            if (!sharedCache->canRememberClass(tempreceiverClass) ||
-                !sharedCache->canRememberClass(callSiteClass))
+            if (tempreceiverClass && comp()->getOption(TR_UseSymbolValidationManager))
+               {
+               if (!comp()->getSymbolValidationManager()->addProfiledClassRecord(tempreceiverClass))
+                  continue;
+               /* call getResolvedMethod again to generate the validation records */
+               TR_ResolvedMethod* target_method = getResolvedMethod (tempreceiverClass);
+
+               /* it is possible for getResolvedMethod to return NULL, since there might be
+                * a problem when generating validation records
+                */
+               if (!target_method)
+                  continue;
+
+               TR_OpaqueClassBlock *classOfMethod = target_method->classOfMethod();
+               SVM_ASSERT_ALREADY_VALIDATED(comp()->getSymbolValidationManager(), classOfMethod);
+               }
+
+            if (!fej9->canRememberClass(tempreceiverClass) ||
+                !fej9->canRememberClass(callSiteClass))
                {
                if (comp()->trace(OMR::inlining))
                   traceMsg(comp(), "inliner: profiled class [%p] or callSiteClass [%p] cannot be rememberd in shared cache\n", tempreceiverClass, callSiteClass);
@@ -947,9 +975,15 @@ void TR_ProfileableCallSite::findSingleProfiledMethod(ListIterator<TR_ExtraAddre
       // need to be able to store class chains for these methods
       if (comp()->compileRelocatableCode())
          {
-         TR_SharedCache *sharedCache = fej9->sharedCache();
-         if (!sharedCache->canRememberClass(clazz) ||
-             !sharedCache->canRememberClass(callSiteClass))
+         if (clazz && comp()->getOption(TR_UseSymbolValidationManager))
+            if (!comp()->getSymbolValidationManager()->addProfiledClassRecord(clazz))
+               {
+               classValuesAreSane = false;
+               break;
+               }
+
+         if (!fej9->canRememberClass(clazz) ||
+             !fej9->canRememberClass(callSiteClass))
             {
             classValuesAreSane = false;
             break;

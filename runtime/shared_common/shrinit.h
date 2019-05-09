@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -66,6 +66,10 @@ void j9shr_freeClasspathData(J9JavaVM *vm, void *cpData);
 IDATA j9shr_createCacheSnapshot(J9JavaVM* vm, const char* cacheName);
 const U_8* j9shr_findCompiledMethodEx1(J9VMThread* currentThread, const J9ROMMethod* romMethod, UDATA* flags);
 void j9shr_jvmPhaseChange(J9VMThread* currentThread, UDATA phase);
+void j9shr_storeGCHints(J9VMThread* currentThread, UDATA heapSize1, UDATA heapSize2, BOOLEAN forceReplace);
+IDATA j9shr_findGCHints(J9VMThread* currentThread, UDATA *heapSize1, UDATA *heapSize2);
+const U_8* storeStartupHintsToSharedCache(J9VMThread* currentThread);
+IDATA j9shr_getCacheDir(J9JavaVM* vm, const char* ctrlDirName, char* buffer, UDATA bufferSize, U_32 cacheType);
 
 typedef struct J9SharedClassesHelpText {
 	const char* option;
@@ -109,6 +113,7 @@ typedef struct J9SharedClassesOptions {
 #define OPTION_TRACECOUNT "traceCount"
 #define OPTION_PRINTORPHANSTATS "printOrphanStats"
 #define OPTION_NONFATAL "nonfatal"
+#define OPTION_FATAL "fatal"
 #define OPTION_SILENT "silent"
 #define OPTION_NONE "none"
 #define OPTION_CONTROLDIR_EQUALS "controlDir="		/* purely for java5 compatability */
@@ -121,6 +126,7 @@ typedef struct J9SharedClassesOptions {
 #define OPTION_NO_ROUND_PAGES "noRoundPages"
 #define OPTION_CACHERETRANSFORMED "cacheRetransformed"
 #define OPTION_NOBOOTCLASSPATH "noBootclasspath"
+#define OPTION_BOOTCLASSESONLY "bootClassesOnly"
 #if !defined(WIN32)
 #define OPTION_SNAPSHOTCACHE "snapshotCache"
 #define OPTION_DESTROYSNAPSHOT "destroySnapshot"
@@ -191,6 +197,7 @@ typedef struct J9SharedClassesOptions {
 #define SUB_OPTION_PRINTSTATS_ZIPCACHE "zipcache"
 #define SUB_OPTION_PRINTSTATS_JITHINT "jithint"
 #define SUB_OPTION_PRINTSTATS_STALE "stale"
+#define SUB_OPTION_PRINTSTATS_STARTUPHINT "startuphint"
 /* private options for printallstats= and printstats= */
 #define SUB_OPTION_PRINTSTATS_EXTRA "extra"
 #define SUB_OPTION_PRINTSTATS_ORPHAN "orphan"
@@ -250,6 +257,7 @@ typedef struct J9SharedClassesOptions {
 #define RESULT_DO_ADJUST_MAXAOT_EQUALS 46
 #define RESULT_DO_ADJUST_MINJITDATA_EQUALS 47
 #define RESULT_DO_ADJUST_MAXJITDATA_EQUALS 48
+#define RESULT_DO_BOOTCLASSESONLY 49
 
 
 #define PARSE_TYPE_EXACT 1

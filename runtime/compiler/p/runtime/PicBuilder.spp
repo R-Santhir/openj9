@@ -1,4 +1,4 @@
-!! Copyright (c) 2000, 2018 IBM Corp. and others
+!! Copyright (c) 2000, 2019 IBM Corp. and others
 !!
 !! This program and the accompanying materials are made available under
 !! the terms of the Eclipse Public License 2.0 which accompanies this
@@ -64,7 +64,7 @@
 #define maskVFT(reg)    rlwinm reg, reg, 0, 0, 31-J9TR_RequiredClassAlignmentInBits
 #endif
 
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS)
 /* extract isolated field address in TenantDataxxx
    MT_ComputeIsoaltedFieldAddress(32/64/obj, element_shift size 2/3)
    assume
@@ -194,6 +194,8 @@
 	.globl    _interpreterUnresolvedClassGlue2{DS}
 	.globl    ._interpreterUnresolvedStringGlue
 	.globl    _interpreterUnresolvedStringGlue{DS}
+	.globl    ._interpreterUnresolvedConstantDynamicGlue
+	.globl    _interpreterUnresolvedConstantDynamicGlue{DS}
 	.globl    ._interpreterUnresolvedMethodTypeGlue
 	.globl    _interpreterUnresolvedMethodTypeGlue{DS}
 	.globl    ._interpreterUnresolvedMethodHandleGlue
@@ -332,6 +334,8 @@
 	.type  FUNC_LABEL(_interpreterUnresolvedStaticGlue),@function
 	.globl FUNC_LABEL(_interpreterUnresolvedStringGlue)
 	.type  FUNC_LABEL(_interpreterUnresolvedStringGlue),@function
+	.globl FUNC_LABEL(_interpreterUnresolvedConstantDynamicGlue)
+	.type  FUNC_LABEL(_interpreterUnresolvedConstantDynamicGlue),@function
 	.globl FUNC_LABEL(_interpreterUnresolvedMethodTypeGlue)
 	.type  FUNC_LABEL(_interpreterUnresolvedMethodTypeGlue),@function
 	.globl FUNC_LABEL(_interpreterUnresolvedMethodHandleGlue)
@@ -387,6 +391,7 @@
 	.globl _interpreterUnresolvedStaticDataStoreGlue
 	.globl _interpreterUnresolvedStaticGlue
 	.globl _interpreterUnresolvedStringGlue
+	.globl _interpreterUnresolvedConstantDynamicGlue
 	.globl _interpreterUnresolvedMethodTypeGlue
 	.globl _interpreterUnresolvedMethodHandleGlue
 	.globl _interpreterUnresolvedCallSiteTableEntryGlue
@@ -406,6 +411,7 @@
 	.extern   jitResolveClass
 	.extern   jitResolveClassFromStaticField
 	.extern   jitResolveString
+	.extern   jitResolveConstantDynamic
 	.extern   jitResolveMethodType
 	.extern   jitResolveMethodHandle
 	.extern   jitResolveInvokeDynamic
@@ -417,6 +423,7 @@
 	.extern   jitResolveSpecialMethod
 	.extern   jitMethodIsSync
 	.extern   jitMethodIsNative
+	.extern	  j2iTransition
 	.extern   icallVMprJavaSendNativeStatic
 	.extern   icallVMprJavaSendStatic0
 	.extern   icallVMprJavaSendStatic1
@@ -434,6 +441,7 @@
 	.extern   jitLookupInterfaceMethod
 	.extern   jitAddPicToPatchOnClassUnload
 	.extern   jitCallCFunction
+	.extern   jitInstanceOf
 	.extern   mcc_reservationAdjustment_unwrapper
 	.extern   mcc_callPointPatching_unwrapper
 	.extern   mcc_lookupHelperTrampoline_unwrapper
@@ -1018,6 +1026,70 @@ _interpreterUnresolvedStringGlue:
 	endproc._interpreterUnresolvedStringGlue:
 
 #ifdef AIXPPC
+._interpreterUnresolvedConstantDynamicGlue:
+   .function ._interpreterUnresolvedConstantDynamicGlue,startproc._interpreterUnresolvedConstantDynamicGlue,16,0,(endproc._interpreterUnresolvedConstantDynamicGlue-startproc._interpreterUnresolvedConstantDynamicGlue)
+#elif defined(LINUXPPC64)
+FUNC_LABEL(_interpreterUnresolvedConstantDynamicGlue):
+#else
+_interpreterUnresolvedConstantDynamicGlue:
+._interpreterUnresolvedConstantDynamicGlue:
+#endif
+        startproc._interpreterUnresolvedConstantDynamicGlue:
+#include "p/runtime/SaveGPRs.inc"
+        mfcr    r0
+        stw     r0,-4(J9SP)                                     ! Save CR also
+        addi    J9SP,J9SP,-(33*ALen)
+        mfspr   r7, LR                                          ! Get the RA in snippet
+        laddr   RTOC, J9TR_VMThreadRTOCOffset(J9VM_STRUCT)      ! Restore RTOC
+#ifdef AIXPPC
+        laddr   r8, TOCjitResolveConstantDynamic(RTOC)          ! Load descriptor pointer
+        laddr   r8, 0(r8)                                       ! Load the callee address
+#elif defined(LINUXPPC64)
+        laddr   r8, TOCjitResolveConstantDynamic@toc(RTOC)      ! Load descriptor pointer
+#if !defined(__LITTLE_ENDIAN__)
+        laddr   r8, 0(r8)                                       ! Load the callee address
+#endif
+#else
+        laddr   r8, jitResolveConstantDynamic@got(RTOC)         ! Load the callee address
+#endif
+        laddr   r3, 1*ALen+4(r7)                                ! Load constant pool literal
+        lwz     r4, 1*ALen(r7)                                  ! Load cp index for this field
+        laddr   r5, 0(r7)                                       ! Load code cache RA
+        rlwinm  r4, r4, 0, 5, 31                                ! Masking off the flag bits
+        addi    r5, r5, 1                                       ! Increament for EX search
+        mtspr   CTR, r8                                         ! Move callee address to CTR
+        bcctrl  BO_ALWAYS, CR0_LT                               ! Call to resolve: RTOC, r7
+        laddr   r6, 0(r7)                                       ! Load code cache RA
+        rlwinm  r17, r3, 0, 31, 31                              ! keep in r17 if r3 last bit is set: <clinit> is being executed
+#ifdef TR_HOST_64BIT
+        clrrdi r3, r3, 1                                        ! <clinit> clear up the last bit, which must be zero
+#else
+        rlwinm  r3, r3, 0, 0xfffffffe                           ! <clinit> clear up the last bit, which must be zero
+#endif
+        cmpi    cr0, 0, r17, in_clinit                          ! <clinit> is being executed
+        bc      BO_IF, CR0_EQ, .L_condy_update                  ! If in <clinit>
+        addi    r10, r7, 2*ALen+12                              ! Calculate lock address
+        addi    r9, 0, LOCKED_VALUE
+        bl      .__common_lock_check                            ! Try to lock
+        or.     r8, r8, r8                                      ! Result in r8
+        bc      BO_IF,CR0_EQ,.L_condy_update                    ! Grab the lock successfully?
+        bl      .__spin_for_update                              ! r10 containing lock address
+        b       .L_restore_and_return
+.L_condy_update:
+        lwz     r4, 1*ALen(r7)                                  ! Load cp index
+        andis.  r4, r4, 0x8000                                  ! Test the pTOC bit
+        lwz     r4, 2*ALen+4(r7)                                ! Load offset to be merged
+#ifdef TR_HOST_64BIT
+        extsw   r4, r4
+#endif
+        bc      BO_IF_NOT, CR0_EQ, .L_pTOC_update               ! Is pTOC case?
+        or      r3, r4, r4                                      ! Not pTOC case -- 32bit
+        lwz     r9, 4(r6)                                       ! Load the second instr
+        lwz     r8, 2*ALen+8(r7)                                ! Load the template instruction
+        b       .L_patch_dword_load
+        endproc._interpreterUnresolvedConstantDynamicGlue:
+
+#ifdef AIXPPC
 ._interpreterUnresolvedMethodTypeGlue:
 	.function ._interpreterUnresolvedMethodTypeGlue,startproc._interpreterUnresolvedMethodTypeGlue,16,0,(endproc._interpreterUnresolvedMethodTypeGlue-startproc._interpreterUnresolvedMethodTypeGlue)
 #elif defined(LINUXPPC64)
@@ -1331,7 +1403,7 @@ MTUnresolvedInt32Load:
 .MTUnresolvedInt32Load:
 #endif
 	startproc.MTUnresolvedInt32Load:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 	#include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1370,7 +1442,7 @@ MTUnresolvedInt64Load:
 .MTUnresolvedInt64Load:
 #endif
 	startproc.MTUnresolvedInt64Load:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1409,7 +1481,7 @@ MTUnresolvedFloatLoad:
 .MTUnresolvedFloatLoad:
 #endif
 	startproc.MTUnresolvedFloatLoad:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1448,7 +1520,7 @@ MTUnresolvedDoubleLoad:
 .MTUnresolvedDoubleLoad:
 #endif
 	startproc.MTUnresolvedDoubleLoad:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1486,7 +1558,7 @@ MTUnresolvedAddressLoad:
 .MTUnresolvedAddressLoad:
 #endif
 	startproc.MTUnresolvedAddressLoad:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1527,7 +1599,7 @@ MTUnresolvedInt32Store:
 .MTUnresolvedInt32Store:
 #endif
 	startproc.MTUnresolvedInt32Store:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1568,7 +1640,7 @@ MTUnresolvedInt64Store:
 .MTUnresolvedInt64Store:
 #endif
 	startproc.MTUnresolvedInt64Store:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1609,7 +1681,7 @@ MTUnresolvedFloatStore:
 .MTUnresolvedFloatStore:
 #endif
 	startproc.MTUnresolvedFloatStore:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1650,7 +1722,7 @@ MTUnresolvedDoubleStore:
 .MTUnresolvedDoubleStore:
 #endif
 	startproc.MTUnresolvedDoubleStore:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -1690,7 +1762,7 @@ MTUnresolvedAddressStore:
 .MTUnresolvedAddressStore:
 #endif
 	startproc.MTUnresolvedAddressStore:
-#if defined(TR_HOST_64BIT) && defined(J9VM_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
+#if defined(TR_HOST_64BIT) && defined(OMR_GC_COMPRESSED_POINTERS) && defined(J9VM_OPT_TENANT)
 #include "p/runtime/SaveGPRs.inc"
 	mfcr    r0
 	stw     r0,-4(J9SP)					! Save CR also
@@ -2218,6 +2290,36 @@ _interpreterUnresolvedStaticGlue:
 	rlwinm  r6, r5, 8, 0x000000ff					! Table offset in r6
 	rlwinm  r5, r5, 0, 0x007fffff					! Mask off the offset
 	bcctrl  BO_ALWAYS, CR0_LT					! Call to resolve: r3-5 can
+	andi.   r11, r3, in_clinit                                      ! Extract clinit tag from j9method returned
+	bc      BO_IF, CR0_EQ, .L22.common_code    						! If clinit is set then make call the method without patching
+#ifdef TR_HOST_64BIT
+	clrrdi r3, r3, 1                                                ! <clinit> clear up the last bit, which must be zero
+#else
+	rlwinm  r3, r3, 0, 0xfffffffe                                   ! <clinit> clear up the last bit, which must be zero
+#endif
+	laddr	r4, 0(r7)												! Load RA
+	mtspr   LR, r4                                                  ! Load RA into LR
+	laddr   r10, J9TR_MethodPCStartOffset(r3)                        ! Grab the J9Method extra/StartPC
+	andi.   r0, r10, J9TR_MethodNotCompiledBit                       ! Check if the method is jit compiled
+	bc      BO_IF_NOT, CR0_EQ, .L.IntCall    						! Call Interpreter if method is not jit compiled yet
+	mtspr   CTR, r10                                                ! Set up CTR to jump to jitted method
+	bcctr BO_ALWAYS, CR0_LT 										! Jump to the jitted code
+.L.IntCall:
+#ifdef AIXPPC
+	laddr   r11, TOCj2iTransition(RTOC)							! Load The j2iTransition Helper Addr
+	laddr 	r0, 0(r11)
+#elif defined(LINUXPPC64)
+#if defined(__LITTLE_ENDIAN__)
+	laddr 	r0, TOCj2iTransition@toc(RTOC)
+#else
+	laddr 	r11, TOCj2iTransition@toc(RTOC)
+	laddr 	r0, 0(r11)
+#endif
+#else
+	laddr 	r0, j2iTransition@got(RTOC)
+#endif
+	mtspr 	CTR, r0  											! Set up to call
+	bcctr BO_ALWAYS, CR0_LT 									! Dispatch 
 .L22.common_code:							!   be modified, r3 is result.
 #ifdef TR_HOST_64BIT
         clrrdi r3, r3, 1                                                ! <clinit> clear up the last bit, which must be zero
@@ -2476,6 +2578,21 @@ __refreshHelper:
 	blr
 	endproc.__refreshHelper:
 
+#ifdef TR_TARGET_64BIT
+#define VirtualRAOffset       1*ALen-4
+#define VirtualCPPOffset      2*ALen-4
+#define VirtualJ9MethodOffset 4*ALen-4
+#define VirtualJ2IThunkOffset 5*ALen-4
+#define VirtualLockwordOffset 6*ALen-4
+#else
+#define VirtualRAOffset       1*ALen
+#define VirtualCPPOffset      2*ALen
+#define VirtualJ9MethodOffset 4*ALen
+#define VirtualJ2IThunkOffset 5*ALen
+#define VirtualLockwordOffset 6*ALen
+#endif
+
+
 #ifdef AIXPPC
 ._virtualUnresolvedHelper:
 	.function ._virtualUnresolvedHelper,startproc._virtualUnresolvedHelper,16,0,(endproc._virtualUnresolvedHelper-startproc._virtualUnresolvedHelper)
@@ -2495,6 +2612,9 @@ _virtualUnresolvedHelper:
         staddr  r5, 5*ALen(J9SP)
         staddr  r4, 6*ALen(J9SP)
         staddr  r3, 7*ALen(J9SP)
+        laddr   r9, VirtualJ9MethodOffset(r11)                          ! Load the J9Method
+        or.     r9, r9, r9                                              ! Check if J9Method is null
+        bc      BO_IF_NOT, CR0_EQ, .L.callPrivate                       ! If not null, this is a prevously resolved private method
 #ifdef AIXPPC
 	laddr	RTOC, J9TR_VMThreadRTOCOffset(J9VM_STRUCT)		! Restore TOC register
 	laddr	r5, TOCjitResolveVirtualMethod(RTOC)
@@ -2511,15 +2631,36 @@ _virtualUnresolvedHelper:
 	laddr	RTOC, J9TR_VMThreadRTOCOffset(J9VM_STRUCT)		! Restore TOC register
 	laddr	r0, jitResolveVirtualMethod@got(RTOC)			! Load the callee address
 #endif
-	addi	r3, r11, ALen						! Load address of [idx:CP] pair
-	laddr	r4, 0(r11)						! Load code cache RA
+	addi	r3, r11, VirtualCPPOffset				! Load address of [CPP:idx] pair
+	laddr	r4, VirtualRAOffset(r11)				! Load code cache RA
 	mtspr   CTR, r0							! Set up to jump
 	bcctrl  BO_ALWAYS, CR0_LT					! Call to resolution, return
 									!   vtable offset in gr3
 	or.	r3, r3, r3						! If 0, means exception
 	bc      BO_IF, CR0_EQ, .L.commonMethodLookupException
 									! Require: J9SP-96, RTOC, r11
-	addi    r10, r11, 3*ALen					! Lock word addr in gr10
+        andi.   r9, r3, J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG         ! Check if result is tagged with J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG
+        bc      BO_IF, CR0_EQ, .L.callVirtual                           ! If it is not, go to the original path
+        xor     r9, r3, r9                                              ! r9 currently equals 0x1 so this will clear the direct method flag bit
+        staddr  r9, VirtualJ9MethodOffset(r11)                          ! stores the J9Method for future calls to this helper
+.L.callPrivate:
+        laddr   r8, J9TR_MethodPCStartOffset(r9)                        ! load startPC/extra field
+        andi.   r10, r8, J9TR_MethodNotCompiledBit                      ! Check to see if the method has already been compiled
+        bc      BO_IF_NOT, CR0_EQ, .L.interpretedPrivate                ! If not compiled, handle interpreted case
+        lwz     r10, -4(r8)                                             ! Load offset of jit --> jit
+        rlwinm  r10, r10, 16, 0x0000FFFF                                ! shift right to get the bits we want
+        add     r10, r10, r8                                            ! Addr of jit --> jit in r10 to jump to
+        b       .L.setupForCallout
+.L.interpretedPrivate:
+        ori     r12, r9, J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG        ! put tagged J9Method into r12
+        laddr   r10, VirtualJ2IThunkOffset(r11)                         ! put thunk into r10 to jump to
+.L.setupForCallout:
+        laddr   r3, 7*ALen(J9SP)                                        ! Restore object ptr: this
+        mtspr   CTR, r10                                                ! move r10 to ctr to jump to later
+        mtspr   LR, r11                                                 ! Set up the return addr to the b instruction inside the snippet
+        b       .L.callout
+.L.callVirtual:
+	addi    r10, r11, VirtualLockwordOffset				! Lock word addr in gr10
 	addi	r9, 0, LOCKED_VALUE					! Lock value
 	bl      .__common_lock_check					! Try to lock
 	or.     r8, r8, r8						! Grab the lock successfully?
@@ -2529,7 +2670,7 @@ _virtualUnresolvedHelper:
 	srawi   r6, r5, 16						! gr5{0:15} in gr6
 	add     r6, r6, r3						! upper half in gr6
 	rlwinm  r6, r6, 0, 0x0000ffff					! Mask off any overflow bits
-	laddr	r3, 0(r11)						! Load code cache RA
+	laddr	r3, VirtualRAOffset(r11)				! Load code cache RA
 #ifdef TR_HOST_64BIT
 	lis	r7, 0xffffffffffffe98c					! Binary: ld gr12, 0(gr12)
 #else
@@ -2560,8 +2701,8 @@ _virtualUnresolvedHelper:
 	bl      .__spin_for_update
 .L.directDispatch:							! J9SP-96,r5(offset),r11,RTOC
 	laddr	r3, 7*ALen(J9SP)					! Restore object ptr: this
-	laddr	r0, 0(r11)						! Load code cache RA
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+	laddr	r0, VirtualRAOffset(r11)				! Load code cache RA
+#ifdef OMR_GC_COMPRESSED_POINTERS
         lwz     r6, J9TR_J9Object_class(r3)                                               ! Load class offset
         ! may need to convert class offset to J9Class
 #else
@@ -2571,6 +2712,7 @@ _virtualUnresolvedHelper:
 	mtspr   LR, r0							! Set up the return addr
 	laddrx	r8, r6, r5						! Load the vtable entry
 	mtspr   CTR, r8							! Set up the jump target
+.L.callout:
 	laddr   r4, 6*ALen(J9SP)					! Restore r4 -- r10
 	laddr   r5, 5*ALen(J9SP)
 	laddr   r6, 4*ALen(J9SP)
@@ -2595,7 +2737,7 @@ _virtualUnresolvedHelper:
 #else
 	laddr	r0, jitThrowException@got(RTOC)				! Load the callee address
 #endif
-	laddr	r5, 0(r11)						! Load code cache RA
+	laddr	r5, VirtualRAOffset(r11)				! Load code cache RA
 	mtspr   LR, r5							! As if called from code cache
 	laddr	r3, J9TR_VMThreadCurrentException(J9VM_STRUCT)
 	mtspr   CTR, r0
@@ -2626,6 +2768,13 @@ _interfaceCallHelper:
 	cmpi	cr0, CmpAddr, r5, -1
 	isync							! Make sure none -1 is seen
 	bc	BO_IF_NOT, CR0_EQ, .L.continueLookup
+	laddr	r5, 4*ALen(r11)					! Load ITable Index
+	andi.	r5, r5, J9TR_J9_ITABLE_OFFSET_DIRECT		! Check if J9TR_J9_ITABLE_OFFSET_DIRECT flag is set
+	bc	BO_IF, CR0_EQ, .L.callResolve			! If not set, need to call jitResolveInterfaceMethod
+	laddr	r5, 3*ALen(r11)					! Load Interface Class Pointer
+	or.	r5, r5, r5					! Check if Interface Class Pointer is null
+	bc	BO_IF_NOT, CR0_EQ, .L.typeCheckAndDirectDispatch	! If not null, this is a known private interface call
+.L.callResolve:
 	addi	r3, r11, ALen
 	mr	r4, r11						! Load code cache RA
 #ifdef AIXPPC
@@ -2642,6 +2791,67 @@ _interfaceCallHelper:
 	mtspr	CTR, r5						! Prepare for long jump
 	bcctrl	BO_ALWAYS, CR0_LT					! Call for resolution
 	sync
+	laddr	r5, 4*ALen(r11)					! Load ITable Index
+	andi.	r5, r5, J9TR_J9_ITABLE_OFFSET_DIRECT		! Check if J9TR_J9_ITABLE_OFFSET_DIRECT flag is set
+	bc	BO_IF, CR0_EQ, .L.callInterface			! If not set, this does not need a direct dispatch
+.L.typeCheckAndDirectDispatch:
+#ifdef AIXPPC
+	laddr	r5, TOCjitInstanceOf(RTOC)
+	laddr	r5, 0(r5)					! Load target address
+#elif defined(LINUXPPC64)
+	laddr	r5, TOCjitInstanceOf@toc(RTOC)
+#if !defined(__LITTLE_ENDIAN__)
+	laddr	r5, 0(r5)					! Load target address
+#endif
+#else
+	laddr	r5, jitInstanceOf@got(RTOC)			! Load the callee address
+#endif
+	laddr	r3, 3*ALen(r11)					! Load Interface Class Pointer
+	laddr	r4, 7*ALen(J9SP)				! Load this pointer
+	mtspr	CTR, r5
+	bcctrl	BO_ALWAYS, CR0_LT				! Branch to jitInstanceOf
+	or.	r3, r3, r3					! Check if jitInstanceOf returned null
+	bc	BO_IF_NOT, CR0_EQ, .L.directDispatchInterface	! If not null, continue on to direct dispatch
+#ifdef AIXPPC
+	laddr	r5, TOCjitLookupInterfaceMethod(RTOC)
+	laddr	r5, 0(r5)					! Load target address
+#elif defined(LINUXPPC64)
+	laddr	r5, TOCjitLookupInterfaceMethod@toc(RTOC)
+#if !defined(__LITTLE_ENDIAN__)
+	laddr	r5, 0(r5)					! Load target address
+#endif
+#else
+	laddr	r5, jitLookupInterfaceMethod@got(RTOC)		! Load the callee address
+#endif
+	mtspr	CTR, r5						! Prepare for long jump
+#ifdef OMR_GC_COMPRESSED_POINTERS
+	lwz	r3, J9TR_J9Object_class(r4)				! Load the class offset
+#else
+	laddr	r3, J9TR_J9Object_class(r4)				! Load the class
+#endif
+	maskVFT(r3)
+	addi	r4, r11, 3*ALen					! Address of interface table&slot number
+	mr	r5, r11						! Load original RA for use inside jitLookupInterfaceMethod
+	bcctr	BO_ALWAYS, CR0_LT				! Branch to jitLookupInterfaceMethod to trigger exception
+								! The code will not return here after the branch.
+.L.directDispatchInterface:
+	laddr	r5, 4*ALen(r11)					! Load ITable Index. This is actually a J9Method.
+	xori	r5, r5, J9TR_J9_ITABLE_OFFSET_DIRECT		! Clear J9TR_J9_ITABLE_OFFSET_DIRECT flag.
+	laddr	r6, J9TR_MethodPCStartOffset(r5)		! load startPC/extra field
+	andi.	r7, r6, J9TR_MethodNotCompiledBit		! Check to see if the method has already been compiled
+	bc	BO_IF_NOT, CR0_EQ, .L.interpretedDispatch	! If not compiled, handle interpreted case
+	lwz	r7, -4(r6)					! Load offset of jit --> jit
+	rlwinm	r7, r7, 16, 0x0000FFFF				! shift right to get the bits we want
+	add	r7, r7, r6					! Addr of jit --> jit in r7 to jump to
+	b	.L.setupCTRforCallout
+.L.interpretedDispatch:
+	ori	r12, r5, J9TR_J9_VTABLE_INDEX_DIRECT_METHOD_FLAG	! put tagged J9Method into r12
+	laddr	r7, 9*ALen(r11)					! put thunk into r7 to jump to
+.L.setupCTRforCallout:
+	laddr	r3, 7*ALen(J9SP)				! Restore object ptr: this
+	mtspr	CTR, r7						! move r7 to ctr to jump to later
+	b	.L.calloutInterface
+.L.callInterface:
 	li	r3, 5*ALen
 	li	r5, 0
 .L.loopToSetZero:
@@ -2674,7 +2884,7 @@ _interfaceCallHelper:
 	mtspr	CTR, r5						! Prepare for long jump
 	mr	r5, r11						! Load code cache RA
 	addi	r4, r11, 3*ALen					! Address of interface table&slot number
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
 	lwz	r3, J9TR_J9Object_class(r6)				! Load the class offset
 #else
 	laddr	r3, J9TR_J9Object_class(r6)				! Load the class
@@ -2682,7 +2892,7 @@ _interfaceCallHelper:
 	maskVFT(r3)
 	bcctrl	BO_ALWAYS, CR0_LT					! Call to look up method
 	laddr	r5, 7*ALen(J9SP)					! Load:  this
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
 	lwz	r6, J9TR_J9Object_class(r5)				! Load the class offset
 	! may need to convert class offset to J9Class
 #else
@@ -2735,7 +2945,7 @@ _interfaceCallHelper:
 	bl	.__refreshHelper					! save:	RTOC, r6, r10, r11
 #endif
 	laddr	r4, 5*ALen(r11)					! Load slot1 class
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
         ! may need to convert class offset to J9Class pointer
 #endif
 	laddr	r5, 3*ALen(r11)					! Resolved class
@@ -2749,17 +2959,17 @@ _interfaceCallHelper:
 	neg	r4, r3
 	addi	r12, r4,J9TR_InterpVTableOffset			! Must set it up in r12
 	laddr	r3, 7*ALen(J9SP)					! Restore "this"
-	mr	r7, r11						! Load code cache RA
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
 	lwz	r5, J9TR_J9Object_class(r3)				! class offset
         ! may need to convert class offset to J9Class pointer
 #else
 	laddr	r5, J9TR_J9Object_class(r3)				! class pointer
 #endif
 	maskVFT(r5)
-	mtspr	LR, r7						! Set up to return
 	laddrx	r4, r5, r12
 	mtspr	CTR, r4						! set up callee addr
+.L.calloutInterface:
+	mtspr	LR, r11						! Set up to return
 	laddr	r4, 6*ALen(J9SP)					! Restore r4 -- r10
 	laddr	r5, 5*ALen(J9SP)
 	laddr	r6, 4*ALen(J9SP)
@@ -2803,7 +3013,7 @@ _interfaceCompeteSlot2:
 	laddr	r5, jitLookupInterfaceMethod@got(RTOC)		! Load the callee address
 #endif
 	laddr	r6, 7*ALen(J9SP)					! Load "this"
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
 	lwz	r3, J9TR_J9Object_class(r6)				! Load the class offset
 #else
 	laddr	r3, J9TR_J9Object_class(r6)				! Load the class
@@ -2814,7 +3024,7 @@ _interfaceCompeteSlot2:
 	mr	r5, r11						! Load code cache RA
 	bcctrl	BO_ALWAYS, CR0_LT					! Call to look up
 	laddr	r5, 7*ALen(J9SP)					! Load:  this
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
 	lwz	r6, J9TR_J9Object_class(r5)				! Load the class offset
         ! may need to convert class offset to J9Class
 #else
@@ -2871,7 +3081,7 @@ _interfaceCompeteSlot2:
 #endif
 	or	r3, r6, r6					! Restore r3
 	laddr	r4, 7*ALen(r11)					! Load slot2 class
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
         ! may need to convert class offset to J9Class pointer
 #endif
 	laddr	r5, 3*ALen(r11)					! Resolved class
@@ -2941,7 +3151,7 @@ _interfaceSlotsUnavailable:
 #ifndef NO_HELPER_LASTITABLE_CHECK
         ! Before going to the VM helper, check if the receiver class lastITable matches the interface class
         ! of the method being called and if so, use it to quickly look up the vtable offset and make the call
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
         lwz     r10, J9TR_J9Object_class(r3)                    ! Load class
 #else  
         laddr   r10, J9TR_J9Object_class(r3)                    ! Load class
@@ -2986,7 +3196,7 @@ _interfaceSlotsUnavailable:
 #else
 	laddr	r5, jitLookupInterfaceMethod@got(RTOC)		! Load address of final helper
 #endif
-#ifdef J9VM_INTERP_COMPRESSED_OBJECT_HEADER
+#ifdef OMR_GC_COMPRESSED_POINTERS
 	lwz	r3, J9TR_J9Object_class(r3)				! Load class
 #else
 	laddr	r3, J9TR_J9Object_class(r3)				! Load class
@@ -3018,6 +3228,8 @@ TOCjitResolveClassFromStaticField:
 	.tc       jitResolveClass[TC],jitResolveClassFromStaticField
 TOCjitResolveString:
 	.tc       jitResolveString[TC],jitResolveString
+TOCjitResolveConstantDynamic:
+	.tc       jitResolveConstantDynamic[TC],jitResolveConstantDynamic
 TOCjitResolveMethodType:
 	.tc       jitResolveMethodType[TC],jitResolveMethodType
 TOCjitResolveMethodHandle:
@@ -3044,6 +3256,8 @@ TOC_nativeStaticHelperForUnresolvedGlue:
 	.tc       _nativeStaticHelperForUnresolvedGlue[TC],_nativeStaticHelperForUnresolvedGlue
 TOC_nativeStaticHelper:
 	.tc       _nativeStaticHelper[TC],_nativeStaticHelper
+TOCj2iTransition:
+	.tc 	  j2iTransition[TC],j2iTransition
 TOCicallVMprJavaSendNativeStatic:
 	.tc       icallVMprJavaSendNativeStatic[TC],icallVMprJavaSendNativeStatic
 TOCicallVMprJavaSendStatic0:
@@ -3082,6 +3296,8 @@ TOC_jitAddPicToPatchOnClassUnload:
 	.tc       jitAddPicToPatchOnClassUnload[TC],jitAddPicToPatchOnClassUnload
 TOCjitCallCFunction:
 	.tc       jitCallCFunction[TC],jitCallCFunction
+TOCjitInstanceOf:
+	.tc       jitInstanceOf[TC],jitInstanceOf
 TOCmcc_callPointPatching_unwrapper:
 	.tc       mcc_callPointPatching_unwrapper[TC],mcc_callPointPatching_unwrapper
 TOCmcc_reservationAdjustment_unwrapper:
@@ -3138,6 +3354,12 @@ __staticGlueTable:
 	ADDR      TOC{TC0}
 	ADDR      0x00000000
 ! End   csect     _interpreterUnresolvedStringGlue{DS}
+
+	.csect    _interpreterUnresolvedConstantDynamicGlue{DS}
+	ADDR      ._interpreterUnresolvedConstantDynamicGlue
+	ADDR      TOC{TC0}
+	ADDR      0x00000000
+! End   csect     _interpreterUnresolvedConstantDynamicGlue{DS}
 
 	.csect    _interpreterUnresolvedMethodTypeGlue{DS}
 	ADDR      ._interpreterUnresolvedMethodTypeGlue
@@ -3365,6 +3587,8 @@ TOCjitResolveClassFromStaticField:
 	.tc       jitResolveClass[TC],jitResolveClassFromStaticField
 TOCjitResolveString:
 	.tc       jitResolveString[TC],jitResolveString
+TOCjitResolveConstantDynamic:
+	.tc       jitResolveConstantDynamic[TC],jitResolveConstantDynamic
 TOCjitResolveMethodType:
 	.tc       jitResolveMethodType[TC],jitResolveMethodType
 TOCjitResolveMethodHandle:
@@ -3391,6 +3615,8 @@ TOC_nativeStaticHelperForUnresolvedGlue:
 	.tc       _nativeStaticHelperForUnresolvedGlue[TC],_nativeStaticHelperForUnresolvedGlue
 TOC_nativeStaticHelper:
 	.tc       _nativeStaticHelper[TC],_nativeStaticHelper
+TOCj2iTransition:
+	.tc 	  j2iTransition[TC],j2iTransition
 TOCicallVMprJavaSendNativeStatic:
 	.tc       icallVMprJavaSendNativeStatic[TC],icallVMprJavaSendNativeStatic
 TOCicallVMprJavaSendStatic0:
@@ -3429,6 +3655,8 @@ TOC_jitAddPicToPatchOnClassUnload:
 	.tc       jitAddPicToPatchOnClassUnload[TC],jitAddPicToPatchOnClassUnload
 TOCjitCallCFunction:
 	.tc       jitCallCFunction[TC],jitCallCFunction
+TOCjitInstanceOf:
+	.tc       jitInstanceOf[TC],jitInstanceOf
 TOCmcc_callPointPatching_unwrapper:
 	.tc       mcc_callPointPatching_unwrapper[TC],mcc_callPointPatching_unwrapper
 TOCmcc_reservationAdjustment_unwrapper:
@@ -3499,6 +3727,14 @@ _interpreterUnresolvedClassGlue2:
 	.size     _interpreterUnresolvedStringGlue,24
 _interpreterUnresolvedStringGlue:
 	.quad     ._interpreterUnresolvedStringGlue
+	.quad     .TOC.@tocbase
+	.long     0x00000000
+	.long     0x00000000
+
+	.globl    _interpreterUnresolvedConstantDynamicGlue
+	.size     _interpreterUnresolvedConstantDynamicGlue,24
+_interpreterUnresolvedConstantDynamicGlue:
+	.quad     ._interpreterUnresolvedConstantDynamicGlue
 	.quad     .TOC.@tocbase
 	.long     0x00000000
 	.long     0x00000000

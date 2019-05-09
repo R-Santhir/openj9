@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -124,6 +124,9 @@ static void jvmtiHookMethodEnter (J9HookInterface** hook, UDATA eventNum, void* 
 #if defined(J9VM_INTERP_NATIVE_SUPPORT)
 static int J9THREAD_PROC compileEventThreadProc (void *entryArg);
 #endif /* INTERP_NATIVE_SUPPORT */
+#if JAVA_SPEC_VERSION >= 11
+static void jvmtiHookSampledObjectAlloc (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
+#endif /* JAVA_SPEC_VERSION >= 11 */
 static void jvmtiHookObjectAllocate (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
 static void jvmtiHookThreadEnd (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
 static void jvmtiHookFindMethodFromPC (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
@@ -131,7 +134,9 @@ static void jvmtiHookThreadStarted (J9HookInterface** hook, UDATA eventNum, void
 static void jvmtiHookFieldAccess (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
 static void jvmtiHookVMStartedFirst (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
 static void jvmtiHookVMStarted (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
+#if JAVA_SPEC_VERSION >= 9
 static void jvmtiHookModuleSystemStarted (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
+#endif /* JAVA_SPEC_VERSION >= 9 */
 static void jvmtiHookClassFileLoadHook (J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
 static void jvmtiHookResourceExhausted(J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData);
 static UDATA findFieldIndexFromOffset(J9VMThread *currentThread, J9Class *clazz, UDATA offset, UDATA isStatic, J9Class **declaringClass);
@@ -381,8 +386,11 @@ processEvent(J9JVMTIEnv* j9env, jint event, J9HookRedirectorFunction redirectorF
 			return redirectorFunction(vmHook, J9HOOK_VM_INITIALIZED, jvmtiHookVMInitialized, OMR_GET_CALLSITE(), j9env);
 
 		case JVMTI_EVENT_VM_START:
-			return redirectorFunction(vmHook, J9HOOK_VM_STARTED, jvmtiHookVMStarted, OMR_GET_CALLSITE(), j9env) &&
-					redirectorFunction(vmHook, J9HOOK_JAVA_BASE_LOADED, jvmtiHookModuleSystemStarted, OMR_GET_CALLSITE(), j9env);
+			return redirectorFunction(vmHook, J9HOOK_VM_STARTED, jvmtiHookVMStarted, OMR_GET_CALLSITE(), j9env)
+#if JAVA_SPEC_VERSION >= 9
+					&& redirectorFunction(vmHook, J9HOOK_JAVA_BASE_LOADED, jvmtiHookModuleSystemStarted, OMR_GET_CALLSITE(), j9env)
+# endif /* JAVA_SPEC_VERSION >= 9 */
+			;
 
 		case JVMTI_EVENT_VM_DEATH:
 			return redirectorFunction(vmHook, J9HOOK_VM_SHUTTING_DOWN, jvmtiHookVMShutdown, OMR_GET_CALLSITE(), j9env);
@@ -436,6 +444,11 @@ processEvent(J9JVMTIEnv* j9env, jint event, J9HookRedirectorFunction redirectorF
 		case JVMTI_EVENT_VM_OBJECT_ALLOC:
 			return redirectorFunction(vmHook, J9HOOK_VM_OBJECT_ALLOCATE, jvmtiHookObjectAllocate, OMR_GET_CALLSITE(), j9env);
 
+#if JAVA_SPEC_VERSION >= 11
+		case JVMTI_EVENT_SAMPLED_OBJECT_ALLOC:
+			return redirectorFunction(vmHook, J9HOOK_SAMPLED_OBJECT_ALLOCATE, jvmtiHookSampledObjectAlloc, OMR_GET_CALLSITE(), j9env);
+
+#endif /* JAVA_SPEC_VERSION >= 11 */
 		case JVMTI_EVENT_NATIVE_METHOD_BIND:
 			return redirectorFunction(vmHook, J9HOOK_VM_JNI_NATIVE_BIND, jvmtiHookJNINativeBind, OMR_GET_CALLSITE(), j9env);
 
@@ -582,16 +595,18 @@ jvmtiHookVMStarted(J9HookInterface** hook, UDATA eventNum, void* eventData, void
 
 	if (callback != NULL) {
 		J9VMThread *currentThread = data->vmThread;
-		J9JavaVM *vm = currentThread->javaVM;
 		UDATA hadVMAccess;
 		UDATA javaOffloadOldState = 0;
 		BOOLEAN reportEvent = TRUE;
 
-	 	if (J2SE_VERSION(vm) >= J2SE_19) {
+#if JAVA_SPEC_VERSION >= 9
+		J9JavaVM *vm = currentThread->javaVM;
+	 	if (J2SE_VERSION(vm) >= J2SE_V11) {
 	 		if (j9env->capabilities.can_generate_early_vmstart == 0) {
 	 			reportEvent = FALSE;
 	 		}
 	 	}
+#endif /* JAVA_SPEC_VERSION >= 9 */
 	 	if (TRUE == reportEvent) {
 	 		if (prepareForEvent(j9env, currentThread, currentThread, JVMTI_EVENT_VM_START, NULL, &hadVMAccess, FALSE, 0, &javaOffloadOldState)) {
 	 			callback((jvmtiEnv *) j9env, (JNIEnv *) currentThread);
@@ -603,6 +618,7 @@ jvmtiHookVMStarted(J9HookInterface** hook, UDATA eventNum, void* eventData, void
 	TRACE_JVMTI_EVENT_RETURN(jvmtiHookVMStarted);
 }
 
+#if JAVA_SPEC_VERSION >= 9
 static void
 jvmtiHookModuleSystemStarted(J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData) {
 	J9VMModuleStartEvent * data = eventData;
@@ -614,7 +630,7 @@ jvmtiHookModuleSystemStarted(J9HookInterface** hook, UDATA eventNum, void* event
 	Trc_JVMTI_jvmtiHookModuleSystemStarted_Entry();
 
 	Assert_JVMTI_true(J9_ARE_ALL_BITS_SET(vm->runtimeFlags, J9_RUNTIME_JAVA_BASE_MODULE_CREATED));
-	Assert_JVMTI_true(J2SE_VERSION(vm) >= J2SE_19);
+	Assert_JVMTI_true(J2SE_VERSION(vm) >= J2SE_V11);
 
 	/*
 	 * In Java9 the VMStart event can be triggered from either the J9HOOK_VM_STARTED
@@ -637,6 +653,7 @@ jvmtiHookModuleSystemStarted(J9HookInterface** hook, UDATA eventNum, void* event
 	}
 	TRACE_JVMTI_EVENT_RETURN(jvmtiHookModuleSystemStarted);
 }
+#endif /* JAVA_SPEC_VERSION >= 9 */
 
 
 static void
@@ -789,12 +806,6 @@ hookNonEventCapabilities(J9JVMTIEnv * j9env, jvmtiCapabilities * capabilities)
 	}
 
 	if (capabilities->can_tag_objects) {
-		/* Heap iteration functions require the can_tag_objects capability, so use the capability to tell the GC to maintain heap walkability */
-
-		if (enableDebugAttribute(j9env, J9VM_DEBUG_ATTRIBUTE_ALLOW_USER_HEAP_WALK)) {
-			return 1;
-		}
-
 		if (hookRegister(gcOmrHook, J9HOOK_MM_OMR_GLOBAL_GC_END, jvmtiHookGCEnd, OMR_GET_CALLSITE(), j9env)) {
 			return 1;
 		}
@@ -1118,7 +1129,14 @@ findFieldIndexFromOffset(J9VMThread *currentThread, J9Class *clazz, UDATA offset
 		J9ROMClass * const romClass = clazz->romClass;
 		J9Class * const superclazz = GET_SUPERCLASS(clazz);
 		J9ROMFieldOffsetWalkState state;
-		J9ROMFieldOffsetWalkResult *result = vmFuncs->fieldOffsetsStartDo(vm, romClass, superclazz, &state, walkFlags);
+		J9ROMFieldOffsetWalkResult *result = NULL;
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		result = vmFuncs->fieldOffsetsStartDo(vm, romClass, superclazz, &state, walkFlags, clazz->flattenedClassCache);
+#else /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+		result = vmFuncs->fieldOffsetsStartDo(vm, romClass, superclazz, &state, walkFlags);
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+
 		while (NULL != result->field) {
 			if (staticBit == (result->field->modifiers & J9AccStatic)) {
 				if (offset == result->offset) {
@@ -1320,11 +1338,8 @@ jvmtiHookExceptionThrow(J9HookInterface** hook, UDATA eventNum, void* eventData,
 		exception = (j9object_t) vm->internalVMFunctions->walkStackForExceptionThrow(currentThread, exception, TRUE);
 		switch((UDATA) currentThread->stackWalkState->userData3) {
 			case J9_EXCEPT_SEARCH_JIT_HANDLER:
-				if (vm->jitConfig->jitGetExceptionCatcher(currentThread, currentThread->stackWalkState->userData2, currentThread->stackWalkState->jitInfo, &catchMethod, &catchLocation)) {
-					/* Inlined catcher found */
-					break;
-				}
-				/* Intentional fall-through */
+				catchMethod = vm->jitConfig->jitGetExceptionCatcher(currentThread, currentThread->stackWalkState->userData2, currentThread->stackWalkState->jitInfo, &catchLocation);
+				break;
 
 			case J9_EXCEPT_SEARCH_JAVA_HANDLER:
 				catchMethod =  currentThread->stackWalkState->method;
@@ -1564,7 +1579,12 @@ jvmtiHookGetEnv(J9HookInterface** hook, UDATA eventNum, void* eventData, void* u
 	if (data->rc == JNI_EVERSION) {
 		jint version = data->version & ~JVMTI_VERSION_MASK_MICRO;
 
-		if ((version == JVMTI_VERSION_1_0) || (version == JVMTI_VERSION_1_1) || (version == JVMTI_VERSION_1_2) || (version == JVMTI_VERSION_9_0)) {
+		if ((version == JVMTI_VERSION_1_0) 
+			|| (version == JVMTI_VERSION_1_1) 
+			|| (version == JVMTI_VERSION_1_2) 
+			|| (version == JVMTI_VERSION_9)
+			|| (version == JVMTI_VERSION_11)
+		) {
 			/* Jazz 99339: obtain the pointer to J9JavaVM from J9InvocationJavaVM so as to store J9NativeLibrary in J9JVMTIEnv */
 			J9InvocationJavaVM * invocationJavaVM = (J9InvocationJavaVM *)data->jvm;
 			J9JVMTIData * jvmtiData = userData;
@@ -2224,26 +2244,59 @@ jvmtiHookGCCycleEnd(J9HookInterface** hook, UDATA eventNum, void* eventData, voi
 }
 
 /**
- * Determines if the class described by <tt>classLoadData</tt> can 
+ * Determines if the class described by <tt>data</tt> can 
  * be instrumented.
- * @param classLoadData 
+ * @param data The class file load hook event data
  * @return TRUE if the class can be instrumented. 
  */
 static BOOLEAN
-canClassBeInstrumented(J9VMClassLoadHookEvent* classLoadData)
+canClassBeInstrumented(J9VMClassLoadHookEvent* data)
 {
-	BOOLEAN result = TRUE;
-
-	/* Skip any class that does not have a name specified */
-	if (classLoadData->className == NULL) {
-		result = FALSE;
-	} else if (strcmp(classLoadData->className, "java/lang/J9VMInternals") == 0) {
-		result = FALSE;
-	} else if (strcmp(classLoadData->className, "java/lang/invoke/VarHandleInternal") == 0) {
-		result = FALSE;
+	BOOLEAN modifiable = TRUE;
+	/* Only clasess on the bootpath may be marked unmodifiable */
+	if (data->classLoader == data->currentThread->javaVM->systemClassLoader) {
+		U_8 *classData = data->classData;
+		UDATA const classDataLength = data->classDataLength;
+		UDATA const annotationLength = sizeof(J9_UNMODIFIABLE_CLASS_ANNOTATION_DATA);
+		/* Before the constant pool in the class file, there's at least:
+		 *
+		 *	u4 magic
+		 *	u2 minor_version
+		 *	u2 major_version
+		 *	u2 constant_pool_count
+		 *
+ 		 * Totalling 10 bytes.
+		 */
+		UDATA const minimumSize = 10;
+		if (classDataLength > (annotationLength + minimumSize)) {
+			/* Make sure this at least looks like a class file */
+			if ((0xCA == classData[0]) && (0xFE == classData[1]) && (0xBA == classData[2]) && (0xBE == classData[3])) {
+				U_8 *dataEnd = classData + classDataLength - annotationLength;
+				classData += minimumSize;
+				/* Search for the bytes representing the UTF8 annotation name */
+				while (classData < dataEnd) {
+					static J9_UNMODIFIABLE_CLASS_ANNOTATION_DATA annotBytes = {
+						(char)1, /* tag byte for UTF8 in the constant pool */
+						(char)(LITERAL_STRLEN(J9_UNMODIFIABLE_CLASS_ANNOTATION) >> 8), /* high byte of size (big endian) */
+						(char)(LITERAL_STRLEN(J9_UNMODIFIABLE_CLASS_ANNOTATION) & 0xFF), /* low byte of size (big endian) */
+						J9_UNMODIFIABLE_CLASS_ANNOTATION /* UTF8 data */
+					};
+					UDATA scanSize = annotationLength;
+					U_8 *scanBytes = (U_8*)&annotBytes;
+					do {
+						if (*scanBytes++ != *classData++) {
+							goto notFound;
+						}
+						scanSize -= 1;
+					} while (0 != scanSize);
+					modifiable = FALSE;
+					break;
+notFound: ;
+				}
+			}
+		}
 	}
-
-	return result;
+	return modifiable;
 }
 
 
@@ -2257,7 +2310,8 @@ jvmtiHookClassFileLoadHook(J9HookInterface** hook, UDATA eventNum, void* eventDa
 
 	Trc_JVMTI_jvmtiHookClassFileLoadHook_Entry();
 
-	if ((J2SE_VERSION(vm) >= J2SE_19)
+#if JAVA_SPEC_VERSION >= 9
+	if ((J2SE_VERSION(vm) >= J2SE_V11)
 		&& (j9env->capabilities.can_generate_early_class_hook_events == 0)
 	) {
 		ENSURE_EVENT_PHASE_START_OR_LIVE(jvmtiHookClassFileLoadHook, j9env);
@@ -2265,6 +2319,9 @@ jvmtiHookClassFileLoadHook(J9HookInterface** hook, UDATA eventNum, void* eventDa
 		ENSURE_EVENT_PHASE_PRIMORDIAL_START_OR_LIVE(jvmtiHookClassFileLoadHook, j9env);
 	}
 
+#else /* JAVA_SPEC_VERSION >= 9 */
+	ENSURE_EVENT_PHASE_PRIMORDIAL_START_OR_LIVE(jvmtiHookClassFileLoadHook, j9env);
+#endif /* JAVA_SPEC_VERSION >= 9 */
 	if (!canClassBeInstrumented(data)) {
 		TRACE_JVMTI_EVENT_RETURN(jvmtiHookClassFileLoadHook);
 	}
@@ -2272,7 +2329,6 @@ jvmtiHookClassFileLoadHook(J9HookInterface** hook, UDATA eventNum, void* eventDa
 	/* Call the event callback */
 	if (callback != NULL) {
 		J9VMThread * currentThread = data->currentThread;
-		J9JavaVM * vm = currentThread->javaVM;
 		UDATA hadVMAccess;
 		j9object_t classLoaderObject = (data->classLoader == vm->systemClassLoader) ? NULL : J9CLASSLOADER_CLASSLOADEROBJECT(currentThread, data->classLoader);
 		j9object_t protectionDomain = data->protectionDomain;
@@ -2785,6 +2841,44 @@ jvmtiHookCompilingEnd(J9HookInterface** hook, UDATA eventNum, void* eventData, v
 
 #endif /* INTERP_NATIVE_SUPPORT */
 
+#if JAVA_SPEC_VERSION >= 11
+static void 
+jvmtiHookSampledObjectAlloc(J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData)
+{
+	J9JVMTIEnv * j9env = userData;
+	jvmtiEventSampledObjectAlloc callback = j9env->callbacks.SampledObjectAlloc;
+
+	Trc_JVMTI_jvmtiHookSampledObjectAlloc_Entry();
+
+	ENSURE_EVENT_PHASE_LIVE(jvmtiHookSampledObjectAlloc, j9env);
+
+	if (NULL != callback) {
+		J9SampledObjectAllocateEvent *data = eventData;
+		J9VMThread *currentThread = data->currentThread;
+		jthread threadRef = NULL;
+		UDATA hadVMAccess = 0;
+		UDATA javaOffloadOldState = 0;
+
+		if (prepareForEvent(j9env, currentThread, currentThread, JVMTI_EVENT_SAMPLED_OBJECT_ALLOC, &threadRef, &hadVMAccess, TRUE, 2, &javaOffloadOldState)) {
+			j9object_t *objectRef = (j9object_t*) currentThread->arg0EA;
+			j9object_t *classRef = (j9object_t*) (currentThread->arg0EA - 1);
+			J9Class *clazz = NULL;
+			J9InternalVMFunctions const * const vmFuncs = currentThread->javaVM->internalVMFunctions;
+
+			*objectRef = data->object;
+			clazz = J9OBJECT_CLAZZ(currentThread, data->object);
+			*classRef = J9VM_J9CLASS_TO_HEAPCLASS(clazz);
+			vmFuncs->internalExitVMToJNI(currentThread);
+			callback((jvmtiEnv *) j9env, (JNIEnv *) currentThread, threadRef, (jobject) objectRef, (jclass) classRef, (jlong) data->size);
+			vmFuncs->internalEnterVMFromJNI(currentThread);
+			data->object = *objectRef;
+			finishedEvent(currentThread, JVMTI_EVENT_SAMPLED_OBJECT_ALLOC, hadVMAccess, javaOffloadOldState);
+		}
+	}
+
+	TRACE_JVMTI_EVENT_RETURN(jvmtiHookSampledObjectAlloc);
+}
+#endif /* JAVA_SPEC_VERSION >= 11 */
 
 static void
 jvmtiHookObjectAllocate(J9HookInterface** hook, UDATA eventNum, void* eventData, void* userData)

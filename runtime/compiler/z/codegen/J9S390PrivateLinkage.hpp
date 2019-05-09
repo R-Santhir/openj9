@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -25,11 +25,13 @@
 
 #include "codegen/Linkage.hpp"
 
+namespace TR { class S390JNICallDataSnippet; }
 namespace TR { class AutomaticSymbol; }
 namespace TR { class CodeGenerator; }
 namespace TR { class RegisterDependencyConditions; }
 namespace TR { class ResolvedMethodSymbol; }
 namespace TR { class Snippet; }
+
 
 namespace TR {
 
@@ -42,9 +44,6 @@ class S390PrivateLinkage : public TR::Linkage
    uint32_t _preservedRegisterMapForGC;
 
    TR::RealRegister::RegNum _methodMetaDataRegister;
-
-   int32_t _registerSaveSize;
-   int32_t *_mapRegsToStack;
 
 public:
 
@@ -82,24 +81,15 @@ public:
 
    virtual TR::RealRegister::RegNum setMethodMetaDataRegister(TR::RealRegister::RegNum r) { return _methodMetaDataRegister = r; }
    virtual TR::RealRegister::RegNum getMethodMetaDataRegister() { return _methodMetaDataRegister; }
-   virtual TR::RealRegister *getMethodMetaDataRealRegister() {return getS390RealRegister(_methodMetaDataRegister);}
+   virtual TR::RealRegister *getMethodMetaDataRealRegister() {return getRealRegister(_methodMetaDataRegister);}
 
    virtual uint32_t setPreservedRegisterMapForGC(uint32_t m)  { return _preservedRegisterMapForGC = m; }
    virtual uint32_t getPreservedRegisterMapForGC()        { return _preservedRegisterMapForGC; }
 
-   virtual TR::RealRegister::RegNum getSystemStackPointerRegister(){ return cg()->getLinkage(TR_System)->getStackPointerRegister(); }
-   virtual TR::RealRegister *getSystemStackPointerRealRegister() {return getS390RealRegister(getSystemStackPointerRegister());}
+   virtual TR::RealRegister::RegNum getSystemStackPointerRegister();
+   virtual TR::RealRegister *getSystemStackPointerRealRegister() {return getRealRegister(getSystemStackPointerRegister());}
 
-   virtual bool mapPreservedRegistersToStackOffsets(int32_t *mapRegsToStack, int32_t &numPreserved, TR_BitVector *&);
-   virtual int32_t getRegisterSaveSize() { return _registerSaveSize; }
-   void setRegisterSaveSize(int32_t v) { _registerSaveSize = v; }
-   int32_t getStackOffsetForReg(int32_t regIndex) { return _mapRegsToStack[regIndex]; }
-   void setStackOffsetForReg(int32_t regIndex, int32_t offset) { _mapRegsToStack[regIndex] = offset; }
    virtual int32_t setupLiteralPoolRegister(TR::Snippet *firstSnippet);
-
-   virtual TR::Instruction *savePreservedRegister(TR::Instruction *cursor, int32_t regIndex, int32_t offset);
-   virtual TR::Instruction *restorePreservedRegister(TR::Instruction *cursor, int32_t regIndex, int32_t offset);
-   virtual TR::Instruction *composeSavesRestores(TR::Instruction *start, int32_t firstReg, int32_t lastReg, int32_t offset, int32_t numRegs, bool doSaves);
 
    //called by buildNativeDispatch
    virtual void setupRegisterDepForLinkage(TR::Node *, TR_DispatchType, TR::RegisterDependencyConditions * &, int64_t &, TR::SystemLinkage *, TR::Node * &, bool &, TR::Register **, TR::Register *&);
@@ -107,10 +97,8 @@ public:
 
    virtual int32_t calculateRegisterSaveSize(TR::RealRegister::RegNum f,
                                              TR::RealRegister::RegNum l,
-                                             TR::RealRegister::RegNum fh,
-                                             TR::RealRegister::RegNum lh,
                                              int32_t &rsd,
-                                             int32_t &numInts, int32_t &numFloats, int32_t &numHigh);
+                                             int32_t &numInts, int32_t &numFloats);
 
 protected:
 
@@ -157,6 +145,25 @@ public:
 
    J9S390JNILinkage(TR::CodeGenerator * cg, TR_S390LinkageConventions elc=TR_JavaPrivate, TR_LinkageConventions lc=TR_J9JNILinkage);
    virtual TR::Register * buildDirectDispatch(TR::Node * callNode);
+
+   /**
+    * \brief
+    *   JNI return value processing:
+    *   1) Unwrap return value if needed for object return types, or
+    *   2) Enforce a return value of 0 or 1 for boolean return type
+    *
+    * \param callNode
+    *   The JNI call node to be evaluated.
+    *
+    * \param cg
+    *   The code generator object.
+    *
+    * \param javaReturnRegister
+    *   Register for the JNI call return value.
+   */
+   void processJNIReturnValue(TR::Node * callNode,
+                              TR::CodeGenerator* cg,
+                              TR::Register* javaReturnRegister);
 
    void checkException(TR::Node * callNode, TR::Register *methodMetaDataVirtualRegister, TR::Register * tempReg);
    void releaseVMAccessMask(TR::Node * callNode, TR::Register * methodMetaDataVirtualRegister,

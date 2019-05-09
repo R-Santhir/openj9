@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -70,7 +70,7 @@ Agent_Prepare(JavaVM * vm, char *phase, char * options, void * reserved)
 	}
 	tprintf(env, 100, "%s options: [%s]\n", phase, options);
 
-	rc = (*vm)->GetEnv(vm, (void **) &jvmti_env, JVMTI_VERSION_9_0);
+	rc = (*vm)->GetEnv(vm, (void **) &jvmti_env, JVMTI_VERSION);
 	if (rc != JNI_OK) {
 		if ((rc != JNI_EVERSION) || ((rc = (*vm)->GetEnv(vm, (void **) &jvmti_env, JVMTI_VERSION_1_2)) != JNI_OK)) {
 			error(env, err, "Failed to GetEnv %d\n", rc);
@@ -135,7 +135,7 @@ runTest(agentEnv *env, char * options)
 	test = getTest(env->testName);
 
 	if (NULL != test) {
-		rc = test->fn(env, NULL);
+		rc = test->fn(env, env->testArgs);
 	} else {
 		error(env, JVMTI_ERROR_ILLEGAL_ARGUMENT, "Unknown testcase: [%s]\n", env->testName);
 		rc = JNI_ERR;

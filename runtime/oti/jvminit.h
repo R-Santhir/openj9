@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -263,9 +263,12 @@ enum INIT_STAGE {
 #define VMOPT_XMSO "-Xmso"
 #define VMOPT_XMSCL "-Xmscl"
 #define VMOPT_XMXCL "-Xmxcl"
+#define VMOPT_XMX "-Xmx"
+#define VMOPT_XMS "-Xms"
 #define VMOPT_XDUMP  "-Xdump"
 #define VMOPT_XDUMP_NONE  "-Xdump:none"
 #define VMOPT_XDUMP_DIRECTORY_EQUALS  "-Xdump:directory="
+#define VMOPT_XDUMP_TOOL_OUTOFMEMORYERROR_EXEC_EQUALS "-Xdump:tool:events=systhrow,filter=java/lang/OutOfMemoryError,exec="
 #define VMOPT_XARGENCODING "-Xargencoding"
 #define VMOPT_XARGENCODINGCOLON "-Xargencoding:"
 #define VMOPT_XARGENCODINGUTF8 "-Xargencoding:utf8"
@@ -307,6 +310,8 @@ enum INIT_STAGE {
 #define VMOPT_XXVM_IGNOREUNRECOGNIZED "-XXvm:ignoreUnrecognized"
 #define VMOPT_XXIGNOREUNRECOGNIZEDVMOPTIONSENABLE "-XX:+IgnoreUnrecognizedVMOptions"
 #define VMOPT_XXIGNOREUNRECOGNIZEDVMOPTIONSDISABLE "-XX:-IgnoreUnrecognizedVMOptions"
+#define VMOPT_XXIGNOREUNRECOGNIZEDXXCOLONOPTIONSENABLE "-XX:+IgnoreUnrecognizedXXColonOptions"
+#define VMOPT_XXIGNOREUNRECOGNIZEDXXCOLONOPTIONSDISABLE "-XX:-IgnoreUnrecognizedXXColonOptions"
 #define VMOPT_X142BOOSTGCTHRPRIO "-X142BoostGCThrPrio"
 #define VMOPT_XREALTIME "-Xrealtime"
 #define VMOPT_XNORTSJ "-Xnortsj"
@@ -354,6 +359,7 @@ enum INIT_STAGE {
 #define VMOPT_OPT_XXNOINTERLEAVEMEMORY "-XX:-InterleaveMemory"
 #define VMOPT_OPT_XXINTERLEAVEMEMORY "-XX:+InterleaveMemory"
 #define VMOPT_ROMMETHODSORTTHRESHOLD_EQUALS "-XX:ROMMethodSortThreshold="
+#define VMOPT_VALUEFLATTENINGTHRESHOLD_EQUALS "-XX:ValueTypeFlatteningThreshold="
 #define VMOPT_XXREDUCECPUMONITOROVERHEAD "-XX:+ReduceCPUMonitorOverhead"
 #define VMOPT_XXNOREDUCECPUMONITOROVERHEAD "-XX:-ReduceCPUMonitorOverhead"
 #define VMOPT_XXENABLECPUMONITOR "-XX:+EnableCPUMonitor"
@@ -366,6 +372,13 @@ enum INIT_STAGE {
 #define VMOPT_XXDISABLEJITWATCH "-XX:-JITInlineWatches"
 #define VMOPT_XXENABLEALWAYSSPLITBYTECODES "-XX:+AlwaysSplitBytecodes"
 #define VMOPT_XXDISABLEALWAYSSPLITBYTECODES "-XX:-AlwaysSplitBytecodes"
+#define VMOPT_XXENABLEPOSITIVEHASHCODE "-XX:+PositiveIdentityHash"
+#define VMOPT_XXDISABLEPOSITIVEHASHCODE "-XX:-PositiveIdentityHash"
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+#define VMOPT_XXENABLEVALHALLA "-XX:+EnableValhalla"
+#define VMOPT_XXDISABLEVALHALLA "-XX:-EnableValhalla"
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 #define VMOPT_XX_NOSUBALLOC32BITMEM "-XXnosuballoc32bitmem"
 
@@ -430,6 +443,9 @@ enum INIT_STAGE {
 #define VMOPT_XXUSECONTAINERSUPPORT "-XX:+UseContainerSupport"
 #define VMOPT_XXNOUSECONTAINERSUPPORT "-XX:-UseContainerSupport"
 
+#define VMOPT_XXREADIPINFOFORRAS "-XX:+ReadIPInfoForRAS"
+#define VMOPT_XXNOREADIPINFOFORRAS "-XX:-ReadIPInfoForRAS"
+
 #define MAPOPT_AGENTLIB_JDWP_EQUALS "-agentlib:jdwp="
 
 #define MAPOPT_XCOMP "-Xcomp"
@@ -470,6 +486,9 @@ enum INIT_STAGE {
 #define MAPOPT_XXDISABLEEXPLICITGC "-XX:+DisableExplicitGC"
 #define MAPOPT_XXENABLEEXPLICITGC "-XX:-DisableExplicitGC"
 #define MAPOPT_XXHEAPDUMPPATH_EQUALS "-XX:HeapDumpPath="
+#define MAPOPT_XXMAXHEAPSIZE_EQUALS "-XX:MaxHeapSize="
+#define MAPOPT_XXINITIALHEAPSIZE_EQUALS "-XX:InitialHeapSize="
+#define MAPOPT_XXONOUTOFMEMORYERROR_EQUALS "-XX:OnOutOfMemoryError="
 
 #define VMOPT_XXACTIVEPROCESSORCOUNT_EQUALS "-XX:ActiveProcessorCount="
 
@@ -497,6 +516,7 @@ enum INIT_STAGE {
 
 #define ENVVAR_IBM_MIXED_MODE_THRESHOLD "IBM_MIXED_MODE_THRESHOLD"
 #define ENVVAR_JAVA_COMPILER "JAVA_COMPILER"
+#define ENVVAR_OPENJ9_JAVA_OPTIONS "OPENJ9_JAVA_OPTIONS"
 #define ENVVAR_IBM_JAVA_OPTIONS "IBM_JAVA_OPTIONS"
 #define ENVVAR_JAVA_TOOL_OPTIONS "JAVA_TOOL_OPTIONS"
 #define ENVVAR_IBM_NOSIGHANDLER "IBM_NOSIGHANDLER"

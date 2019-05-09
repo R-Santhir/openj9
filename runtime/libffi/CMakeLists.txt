@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017, 2018 IBM Corp. and others
+# Copyright (c) 2017, 2019 IBM Corp. and others
 #
 # This program and the accompanying materials are made available under
 # the terms of the Eclipse Public License 2.0 which accompanies this
@@ -20,28 +20,68 @@
 # SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
 ################################################################################
 
-add_library(ffi SHARED
+add_library(ffi STATIC
 	closures.c
 	debug.c
 	java_raw_api.c
 	prep_cif.c
 	raw_api.c
 	types.c
-
 )
 
 # We need this because ffi_common.h is in 'include' in the top directory.
 # once we fix that this can go away
 target_include_directories(ffi PRIVATE ${j9vm_SOURCE_DIR}/include)
+
+target_include_directories(ffi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 #platform specific stuff hacked in
 if(OMR_ARCH_X86)
+	if(NOT OMR_ENV_DATA64)
+		message(SEND_ERROR "Only x86-64 is currently supported")
+	endif()
+
+	target_include_directories(ffi PUBLIC x86)
+	if(OMR_OS_LINUX)
+		target_include_directories(ffi PUBLIC preconf/xa)
+	elseif(OMR_OS_OSX)
+		target_include_directories(ffi PUBLIC preconf/oa)
+	elseif(OMR_OS_WINDOWS)
+		target_include_directories(ffi PUBLIC preconf/wa)
+	else()
+		message(SEND_ERROR "Unsupported OS")
+	endif()
+
 	target_sources(ffi
 		PRIVATE
 		x86/ffi.c
 		x86/ffi64.c
-		x86/sysv.S
-		x86/unix64.S
 	)
+
+	if(OMR_OS_WINDOWS)
+		# We are assuming we are using an MSVC toolchain
+		add_custom_command(
+			OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/win64.asm
+			COMMAND ${CMAKE_C_COMPILER} -nologo -EP -P  -I ${CMAKE_CURRENT_SOURCE_DIR}/preconf/wa -I ${CMAKE_CURRENT_SOURCE_DIR}/x86 -Fiwin64.asm  ${CMAKE_CURRENT_SOURCE_DIR}/x86/win64.S
+			DEPENDS x86/win64.S
+		)
+		target_sources(ffi PRIVATE win64.asm)
+		set_source_files_properties(win64.asm PROPERTIES LANGUAGE ASM_MASM)
+	else()
+		target_sources(ffi PRIVATE x86/sysv.S)
+	endif()
+
+	if(OMR_HOST_OS STREQUAL "linux")
+		target_sources(ffi
+			PRIVATE
+			x86/unix64.S
+		)
+	elseif(OMR_HOST_OS STREQUAL "osx")
+		target_sources(ffi
+			PRIVATE
+			x86/darwin64.s
+		)
+	endif()
 elseif(OMR_ARCH_POWER)
 	if(CMAKE_CXX_COMPILER_ID STREQUAL "XL")
 		set(CMAKE_ASM_FLAGS "-qalias=noansi -qxflag=LTOL:LTOL0 -qxflag=selinux -qarch=ppc64 -q64")
@@ -64,17 +104,6 @@ elseif(OMR_ARCH_POWER)
 		PROPERTIES
 		LANGUAGE ASM
 	)
-endif()
-
-
-target_include_directories(ffi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-if(OMR_ARCH_X86) #TODO check 64bit
-	target_include_directories(ffi
-		PUBLIC
-			preconf/xa
-			x86
-	)
-elseif(OMR_ARCH_POWER)
 	if(OMR_ENV_LITTLE_ENDIAN)
 		target_include_directories(ffi PUBLIC preconf/xl64)
 	else()
@@ -82,8 +111,3 @@ elseif(OMR_ARCH_POWER)
 	endif()
 	target_include_directories(ffi PUBLIC powerpc)
 endif()
-
-install(
-	TARGETS ffi
-	LIBRARY DESTINATION ${j9vm_SOURCE_DIR}
-)

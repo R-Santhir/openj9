@@ -1,5 +1,5 @@
 ##############################################################################
-#  Copyright (c) 2016, 2018 IBM Corp. and others
+#  Copyright (c) 2016, 2019 IBM Corp. and others
 #
 #  This program and the accompanying materials are made available under
 #  the terms of the Eclipse Public License 2.0 which accompanies this
@@ -56,9 +56,12 @@ sub resultReporter {
 	my $numOfFailed = 0;
 	my $numOfPassed = 0;
 	my $numOfSkipped = 0;
+	my $numOfDisabled = 0;
 	my $numOfTotal = 0;
+	my $runningDisabled = 0;
 	my @passed;
 	my @failed;
+	my @disabled;
 	my @capSkipped;
 	my $tapString = '';
 	my $fhIn;
@@ -74,6 +77,8 @@ sub resultReporter {
 				my $startTime = 0;
 				my $endTime = 0;
 				while ( $result = <$fhIn> ) {
+					# remove extra carriage return
+					$result =~ s/\r//g;
 					$output .= '        ' . $result;
 					if ($result =~ /Running test (.*) \.\.\.\n/) {
 						$testName = $1;
@@ -103,6 +108,13 @@ sub resultReporter {
 						if (($diagnostic eq 'failure') || ($diagnostic eq 'all')) {
 							$tapString .= $output;
 						}
+					} elsif ($result eq ($testName . "_DISABLED\n")) {
+						$result =~ s/_DISABLED\n$//;
+						push (@disabled, $result);
+						$numOfDisabled++;
+						$numOfTotal++;
+					} elsif ($result eq ("Test is disabled due to:\n")) {
+						$runningDisabled = 1;
 					} elsif ($result =~ /(capabilities \(.*?\))\s*=>\s*${testName}_SKIPPED\n/) {
 						my $capabilities = $1;
 						push (@capSkipped, "$testName - $capabilities");
@@ -123,22 +135,12 @@ sub resultReporter {
 		close $fhIn;
 	}
 
-	my $dir = dirname($tapFile);
-	if (!(-e $dir and -d $dir)) {
-		make_path($dir);
-	}
-	#generate tap output
-	open(my $fhOut, '>', $tapFile) or die "Cannot open file $tapFile!";
-	print $fhOut "1.." . $numOfTotal . "\n";
-	print $fhOut $tapString;
-	close $fhOut;
-
 	#generate console output
 	print "TEST TARGETS SUMMARY\n";
-	print "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
+	print "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
 
-	if ($numOfPassed != 0) {
-		printTests(\@passed, "PASSED test targets");
+	if ($numOfDisabled != 0) {
+		printTests(\@disabled, "DISABLED test targets");
 		print "\n";
 	}
 
@@ -148,18 +150,41 @@ sub resultReporter {
 		print "\n";
 	}
 
+	if ($numOfPassed != 0) {
+		printTests(\@passed, "PASSED test targets");
+		print "\n";
+	}
+
 	if ($numOfFailed != 0) {
 		printTests(\@failed, "FAILED test targets");
 		print "\n";
 	}
 
-	$numOfExecuted = $numOfTotal - $numOfSkipped;
+	$numOfExecuted = $numOfTotal - $numOfSkipped - $numOfDisabled;
 
-	print "TOTAL: $numOfTotal   EXECUTED: $numOfExecuted   PASSED: $numOfPassed   FAILED: $numOfFailed   SKIPPED: $numOfSkipped\n";
-	if (($numOfTotal > 0) && ($numOfFailed == 0)) {
-		print "ALL TESTS PASSED\n";
+	print "TOTAL: $numOfTotal   EXECUTED: $numOfExecuted   PASSED: $numOfPassed   FAILED: $numOfFailed";
+	# Hide numOfDisabled when running disabled tests list.
+	if ($runningDisabled == 0) {
+		print "   DISABLED: $numOfDisabled";   
 	}
-	print "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
+	print "   SKIPPED: $numOfSkipped";
+	print "\n";
+	if ($numOfTotal > 0) {
+		#generate tap output
+		my $dir = dirname($tapFile);
+		if (!(-e $dir and -d $dir)) {
+			make_path($dir);
+		}
+		open(my $fhOut, '>', $tapFile) or die "Cannot open file $tapFile!";
+		print $fhOut "1.." . $numOfTotal . "\n";
+		print $fhOut $tapString;
+		close $fhOut;
+		if ($numOfFailed == 0) {
+			print "ALL TESTS PASSED\n";
+		}
+	}
+
+	print "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n";
 
 	unlink($resultFile);
 

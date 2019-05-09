@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -428,7 +428,8 @@ ROMClassWriter::writeROMClass(Cursor *cursor,
 	writeVarHandleMethodTypeLookupTable(cursor, markAndCountOnly);
 	writeStaticSplitTable(cursor, markAndCountOnly);
 	writeSpecialSplitTable(cursor, markAndCountOnly);
-	cursor->padToAlignment(sizeof(U_64), Cursor::GENERIC); // TODO why U_64 alignment and not U_32
+	/* aligned to U_64 required by the shared classes */
+	cursor->padToAlignment(sizeof(U_64), Cursor::GENERIC);
 
 	/*
 	 * Write UTF8s
@@ -448,7 +449,8 @@ ROMClassWriter::writeROMClass(Cursor *cursor,
 	) {
 		classDataCursor->mark(_intermediateClassDataSRPKey);
 		classDataCursor->writeData(_context->intermediateClassData(), _context->intermediateClassDataLength(), Cursor::INTERMEDIATE_CLASS_DATA);
-		classDataCursor->padToAlignment(sizeof(U_64), Cursor::GENERIC); // TODO why U_64 alignment and not U_32
+		/* aligned to U_64 required by the shared classes */
+		classDataCursor->padToAlignment(sizeof(U_64), Cursor::GENERIC);
 	}
 }
 
@@ -901,9 +903,19 @@ private:
 			 * (i.e., number of dimensions of the array - 1)
 			 * in the next 2 bytes in Big Endian (since we are maintaining Sun StackMapTable format).
 			 *
-			 * See: https://jtcjazz.ottawa.ibm.com:9443/jazz/resource/itemName/com.ibm.team.workitem.WorkItem/18860
-			 * for explanation of why arity -1 is encoded instead of arity.
-			 *  */
+			 * The reason for encoding arity - 1 in verification type info in Stack maps for primitive array special cases are:
+			 * The newarray and anewarray bytecodes assume that the array has only a single dimension.
+			 * To create a multidimension array, multianewarray must be used.
+			 * The primitive array access bytecodes (ie: iaload) can only be used on single dimension arrays.
+			 * aaload must be used to access every dimension prior to the base dimension in a multi-arity primitive array.
+			 * The constants in vrfytbl.c are based off the constants for the primitive types, and can't have the arity of 1 encoded if the constant is to be used for both purposes.
+			 * (See rtverify.c verifyBytecodes() - the RTV_ARRAY_FETCH_PUSH & RTV_ARRAY_STORE cases of the switch)
+			 * In addition, the code all through the verifier assumes this condition.
+			 * Notes:
+			 * See util/vrfytbl.c for bytecode tables.
+			 * See constant definitions in cfreader.h and oti/bytecodewalk.h.
+			 * bcverify/bcverify.c simulateStack() is the other place that creates stack maps.
+			 */
 			_cursor->writeBigEndianU16(nameLength - 2, Cursor::GENERIC);
 		} else {
 			/*
@@ -1094,7 +1106,8 @@ void
 ROMClassWriter::writeUTF8s(Cursor *cursor)
 {
 	Helper(cursor, false, _classFileOracle, _srpKeyProducer, _srpOffsetTable, _constantPoolMap, 0).writeUTF8Block();
-	cursor->padToAlignment(sizeof(U_64), Cursor::GENERIC); // TODO why U_64 alignment and not U_32
+	/* aligned to U_64 required by the shared classes */
+	cursor->padToAlignment(sizeof(U_64), Cursor::GENERIC);
 }
 
 void
