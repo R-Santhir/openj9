@@ -38,11 +38,6 @@
 #include "p/codegen/PPCTableOfConstants.hpp"
 #include "runtime/CodeCacheManager.hpp"
 
-#if defined(AIXPPC)
-extern FILE *j2Profile;
-extern void  j2Prof_thunkReport(uint8_t *startP, uint8_t *endP, uint8_t *sig);
-#endif
-
 uint8_t *flushArgumentsToStack(uint8_t *buffer, TR::Node *callNode, int32_t argSize, TR::CodeGenerator *cg)
    {
    int32_t        intArgNum=0, floatArgNum=0, offset;
@@ -336,7 +331,6 @@ TR_RuntimeHelper TR::PPCCallSnippet::getInterpretedDispatchHelper(
 uint8_t *TR::PPCCallSnippet::emitSnippetBody()
    {
 
-   // *this   swipeable for debugger
    uint8_t       *cursor = cg()->getBinaryBufferCursor();
    TR::Node       *callNode = getNode();
    TR::SymbolReference *methodSymRef = (_realMethodSymbolReference)?_realMethodSymbolReference:callNode->getSymbolReference();
@@ -448,7 +442,6 @@ uint8_t *TR::PPCCallSnippet::emitSnippetBody()
 uint32_t TR::PPCCallSnippet::getLength(int32_t estimatedSnippetStart)
    {
    TR::Compilation* comp = cg()->comp();
-   // *this   swipeable for debugger
    return((instructionCountForArguments(getNode(), cg())*4) + 2*TR::Compiler->om.sizeofReferenceAddress() + 8);
    }
 
@@ -456,7 +449,6 @@ uint8_t *TR::PPCUnresolvedCallSnippet::emitSnippetBody()
    {
    TR::Compilation *comp = cg()->comp();
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp->fe());
-   // *this   swipeable for debugger
    uint8_t *cursor = TR::PPCCallSnippet::emitSnippetBody();
 
    TR::SymbolReference *methodSymRef = (_realMethodSymbolReference)?_realMethodSymbolReference:getNode()->getSymbolReference();
@@ -519,13 +511,11 @@ uint8_t *TR::PPCUnresolvedCallSnippet::emitSnippetBody()
 uint32_t TR::PPCUnresolvedCallSnippet::getLength(int32_t estimatedSnippetStart)
    {
    TR::Compilation* comp = cg()->comp();
-   // *this   swipeable for debugger
    return TR::PPCCallSnippet::getLength(estimatedSnippetStart) + 8 + TR::Compiler->om.sizeofReferenceAddress();
    }
 
 uint8_t *TR::PPCVirtualSnippet::emitSnippetBody()
    {
-   // *this   swipeable for debugger
    return(NULL);
    }
 
@@ -536,7 +526,6 @@ uint32_t TR::PPCVirtualSnippet::getLength(int32_t estimatedSnippetStart)
 
 uint8_t *TR::PPCVirtualUnresolvedSnippet::emitSnippetBody()
    {
-   // *this   swipeable for debugger
    uint8_t       *cursor = cg()->getBinaryBufferCursor();
    TR::Compilation *comp = cg()->comp();
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp->fe());
@@ -654,7 +643,6 @@ uint32_t TR::PPCVirtualUnresolvedSnippet::getLength(int32_t estimatedSnippetStar
 
 uint8_t *TR::PPCInterfaceCallSnippet::emitSnippetBody()
    {
-   // *this   swipeable for debugger
    uint8_t       *cursor = cg()->getBinaryBufferCursor();
    uint8_t       *blAddress;
    TR::Node       *callNode = getNode();
@@ -788,11 +776,11 @@ uint8_t *TR::PPCInterfaceCallSnippet::emitSnippetBody()
    *(intptrj_t *)(cursor+2*TR::Compiler->om.sizeofReferenceAddress()) = -1;
    *(intptrj_t *)(cursor+3*TR::Compiler->om.sizeofReferenceAddress()) = (intptrj_t)blAddress;
 
-   // Register for relation of the 1st target addess
+   // Register for relation of the 1st target address
    cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor+TR::Compiler->om.sizeofReferenceAddress(), NULL, TR_AbsoluteMethodAddress, cg()),
          __FILE__, __LINE__, callNode);
 
-   // Register for relaction of the 2nd target address
+   // Register for relocation of the 2nd target address
    cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalRelocation(cursor+3*TR::Compiler->om.sizeofReferenceAddress(), NULL, TR_AbsoluteMethodAddress, cg()),
          __FILE__, __LINE__, callNode);
 
@@ -831,7 +819,6 @@ uint8_t *TR::PPCInterfaceCallSnippet::emitSnippetBody()
 
 uint32_t TR::PPCInterfaceCallSnippet::getLength(int32_t estimatedSnippetStart)
    {
-   // *this   swipeable for debugger
    /*
     * 4 = Code alignment may add 4 to the length. To be conservative it is always part of the estimate.
     * 8 = Two instructions. One bl and one b instruction.
@@ -973,30 +960,6 @@ uint8_t *TR::PPCCallSnippet::generateVIThunk(TR::Node *callNode, int32_t argSize
    // patch size of thunk
    *(int32_t *)thunk = sizeThunk;
 
-#if defined(AIXPPC)
-   if (j2Profile != NULL) {
-      char         sigbuffer[1024], *signature;
-      TR_Method *amethod;
-      int32_t      len;
-
-      amethod = callNode->getSymbol()->castToMethodSymbol()->getMethod();
-      if (amethod == NULL)
-         {
-         signature = NULL;
-         }
-      else
-         {
-         len = amethod->signatureLength();
-         if (len >= 1024)
-            len = 1023;
-         memcpy(sigbuffer, amethod->signatureChars(), len);
-         sigbuffer[len] = '\0';
-         signature = sigbuffer;
-         }
-      j2Prof_thunkReport(returnValue, buffer, (uint8_t *)signature);
-      }
-#endif
-
    ppcCodeSync(thunk, codeSize);
 
    return(returnValue);
@@ -1113,30 +1076,6 @@ TR_J2IThunk *TR::PPCCallSnippet::generateInvokeExactJ2IThunk(TR::Node *callNode,
    // bcctr
    *(int32_t *)buffer = 0x4e800420;
    buffer += 4;
-
-#if defined(AIXPPC)
-   if (j2Profile != NULL) {
-      char         sigbuffer[1024], *signature;
-      TR_Method *amethod;
-      int32_t      len;
-
-      amethod = callNode->getSymbol()->castToMethodSymbol()->getMethod();
-      if (amethod == NULL)
-         {
-         signature = NULL;
-         }
-      else
-         {
-         len = amethod->signatureLength();
-         if (len >= 1024)
-            len = 1023;
-         memcpy(sigbuffer, amethod->signatureChars(), len);
-         sigbuffer[len] = '\0';
-         signature = sigbuffer;
-         }
-      j2Prof_thunkReport(thunk->entryPoint(), buffer, (uint8_t *)signature);
-      }
-#endif
 
    ppcCodeSync(thunk->entryPoint(), codeSize);
 
@@ -1439,7 +1378,6 @@ TR_Debug::print(TR::FILE *pOutFile, TR::PPCCallSnippet * snippet)
 void
 TR_Debug::print(TR::FILE *pOutFile, TR::PPCUnresolvedCallSnippet * snippet)
    {
-   // *this   swipeable for debugger
    uint8_t *cursor = snippet->getSnippetLabel()->getCodeLocation() + snippet->getLength(0) - (8+sizeof(intptrj_t));
 
    TR::SymbolReference *methodSymRef = snippet->getNode()->getSymbolReference();
@@ -1485,13 +1423,11 @@ TR_Debug::print(TR::FILE *pOutFile, TR::PPCUnresolvedCallSnippet * snippet)
 void
 TR_Debug::print(TR::FILE *pOutFile, TR::PPCVirtualSnippet * snippet)
    {
-   // *this   swipeable for debugger
    }
 
 void
 TR_Debug::print(TR::FILE *pOutFile, TR::PPCVirtualUnresolvedSnippet * snippet)
    {
-   // *this   swipeable for debugger
    uint8_t            *cursor   = snippet->getSnippetLabel()->getCodeLocation();
    TR::Node            *callNode = snippet->getNode();
 
@@ -1541,7 +1477,6 @@ TR_Debug::print(TR::FILE *pOutFile, TR::PPCVirtualUnresolvedSnippet * snippet)
 void
 TR_Debug::print(TR::FILE *pOutFile, TR::PPCInterfaceCallSnippet * snippet)
    {
-   // *this   swipeable for debugger
    uint8_t            *cursor   = snippet->getSnippetLabel()->getCodeLocation();
    TR::Node            *callNode = snippet->getNode();
 

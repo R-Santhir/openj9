@@ -25,8 +25,6 @@ package jdk.internal.misc;
 import com.ibm.oti.vm.VM;
 import com.ibm.oti.vm.VMLangAccess;
 
-import java.lang.Class;
-import java.lang.ClassLoader;
 import java.lang.reflect.Field;
 import java.security.ProtectionDomain;
 import java.util.Objects;
@@ -952,7 +950,7 @@ public final class Unsafe {
 	 * Returns byte offset to start of static class or interface.
 	 * 
 	 * @param field which contains desired class or interface
-	 * @return offset to start of class or iterface
+	 * @return offset to start of class or interface
 	 * 
 	 * @throws NullPointerException if field parameter is null
 	 * @throws IllegalArgumentException if field is not static
@@ -1478,7 +1476,7 @@ public final class Unsafe {
 	 * Returns byte offset to start of static class or interface.
 	 * 
 	 * @param field which contains desired class or interface
-	 * @return offset to start of class or iterface
+	 * @return offset to start of class or interface
 	 * 
 	 * @throws NullPointerException if field parameter is null
 	 * @throws IllegalArgumentException if field is not static
@@ -1780,7 +1778,7 @@ public final class Unsafe {
 	/**
 	 * Atomically sets the parameter value at offset in obj if the compare value 
 	 * matches the existing value in the object.
-	 * The get operation has memory semantics of getAquire.
+	 * The get operation has memory semantics of getAcquire.
 	 * The set operation has the memory semantics of set.
 	 *
 	 * @param obj object into which to store the value
@@ -5840,7 +5838,7 @@ public final class Unsafe {
 	 * otherwise an IllegalArgumentException is thrown
 	 * 
 	 * @param bbo a ByteBuffer object
-	 * @throws IllegalArgumentException as per decription above
+	 * @throws IllegalArgumentException as per description above
 	 */
 	public void invokeCleaner(ByteBuffer bbo) {
 		if (bbo instanceof DirectBuffer) {

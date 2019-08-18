@@ -37,6 +37,7 @@
 #include "MemorySubSpaceMetronome.hpp"
 #include "Metronome.hpp"
 #include "MetronomeAlarmThread.hpp"
+#include "MetronomeDelegate.hpp"
 #include "RealtimeGC.hpp"
 #include "OSInterface.hpp"
 #include "Scheduler.hpp"
@@ -282,7 +283,7 @@ MM_Scheduler::continueGC(MM_EnvironmentRealtime *env, GCReason reason, uintptr_t
 
 	/* Wake up only the master thread -- it is responsible for
 	 * waking up any slaves.
-	 * Make sure _completeCurrentGCSynchronously and _mode are atomicly changed.
+	 * Make sure _completeCurrentGCSynchronously and _mode are atomically changed.
 	 */
 	omrthread_monitor_enter(_masterThreadMonitor);
 	switch(reason) {
@@ -402,12 +403,12 @@ MM_Scheduler::waitForMutatorsToStop(MM_EnvironmentRealtime *env)
 	omrthread_monitor_enter(_masterThreadMonitor);
 	/* If master GC thread gets here without anybody requesting exclusive access for us
 	 * (possible in a shutdown scenario after we kill alarm thread), the thread will request
-	 * exlusive access for itself.
+	 * exclusive access for itself.
 	 * requestExclusiveVMAccess is invoked atomically with _mode being set to WAKING_GC
 	 * under masterThreadMonitor (see continueGC). Therefore, we check here if mode is not
-	 * WAKING_GC, and only than we reqest exlusive assess for ourselves.
+	 * WAKING_GC, and only then we request exclusive assess for ourselves.
 	 * TODO: This approach is just to fix some timing holes in shutdown. Consider removing this
-	 * "if" statement and fix alarm thread not to die before requesting exlusive access for us.
+	 * "if" statement and fix alarm thread not to die before requesting exclusive access for us.
 	 */
 	if (_masterThreadMustShutDown && _mode != WAKING_GC) {
 		uintptr_t gcPriority = 0;
@@ -537,7 +538,7 @@ MM_Scheduler::reportStopGCIncrement(MM_EnvironmentRealtime *env, bool isCycleEnd
 	 */
 	if (isCycleEnd) {
 		if (_completeCurrentGCSynchronously) {
-			/* The reqests for Sync GC made at the very end of
+			/* The requests for Sync GC made at the very end of
 			 * GC cycle might not had a chance to make the local copy
 			 */
 			if (_completeCurrentGCSynchronouslyMasterThreadCopy) {
@@ -754,7 +755,7 @@ MM_Scheduler::startUpThreads()
 
 	/* At this point, all GC threads have signalled that they are ready.
 	 * However, because Metronome uses omrthread_suspend/omrthread_resume to stop and
-	 * start threads, there is a race: the thread may have been pre-empted after
+	 * start threads, there is a race: the thread may have been preempted after
 	 * signalling but before suspending itself. An alternative may be to use
 	 * omrthread_park/unpark.
 	 */
@@ -1054,4 +1055,3 @@ j9gc_startGCIfTimeExpired(OMR_VMThread* vmThread)
 }
 
 }
-

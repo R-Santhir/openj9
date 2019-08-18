@@ -278,12 +278,6 @@ MM_RealtimeGC::mergeGCStats(MM_EnvironmentBase *env)
 {
 }
 
-void
-MM_RealtimeGC::enqueuePointerArraylet(MM_EnvironmentRealtime *env, fomrobject_t *arraylet)
-{
-	env->getWorkStack()->push(env, (void *)ARRAYLET_TO_ITEM(arraylet));
-}
-
 uintptr_t
 MM_RealtimeGC::verbose(MM_EnvironmentBase *env) {
 	return _sched->verbose();
@@ -293,9 +287,9 @@ MM_RealtimeGC::verbose(MM_EnvironmentBase *env) {
  * @note only called by master thread.
  */
 void
-MM_RealtimeGC::doAuxilaryGCWork(MM_EnvironmentBase *env)
+MM_RealtimeGC::doAuxiliaryGCWork(MM_EnvironmentBase *env)
 {
-	_realtimeDelegate.doAuxilaryGCWork(env);
+	_realtimeDelegate.doAuxiliaryGCWork(env);
 	
 	/* Restart the caches for all threads. */
 	GC_OMRVMThreadListIterator vmThreadListIterator(_vm);
@@ -353,7 +347,7 @@ MM_RealtimeGC::incrementalCollect(MM_EnvironmentRealtime *env)
 	_sched->run(env, &sweepTask);
 	reportSweepEnd(env);
 
-	doAuxilaryGCWork(env);
+	doAuxiliaryGCWork(env);
 
 	/* Get all components to clean up after themselves at the end of a collect */
 	masterCleanupAfterGC(env);
@@ -624,12 +618,6 @@ MM_RealtimeGC::reportGCCycleEnd(MM_EnvironmentBase *env)
 
 	uintptr_t approximateFreeMemorySize = _memoryPool->getApproximateFreeMemorySize();
 
-	TRIGGER_J9HOOK_MM_PRIVATE_REPORT_MEMORY_USAGE(_extensions->privateHookInterface,
-		env->getOmrVMThread(), omrtime_hires_clock(),
-		J9HOOK_MM_PRIVATE_REPORT_MEMORY_USAGE,
-		_extensions->getForge()->getCurrentStatistics()
-	);
-
 	Trc_MM_CycleEnd(env->getLanguageVMThread(), env->_cycleState->_type, approximateFreeMemorySize);
 
 	MM_CommonGCData commonData;
@@ -876,14 +864,6 @@ MM_RealtimeGC::reportGCEnd(MM_EnvironmentBase *env)
 	uintptr_t approximateActiveFreeMemorySize = 0;
 	uintptr_t activeMemorySize = 0;
 
-	TRIGGER_J9HOOK_MM_PRIVATE_REPORT_MEMORY_USAGE(
-		_extensions->privateHookInterface,
-		env->getOmrVMThread(),
-		omrtime_hires_clock(),
-		J9HOOK_MM_PRIVATE_REPORT_MEMORY_USAGE,
-		_extensions->getForge()->getCurrentStatistics()
-	);
-
 	TRIGGER_J9HOOK_MM_OMR_GLOBAL_GC_END(
 		_extensions->omrHookInterface,
 		env->getOmrVMThread(),
@@ -943,7 +923,7 @@ MM_RealtimeGC::flushRememberedSet(MM_EnvironmentRealtime *env)
  * If concurrentMarkingEnabled is true then tracing is completed concurrently.
  */
 void
-MM_RealtimeGC::doTracing(MM_EnvironmentRealtime *env)
+MM_RealtimeGC::completeMarking(MM_EnvironmentRealtime *env)
 {
 	
 	do {
@@ -959,7 +939,7 @@ MM_RealtimeGC::doTracing(MM_EnvironmentRealtime *env)
 			_moreTracingRequired = false;
 			
 			/* From this point on the Scheduler collaborates with WorkPacketsRealtime on yielding.
-			 * Strictly speaking this should be done first thing in incrementalConsumeQueue().
+			 * Strictly speaking this should be done first thing in incrementalCompleteScan().
 			 * However, it would require another synchronizeGCThreadsAndReleaseMaster barrier.
 			 * So we are just reusing the existing one.
 			 */
@@ -968,7 +948,7 @@ MM_RealtimeGC::doTracing(MM_EnvironmentRealtime *env)
 			env->_currentTask->releaseSynchronizedGCThreads(env);
 		}
 		
-		if(_markingScheme->incrementalConsumeQueue(env, MAX_UINT)) {
+		if(_markingScheme->incrementalCompleteScan(env, MAX_UINT)) {
 			_moreTracingRequired = true;
 		}
 

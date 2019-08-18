@@ -34,6 +34,7 @@
 #include "codegen/CodeGenerator.hpp"
 #include "env/KnownObjectTable.hpp"
 #include "compile/AOTClassInfo.hpp"
+#include "compile/Method.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
@@ -201,7 +202,7 @@ TR_J9VMBase::offsetOfMethodIsBreakpointedBit()
    return J9_STARTPC_METHOD_BREAKPOINTED;
    }
 
-TR_Method *
+TR::Method *
 TR_J9VMBase::createMethod(TR_Memory * trMemory, TR_OpaqueClassBlock * clazz, int32_t refOffset)
    {
    return new (trMemory->trHeapMemory()) TR_J9Method(this, trMemory, TR::Compiler->cls.convertClassOffsetToClassPtr(clazz), refOffset);
@@ -1186,7 +1187,7 @@ TR_ResolvedJ9MethodBase::isCold(TR::Compilation * comp, bool isIndirectCall, TR:
 
    // For methods that are resolved but are still interpreted and have high counts
    // we can assume the method is cold
-   // We do this for direct calls and currenly not-overridden virtual calls
+   // We do this for direct calls and currently not-overridden virtual calls
    // For overridden virtual calls we may decide at some point to traverse all the
    // existing targets to see if they are all interpreted with high counts
    //
@@ -1228,7 +1229,7 @@ TR_ResolvedJ9MethodBase::isCold(TR::Compilation * comp, bool isIndirectCall, TR:
    if ((!comp->getOption(TR_DisableDFP)) &&
        (
 #ifdef TR_TARGET_S390
-       TR::Compiler->target.cpu.getS390SupportsDFP() ||
+       TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility() ||
 #endif
        TR::Compiler->target.cpu.supportsDecimalFloatingPoint()) && sym != NULL)
       {
@@ -1312,7 +1313,7 @@ TR_ResolvedJ9MethodBase::_genMethodILForPeeking(TR::ResolvedMethodSymbol *method
 
    c->setPeekingSymRefTab(newSymRefTab);
 
-   // Do this so that all intermedate calls to c->getSymRefTab()
+   // Do this so that all intermediate calls to c->getSymRefTab()
    // in codegen.dev go to the new symRefTab
    //
    c->setCurrentSymRefTab(newSymRefTab);
@@ -1322,7 +1323,7 @@ TR_ResolvedJ9MethodBase::_genMethodILForPeeking(TR::ResolvedMethodSymbol *method
    TR_ByteCodeInfo bci;
 
    //incInlineDepth is a part of a hack to make InvariantArgumentPreexistence
-   //play nicely if getCurrentInlinedCallArgInfo is provided while peeeking.
+   //play nicely if getCurrentInlinedCallArgInfo is provided while peeking.
    //If we don't provide either dummy (default is set to NULL) or real argInfo we will end up
    //using the wrong argInfo coming from a CALLER rather than the peeking method.
    c->getInlinedCallArgInfoStack().push(argInfo);
@@ -1435,7 +1436,7 @@ TR_ResolvedRelocatableJ9Method::fieldOrStaticNameChars(I_32 cpIndex, int32_t & l
    return ""; // TODO: Implement me
    }
 
-TR_Method *   TR_ResolvedRelocatableJ9Method::convertToMethod()              { return this; }
+TR::Method *   TR_ResolvedRelocatableJ9Method::convertToMethod()              { return this; }
 
 bool TR_ResolvedRelocatableJ9Method::isStatic()            { return methodModifiers() & J9AccStatic ? true : false; }
 bool TR_ResolvedRelocatableJ9Method::isNative()            { return methodModifiers() & J9AccNative ? true : false; }
@@ -1725,7 +1726,6 @@ bool storeValidationRecordIfNecessary(TR::Compilation * comp, J9ConstantPool *co
    J9UTF8 *className = J9ROMCLASS_CLASSNAME(definingClass->romClass);
    traceMsg(comp, "\tdefiningClass name %.*s\n", J9UTF8_LENGTH(className), J9UTF8_DATA(className));
 
-   J9ROMClass *romClass = NULL;
    void *classChain = NULL;
 
    // all kinds of validations may need to rely on the entire class chain, so make sure we can build one first
@@ -1748,7 +1748,7 @@ bool storeValidationRecordIfNecessary(TR::Compilation * comp, J9ConstantPool *co
          if ((*info)->_reloKind == reloKind)
             {
             if (isStatic)
-               inLocalList = (romClass == ((J9Class *)((*info)->_clazz))->romClass);
+               inLocalList = (definingClass->romClass == ((J9Class *)((*info)->_clazz))->romClass);
             else
                inLocalList = (classChain == (*info)->_classChain &&
                               cpIndex == (*info)->_cpIndex &&
@@ -2183,7 +2183,7 @@ TR_ResolvedRelocatableJ9Method::createResolvedMethodFromJ9Method(TR::Compilation
    if (comp->getOption(TR_DisableDFP) ||
        (!(TR::Compiler->target.cpu.supportsDecimalFloatingPoint()
 #ifdef TR_TARGET_S390
-       || TR::Compiler->target.cpu.getS390SupportsDFP()
+       || TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility()
 #endif
          ) ||
           !TR_J9MethodBase::isBigDecimalMethod(j9method)))
@@ -3935,10 +3935,12 @@ TR_ResolvedJ9Method::TR_ResolvedJ9Method(TR_OpaqueMethodBlock * aMethod, TR_Fron
 
    static X CollectHandleMethods[] =
       {
+      {x(TR::java_lang_invoke_CollectHandle_allocateArray,                 "allocateArray",               "(Ljava/lang/invoke/CollectHandle;)Ljava/lang/Object;")},
       {x(TR::java_lang_invoke_CollectHandle_numArgsToPassThrough,          "numArgsToPassThrough",        "()I")},
       {x(TR::java_lang_invoke_CollectHandle_numArgsToCollect,              "numArgsToCollect",            "()I")},
       {x(TR::java_lang_invoke_CollectHandle_collectionStart,     	       "collectionStart",             "()I")},
       {x(TR::java_lang_invoke_CollectHandle_numArgsAfterCollectArray,      "numArgsAfterCollectArray",    "()I")},
+      {  TR::java_lang_invoke_CollectHandle_invokeExact,          28,  "invokeExact_thunkArchetype_X",    (int16_t)-1, "*"},
       {  TR::unknownMethod}
       };
 
@@ -3979,6 +3981,12 @@ TR_ResolvedJ9Method::TR_ResolvedJ9Method(TR_OpaqueMethodBlock * aMethod, TR_Fron
    static X ArgumentMoverHandleMethods[] =
       {
       {x(TR::java_lang_invoke_ArgumentMoverHandle_permuteArgs,  "permuteArgs",   "(I)I")},
+      {  TR::unknownMethod}
+      };
+
+   static X BruteArgumentMoverHandleMethods[] =
+      {
+      {  TR::java_lang_invoke_BruteArgumentMoverHandle_permuteArgs,     11, "permuteArgs",   (int16_t)-1, "*"},
       {  TR::unknownMethod}
       };
 
@@ -4048,6 +4056,7 @@ TR_ResolvedJ9Method::TR_ResolvedJ9Method(TR_OpaqueMethodBlock * aMethod, TR_Fron
       {x(TR::java_lang_invoke_FilterArgumentsHandle_numSuffixArgs,         "numSuffixArgs",    "()I")},
       {x(TR::java_lang_invoke_FilterArgumentsHandle_numArgsToFilter,       "numArgsToFilter",  "()I")},
       {x(TR::java_lang_invoke_FilterArgumentsHandle_filterArguments,       "filterArguments",  "([Ljava/lang/invoke/MethodHandle;I)I")},
+      {  TR::java_lang_invoke_FilterArgumentsHandle_invokeExact,  28,  "invokeExact_thunkArchetype_X",    (int16_t)-1, "*"},
       {  TR::unknownMethod}
       };
 
@@ -4505,6 +4514,7 @@ TR_ResolvedJ9Method::TR_ResolvedJ9Method(TR_OpaqueMethodBlock * aMethod, TR_Fron
       { "org/apache/harmony/luni/platform/OSMemory", OSMemoryMethods },
       { "java/util/concurrent/atomic/AtomicBoolean", JavaUtilConcurrentAtomicBooleanMethods },
       { "java/util/concurrent/atomic/AtomicInteger", JavaUtilConcurrentAtomicIntegerMethods },
+      { "java/lang/invoke/BruteArgumentMoverHandle", BruteArgumentMoverHandleMethods },
       { 0 }
       };
 
@@ -4615,7 +4625,7 @@ TR_ResolvedJ9Method::TR_ResolvedJ9Method(TR_OpaqueMethodBlock * aMethod, TR_Fron
                   }
          }
 
-      if (TR_Method::getMandatoryRecognizedMethod() == TR::unknownMethod)
+      if (TR::Method::getMandatoryRecognizedMethod() == TR::unknownMethod)
          {
          // Cases where multiple method names all map to the same RecognizedMethod
          //
@@ -4715,6 +4725,30 @@ TR_ResolvedJ9Method::TR_ResolvedJ9Method(TR_OpaqueMethodBlock * aMethod, TR_Fron
          else if ((classNameLen >= 75 + 3 && classNameLen <= 75 + 7) && !strncmp(className, "java/lang/invoke/ByteArrayViewVarHandle$ByteArrayViewVarHandleOperations$Op", 75))
             {
             setRecognizedMethodInfo(TR::java_lang_invoke_ByteArrayViewVarHandle_ByteArrayViewVarHandleOperations_OpMethod);
+            }
+         else if (classNameLen == strlen(JSR292_StaticFieldGetterHandle)
+                  && !strncmp(className, JSR292_StaticFieldGetterHandle, classNameLen))
+            {
+            if (nameLen > 27 && !strncmp(name, "invokeExact_thunkArchetype_", 27))
+               setRecognizedMethodInfo(TR::java_lang_invoke_StaticFieldGetterHandle_invokeExact);
+            }
+         else if (classNameLen == strlen(JSR292_StaticFieldSetterHandle)
+                  && !strncmp(className, JSR292_StaticFieldSetterHandle, classNameLen))
+            {
+            if (nameLen > 27 && !strncmp(name, "invokeExact_thunkArchetype_", 27))
+               setRecognizedMethodInfo(TR::java_lang_invoke_StaticFieldSetterHandle_invokeExact);
+            }
+         else if (classNameLen == strlen(JSR292_FieldGetterHandle)
+                  && !strncmp(className, JSR292_FieldGetterHandle, classNameLen))
+            {
+            if (nameLen > 27 && !strncmp(name, "invokeExact_thunkArchetype_", 27))
+               setRecognizedMethodInfo(TR::java_lang_invoke_FieldGetterHandle_invokeExact);
+            }
+         else if (classNameLen == strlen(JSR292_FieldSetterHandle)
+                  && !strncmp(className, JSR292_FieldSetterHandle, classNameLen))
+            {
+            if (nameLen > 27 && !strncmp(name, "invokeExact_thunkArchetype_", 27))
+               setRecognizedMethodInfo(TR::java_lang_invoke_FieldSetterHandle_invokeExact);
             }
          }
       }
@@ -5023,7 +5057,7 @@ TR_ResolvedJ9Method::romClassPtr()
    return constantPoolHdr()->romClass;
    }
 
-TR_Method * TR_ResolvedJ9Method::convertToMethod()                { return this; }
+TR::Method * TR_ResolvedJ9Method::convertToMethod()                { return this; }
 uint32_t      TR_ResolvedJ9Method::numberOfParameters()           { return TR_J9Method::numberOfExplicitParameters() + (isStatic()? 0 : 1); }
 uint32_t      TR_ResolvedJ9Method::numberOfExplicitParameters()   { return TR_J9Method::numberOfExplicitParameters(); }
 TR::DataType     TR_ResolvedJ9Method::parmType(uint32_t n)           { return TR_J9Method::parmType(n); }
@@ -5371,7 +5405,7 @@ TR_ResolvedJ9Method::startAddressForJITInternalNativeMethod()
 int32_t
 TR_ResolvedJ9Method::virtualCallSelector(U_32 cpIndex)
    {
-   return -(int32_t)(vTableSlot(cpIndex) - J9JIT_INTERP_VTABLE_OFFSET);
+   return -(int32_t)(vTableSlot(cpIndex) - TR::Compiler->vm.getInterpreterVTableOffset());
    }
 
 bool
@@ -5676,6 +5710,23 @@ TR_J9MethodBase::isVolatileUnsafe(TR::RecognizedMethod rm)
       default:
          return false;
       }
+   return false;
+   }
+
+bool
+TR_J9MethodBase::isUnsafeGetPutBoolean(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::sun_misc_Unsafe_getBoolean_jlObjectJ_Z:
+      case TR::sun_misc_Unsafe_getBooleanVolatile_jlObjectJ_Z:
+      case TR::sun_misc_Unsafe_putBoolean_jlObjectJZ_V:
+      case TR::sun_misc_Unsafe_putBooleanVolatile_jlObjectJZ_V:
+         return true;
+      default:
+         break;
+      }
+
    return false;
    }
 
@@ -6026,8 +6077,8 @@ TR_ResolvedJ9Method::isConstantDynamic(I_32 cpIndex)
 // If first slot is non null, the CP entry is resolved to a non-null value.
 // Else if second slot is the class object of j/l/Void, the CP entry is resolved to null (0) value.
 // We retrieve the Void class object via javaVM->voidReflectClass->classObject,
-// which is protected by VMAccessCrtitical section to ensure vm access.
-// Other casese, the CP entry is considered unresolved.
+// which is protected by VMAccessCritical section to ensure vm access.
+// Other cases, the CP entry is considered unresolved.
 bool
 TR_ResolvedJ9Method::isUnresolvedConstantDynamic(I_32 cpIndex)
    {
@@ -6394,7 +6445,7 @@ TR_ResolvedJ9Method::getResolvedInterfaceMethodOffset(TR_OpaqueClassBlock * clas
       vTableOffset = jitGetInterfaceVTableOffsetFromCP(_fe->vmThread(), cp(), cpIndex, TR::Compiler->cls.convertClassOffsetToClassPtr(classObject));
       }
 
-   return (J9JIT_INTERP_VTABLE_OFFSET - vTableOffset);
+   return (TR::Compiler->vm.getInterpreterVTableOffset() - vTableOffset);
 #endif
    }
 
@@ -6499,7 +6550,7 @@ TR_ResolvedJ9Method::getResolvedStaticMethod(TR::Compilation * comp, I_32 cpInde
       // ILGen macros currently must be resolved for correctness, or else they
       // are not recognized and expanded.  If we have unresolved calls, we can't
       // tell whether they're ilgen macros because the recognized-method system
-      // only works on resovled methods.
+      // only works on resolved methods.
       //
       if (ramMethod)
          skipForDebugging = false;
@@ -6924,7 +6975,8 @@ TR_ResolvedJ9Method::fieldAttributes(TR::Compilation * comp, I_32 cpIndex, U_32 
    bool isColdOrReducedWarm = (comp->getMethodHotness() < warm) || (comp->getMethodHotness() == warm && comp->getOption(TR_NoOptServer));
 
    //Instance fields in MethodHandle thunks should be resolved at compile time
-   bool doRuntimeResolveForEarlyCompilation = isUnresolvedInCP && isColdOrReducedWarm && !comp->ilGenRequest().details().isMethodHandleThunk();
+   bool isMethodHandleThunk = comp->ilGenRequest().details().isMethodHandleThunk() || this->isArchetypeSpecimen();
+   bool doRuntimeResolveForEarlyCompilation = isUnresolvedInCP && isColdOrReducedWarm && !isMethodHandleThunk;
 
    IDATA offset;
    J9ROMFieldShape *fieldShape;
@@ -6950,7 +7002,7 @@ TR_ResolvedJ9Method::fieldAttributes(TR::Compilation * comp, I_32 cpIndex, U_32 
    if (offset >= 0 &&
        !dontResolveJITField &&
        (!(_fe->_jitConfig->runtimeFlags & J9JIT_RUNTIME_RESOLVE) || // TODO: Probably more useful not to mark JSR292-related fields as unresolved
-         comp->ilGenRequest().details().isMethodHandleThunk() || // cmvc 195373
+         isMethodHandleThunk || // cmvc 195373
         !performTransformation(comp, "Setting as unresolved field attributes cpIndex=%d\n",cpIndex)))
       {
       resolved = true;
@@ -6993,7 +7045,8 @@ TR_ResolvedJ9Method::staticAttributes(TR::Compilation * comp, I_32 cpIndex, void
        *unresolvedInCP = isUnresolvedInCP;
 
    bool isColdOrReducedWarm = (comp->getMethodHotness() < warm) || (comp->getMethodHotness() == warm && comp->getOption(TR_NoOptServer));
-   bool doRuntimeResolveForEarlyCompilation = isUnresolvedInCP && isColdOrReducedWarm;
+   bool isMethodHandleThunk = comp->ilGenRequest().details().isMethodHandleThunk() || this->isArchetypeSpecimen();
+   bool doRuntimeResolveForEarlyCompilation = isUnresolvedInCP && isColdOrReducedWarm && !isMethodHandleThunk;
 
    void *backingStorage;
    J9ROMFieldShape *fieldShape;
@@ -7019,7 +7072,7 @@ TR_ResolvedJ9Method::staticAttributes(TR::Compilation * comp, I_32 cpIndex, void
    if (backingStorage &&
        !dontResolveJITStaticField &&
        (!(_fe->_jitConfig->runtimeFlags & J9JIT_RUNTIME_RESOLVE) ||
-         comp->ilGenRequest().details().isMethodHandleThunk() || // cmvc 195373
+        isMethodHandleThunk || // cmvc 195373
         !performTransformation(comp, "Setting as unresolved static attributes cpIndex=%d\n",cpIndex)))
       {
       resolved = true;
@@ -7065,13 +7118,112 @@ TR_ResolvedJ9Method::fieldIsFromLocalClass(int32_t cpIndex)
    }
 
 
+void
+TR_ResolvedJ9Method::makeParameterList(TR::ResolvedMethodSymbol *methodSym)
+   {
+   if (methodSym->getTempIndex() != -1)
+      return;
+
+   const char *className    = classNameChars();
+   const int   classNameLen = classNameLength();
+   const char *sig          = signatureChars();
+   const int   sigLen       = signatureLength();
+   const char *sigEnd       = sig + sigLen;
+
+   ListAppender<TR::ParameterSymbol> la(&methodSym->getParameterList());
+   TR::ParameterSymbol *parmSymbol;
+   int32_t slot;
+   int32_t ordinal = 0;
+   if (methodSym->isStatic())
+      {
+      slot = 0;
+      }
+   else
+      {
+      TR::KnownObjectTable::Index knownObjectIndex = methodSym->getKnownObjectIndexForParm(0);
+      parmSymbol = methodSym->comp()->getSymRefTab()->createParameterSymbol(methodSym, 0, TR::Address, knownObjectIndex);
+      parmSymbol->setOrdinal(ordinal++);
+
+      int32_t len = classNameLen; // len is passed by reference and changes during the call
+      char * s = classNameToSignature(className, len, methodSym->comp(), heapAlloc);
+
+      la.add(parmSymbol);
+      parmSymbol->setTypeSignature(s, len);
+
+      slot = 1;
+      }
+
+   const char *s = sig;
+   TR_ASSERT(*s == '(', "Bad signature for method: <%s>", s);
+   ++s;
+
+   uint32_t parmSlots = numberOfParameterSlots();
+   for (int32_t parmIndex = 0; slot < parmSlots; ++parmIndex)
+      {
+      TR::DataType type = parmType(parmIndex);
+      int32_t size = methodSym->convertTypeToSize(type);
+      if (size < 4) type = TR::Int32;
+
+      const char *end = s;
+
+      // Walk past array dims, if any
+      while (*end == '[')
+         {
+         ++end;
+         }
+
+      // Walk to the end of the class name, if this is a class name
+      if (*end == 'L')
+         {
+         // Assume the form is L<classname>; where <classname> is
+         // at least 1 char and therefore skip the first 2 chars
+         end += 2;
+         end = (char *)memchr(end, ';', sigEnd - end);
+         TR_ASSERT(end != NULL, "Unexpected NULL, expecting to find a parm of the form L<classname>;");
+         }
+
+      // The static_cast<int>(...) is added as a work around for an XLC bug that results in the
+      // pointer subtraction below getting converted into a 32-bit signed integer subtraction
+      int len = static_cast<int>(end - s) + 1;
+
+      parmSymbol = methodSym->comp()->getSymRefTab()->createParameterSymbol(methodSym, slot, type);
+      parmSymbol->setOrdinal(ordinal++);
+      parmSymbol->setTypeSignature(s, len);
+
+      s += len;
+
+      la.add(parmSymbol);
+      if (type == TR::Int64 || type == TR::Double)
+         {
+         slot += 2;
+         }
+      else
+         {
+         ++slot;
+         }
+      }
+
+   int32_t lastInterpreterSlot = parmSlots + numberOfTemps();
+
+   if ((methodSym->isSynchronised() || methodSym->getResolvedMethod()->isNonEmptyObjectConstructor()) &&
+       methodSym->comp()->getOption(TR_MimicInterpreterFrameShape))
+      {
+      ++lastInterpreterSlot;
+      }
+
+   methodSym->setTempIndex(lastInterpreterSlot, methodSym->comp()->fe());
+
+   methodSym->setFirstJitTempIndex(methodSym->getTempIndex());
+   }
+
+
 TR_OpaqueMethodBlock *
 TR_J9VMBase::getResolvedVirtualMethod(TR_OpaqueClassBlock * classObject, I_32 virtualCallOffset, bool ignoreRtResolve)
    {
    // the classObject is the fixed type of the this pointer.  The result of this method is going to be
    // used to call the virtual function directly.
    //
-   // virtualCallOffset = -(vTableSlot(vmMethod, cpIndex) - J9JIT_INTERP_VTABLE_OFFSET);
+   // virtualCallOffset = -(vTableSlot(vmMethod, cpIndex) - TR::Compiler->vm.getInterpreterVTableOffset());
    //
    if (isInterfaceClass(classObject))
       return 0;
@@ -7329,6 +7481,31 @@ getMethodHandleThunkDetails(TR_J9ByteCodeIlGenerator *ilgen, TR::Compilation *co
    return NULL;
    }
 
+static TR::DataType typeFromSig(char sig)
+   {
+   switch (sig)
+      {
+      case 'L':
+      case '[':
+         return TR::Address;
+      case 'I':
+      case 'Z':
+      case 'B':
+      case 'S':
+      case 'C':
+         return TR::Int32;
+      case 'J':
+         return TR::Int64;
+      case 'F':
+         return TR::Float;
+      case 'D':
+         return TR::Double;
+      default:
+         break;
+      }
+   return TR::NoType;
+   }
+
 bool
 TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
    {
@@ -7343,9 +7520,53 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
    char *nextHandleSignature = NULL;
 
    TR_J9VMBase *fej9 = (TR_J9VMBase *)fe();
+   TR::RecognizedMethod rm = symRef->getSymbol()->castToMethodSymbol()->getMandatoryRecognizedMethod();
 
-   switch (symRef->getSymbol()->castToMethodSymbol()->getMandatoryRecognizedMethod())
+   switch (rm)
       {
+      case TR::java_lang_invoke_CollectHandle_allocateArray:
+         {
+         TR::Node* methodHandleNode = top();
+
+         if (methodHandleNode->getOpCode().hasSymbolReference() &&
+             methodHandleNode->getSymbolReference()->hasKnownObjectIndex() &&
+             methodHandleNode->isNonNull())
+            {
+            pop();
+            TR::KnownObjectTable *knot = comp()->getKnownObjectTable();
+            int32_t collectArraySize = -1;
+            int32_t collectPosition = -1;
+            TR_OpaqueClassBlock* componentClazz = NULL;
+
+               {
+               TR::VMAccessCriticalSection invokeCollectHandleAllocateArray(fej9);
+               uintptrj_t methodHandle = *knot->getPointerLocation(methodHandleNode->getSymbolReference()->getKnownObjectIndex());
+               collectArraySize = fej9->getInt32Field(methodHandle, "collectArraySize");
+               collectPosition = fej9->getInt32Field(methodHandle, "collectPosition");
+
+               uintptrj_t arguments = fej9->getReferenceField(fej9->getReferenceField(fej9->getReferenceField(
+                  methodHandle,
+                  "next",             "Ljava/lang/invoke/MethodHandle;"),
+                  "type",             "Ljava/lang/invoke/MethodType;"),
+                  "arguments",        "[Ljava/lang/Class;");
+               componentClazz = fej9->getComponentClassFromArrayClass(fej9->getClassFromJavaLangClass(fej9->getReferenceElement(arguments, collectPosition)));
+               }
+
+            loadConstant(TR::iconst, collectArraySize);
+            if (fej9->isPrimitiveClass(componentClazz))
+               {
+               TR_arrayTypeCode typeIndex = fej9->getPrimitiveArrayTypeCode(componentClazz);
+               genNewArray(typeIndex);
+               }
+            else
+               {
+               loadClassObject(componentClazz);
+               genANewArray();
+               }
+            return true;
+            }
+         return false;
+         }
       case TR::java_lang_invoke_CollectHandle_numArgsToPassThrough:
       case TR::java_lang_invoke_CollectHandle_numArgsToCollect:
       case TR::java_lang_invoke_CollectHandle_collectionStart:
@@ -7434,6 +7655,8 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
          //
          char *targetSig = methodDescriptor+1; // skip parenthesis
          int firstArgSlot = _methodSymbol->isStatic()? 0 : 1;
+         traceMsg(comp(), "sourceSig %s targetSig %.*s\n", sourceSig, methodDescriptorLength, methodDescriptor);
+
          for (
             int32_t argIndex = 0;
             sourceSig[0] != ')';
@@ -7498,30 +7721,43 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
             if (targetType[0] == 'L')
                {
                uintptrj_t methodHandle;
-               uintptrj_t arguments;
-               TR_OpaqueClassBlock *parmClass;
+               uintptrj_t sourceArguments;
+               TR_OpaqueClassBlock *sourceParmClass;
+               uintptrj_t targetArguments;
+               TR_OpaqueClassBlock *targetParmClass;
 
                   {
                   TR::VMAccessCriticalSection targetTypeL(fej9);
                   // We've already loaded the handle once, but must reload it because we released VM access in between.
                   methodHandle = *thunkDetails->getHandleRef();
-                  arguments = fej9->getReferenceField(fej9->getReferenceField(fej9->getReferenceField(
+                  targetArguments = fej9->getReferenceField(fej9->getReferenceField(fej9->getReferenceField(
                      methodHandle,
                      "next",             "Ljava/lang/invoke/MethodHandle;"),
                      "type",             "Ljava/lang/invoke/MethodType;"),
                      "arguments",        "[Ljava/lang/Class;");
-                  parmClass = (TR_OpaqueClassBlock*)(intptrj_t)fej9->getInt64Field(fej9->getReferenceElement(arguments, argIndex),
+                  targetParmClass = (TR_OpaqueClassBlock*)(intptrj_t)fej9->getInt64Field(fej9->getReferenceElement(targetArguments, argIndex),
+                                                                                   "vmRef" /* should use fej9->getOffsetOfClassFromJavaLangClassField() */);
+                  // Load callsite type and check if two types are compatible
+                  sourceArguments = fej9->getReferenceField(fej9->getReferenceField(
+                     methodHandle,
+                     "type",             "Ljava/lang/invoke/MethodType;"),
+                     "arguments",        "[Ljava/lang/Class;");
+                  sourceParmClass = (TR_OpaqueClassBlock*)(intptrj_t)fej9->getInt64Field(fej9->getReferenceElement(sourceArguments, argIndex),
                                                                                    "vmRef" /* should use fej9->getOffsetOfClassFromJavaLangClassField() */);
                   }
 
-               if (fej9->isInterfaceClass(parmClass) && isExplicit)
+               if (fej9->isInterfaceClass(targetParmClass) && isExplicit)
                   {
                   // explicitCastArguments specifies that we must not checkcast interfaces
+                  }
+               else if (sourceParmClass == targetParmClass || fej9->isInstanceOf(sourceParmClass, targetParmClass, false /*objectTypeIsFixed*/, true /*castTypeIsFixed*/) == TR_yes)
+                  {
+                  traceMsg(comp(), "source type and target type are compatible, omit checkcast for arg %d\n", argIndex);
                   }
                else
                   {
                   push(argValue);
-                  loadClassObject(parmClass);
+                  loadClassObject(targetParmClass);
                   genCheckCast();
                   pop();
                   }
@@ -7654,6 +7890,7 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
          }
          return true;
       case TR::java_lang_invoke_ArgumentMoverHandle_permuteArgs:
+      case TR::java_lang_invoke_BruteArgumentMoverHandle_permuteArgs:
          {
          J9::MethodHandleThunkDetails *thunkDetails = getMethodHandleThunkDetails(this, comp(), symRef);
          if (!thunkDetails)
@@ -7693,10 +7930,19 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
          TR::Node *originalArgs;
          char * oldSignature;
          char * newSignature;
+         TR::Node* extraArrayNode = NULL;
+         TR::Node* extraL[5];
+         if (rm == TR::java_lang_invoke_BruteArgumentMoverHandle_permuteArgs)
+            {
+            extraArrayNode = pop();
+            for (int i=4; i>=0; i--)
+                extraL[i] = pop();
+            }
 
             {
             TR::VMAccessCriticalSection invokePermuteHandlePermuteArgs(fej9);
             uintptrj_t methodHandle = *thunkDetails->getHandleRef();
+
             uintptrj_t permuteArray = fej9->getReferenceField(methodHandle, "permute", "[I");
 
             // Create temporary placeholder to cause argument expressions to be expanded
@@ -7730,6 +7976,7 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                   char *argType = nthSignatureArgument(i, nextHandleSignature+1);
                   char  extraName[10];
                   char *extraSignature;
+
                   switch (argType[0])
                      {
                      case 'L':
@@ -7742,12 +7989,33 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                         extraSignature = artificialSignature(stackAlloc, "(L" JSR292_ArgumentMoverHandle ";I).@", nextHandleSignature, i);
                         break;
                      }
+
                   if (comp()->getOption(TR_TraceILGen))
                      traceMsg(comp(), "  permuteArgs:   %d: call to %s.%s%s\n", argIndex, JSR292_ArgumentMoverHandle, extraName, extraSignature);
-                  TR::SymbolReference *extra = comp()->getSymRefTab()->methodSymRefFromName(_methodSymbol, JSR292_ArgumentMoverHandle, extraName, extraSignature, TR::MethodSymbol::Static);
-                  loadAuto(TR::Address, 0);
-                  loadConstant(TR::iconst, argIndex);
-                  genInvokeDirect(extra);
+
+                  // Get the argument type of next handle
+                  TR::DataType dataType = typeFromSig(argType[0]);
+
+                  if (dataType == TR::Address && extraArrayNode)
+                     {
+                     if (-1 - argIndex < 5)
+                        {
+                        push(extraL[-1-argIndex]);
+                        }
+                     else
+                        {
+                        push(extraArrayNode);
+                        loadConstant(TR::iconst, -1 - argIndex);
+                        loadArrayElement(TR::Address, comp()->il.opCodeForIndirectArrayLoad(TR::Address), false);
+                        }
+                     }
+                  else
+                     {
+                     TR::SymbolReference *extra = comp()->getSymRefTab()->methodSymRefFromName(_methodSymbol, JSR292_ArgumentMoverHandle, extraName, extraSignature, TR::MethodSymbol::Static);
+                     loadAuto(TR::Address, 0);
+                     loadConstant(TR::iconst, argIndex);
+                     genInvokeDirect(extra);
+                     }
                   }
                }
             if (comp()->getOption(TR_TraceILGen))
@@ -7867,8 +8135,8 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
                 }
             else if (isVirtual)
                {
-               TR_OpaqueMethodBlock **vtable = (TR_OpaqueMethodBlock**)(((uintptrj_t)fej9->getClassFromJavaLangClass(jlClass)) + J9JIT_INTERP_VTABLE_OFFSET);
-               int32_t index = (int32_t)((vmSlot - J9JIT_INTERP_VTABLE_OFFSET) / sizeof(vtable[0]));
+               TR_OpaqueMethodBlock **vtable = (TR_OpaqueMethodBlock**)(((uintptrj_t)fej9->getClassFromJavaLangClass(jlClass)) + TR::Compiler->vm.getInterpreterVTableOffset());
+               int32_t index = (int32_t)((vmSlot - TR::Compiler->vm.getInterpreterVTableOffset()) / sizeof(vtable[0]));
                j9method = vtable[index];
                }
             else
@@ -7917,7 +8185,7 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
 
          if (isVirtual)
             {
-            callNode->getSymbolReference()->setOffset(-(vmSlot - J9JIT_INTERP_VTABLE_OFFSET));
+            callNode->getSymbolReference()->setOffset(-(vmSlot - TR::Compiler->vm.getInterpreterVTableOffset()));
             genTreeTop(genNullCheck(callNode));
             }
          else

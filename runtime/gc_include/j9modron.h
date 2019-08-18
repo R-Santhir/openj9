@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -60,8 +59,9 @@ typedef enum {
 typedef enum {
 	j9gc_modron_readbar_illegal = gc_modron_readbar_illegal,
 	j9gc_modron_readbar_none = gc_modron_readbar_none,
-	j9gc_modron_readbar_range_check = gc_modron_readbar_range_check,
 	j9gc_modron_readbar_always = gc_modron_readbar_always,
+	j9gc_modron_readbar_range_check = gc_modron_readbar_range_check,
+	j9gc_modron_readbar_region_check = gc_modron_readbar_region_check,
 	j9gc_modron_readbar_count = gc_modron_readbar_count
 } J9ReadBarrierType;
 
@@ -95,6 +95,9 @@ typedef enum {
 	j9gc_modron_configuration_discontiguousArraylets,  /* a UDATA (TRUE or FALSE) representing whether or not discontiguousArraylets are enabled */
 	j9gc_modron_configuration_gcThreadCount,  /* a UDATA representing the MAX number of GC threads being used */
 	j9gc_modron_configuration_objectAlignment, /* a UDATA representing the alignment of the object in heap */
+	j9gc_modron_configuration_compressObjectReferences, /* a UDATA (TRUE or FALSE) representing whether or not object references are compressed */
+	j9gc_modron_configuration_heapRegionShift, /* a UDATA representing the shift amount to convert an object pointer to the address of the region */
+	j9gc_modron_configuration_heapRegionStateTable, /* a pointer to the base of the region state table */
 	/* Add new values before this comment */
 	j9gc_modron_configuration_count /* Total number of known configuration keys */
 } J9GCConfigurationKey;

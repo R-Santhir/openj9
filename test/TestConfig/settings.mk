@@ -87,12 +87,6 @@ else
 export TEST_JDK_HOME := $(subst \,/,$(TEST_JDK_HOME))
 endif
 
-ifeq ($(JDK_VERSION), 8)
-export JAVA_BIN := $(TEST_JDK_HOME)/jre/bin
-else
-export JAVA_BIN := $(TEST_JDK_HOME)/bin
-endif
-
 OLD_JAVA_HOME := $(JAVA_HOME)
 export JAVA_HOME := $(TEST_JDK_HOME)
 
@@ -188,7 +182,7 @@ ifneq ($(DEBUG),)
 $(info DEFAULT_EXCLUDE is set to $(DEFAULT_EXCLUDE))
 endif
 
-JAVA_COMMAND:=$(Q)$(JAVA_BIN)$(D)java$(Q)
+JAVA_COMMAND:=$(Q)$(TEST_JDK_HOME)$(D)bin$(D)java$(Q)
 
 #######################################
 # common dir and jars
@@ -212,10 +206,11 @@ ifndef UNIQUEID
 endif
 TESTOUTPUT := $(TEST_ROOT)$(D)TestConfig$(D)test_output_$(UNIQUEID)
 ifeq ($(TEST_ITERATIONS), 1)
-	REPORTDIR = $(Q)$(TESTOUTPUT)$(D)$@$(Q)
+	REPORTDIR_NQ = $(TESTOUTPUT)$(D)$@
 else
-	REPORTDIR = $(Q)$(TESTOUTPUT)$(D)$@_ITER_$$itercnt$(Q)
+	REPORTDIR_NQ = $(TESTOUTPUT)$(D)$@_ITER_$$itercnt
 endif
+REPORTDIR = $(Q)$(REPORTDIR_NQ)$(Q)
 
 #######################################
 # TEST_STATUS
@@ -304,7 +299,6 @@ setup_%: testEnvSetup
 		$(ECHO) JAVA_HOME was originally set to $(OLD_JAVA_HOME); \
 	fi
 	@$(ECHO) set JAVA_HOME to $(JAVA_HOME)
-	@$(ECHO) set JAVA_BIN to $(JAVA_BIN)
 	@$(ECHO) set SPEC to $(SPEC)
 	@$(MKTREE) $(Q)$(TESTOUTPUT)$(Q)
 	@$(ECHO) Running $(TESTTARGET) ...
@@ -348,4 +342,3 @@ rmResultFile:
 
 resultsSummary:
 	@perl $(Q)$(TEST_ROOT)$(D)TestConfig$(D)scripts$(D)testKitGen$(D)resultsSummary$(D)resultsSum.pl$(Q) --failuremk=$(Q)$(FAILEDTARGETS)$(Q) --resultFile=$(Q)$(TEMPRESULTFILE)$(Q) --tapFile=$(Q)$(TAPRESULTFILE)$(Q) --diagnostic=$(DIAGNOSTICLEVEL)
-

@@ -107,7 +107,7 @@ public:
 	/**
 	 * If current buffer is full or bucket is empty,
 	 * add a card to a new buffer.
-	 * Handle various misc scenarios when unable to alocate new buffer
+	 * Handle various misc scenarios when unable to allocate new buffer
 	 * or list is already overflowed.
 	 * @param card  card to be remembered
 	 */
@@ -133,7 +133,7 @@ public:
 
 	/**
 	 * Set a list as being overflowed.
-	 * This releases all the buffers from the curent bucket (but not from other buckets of the list).
+	 * This releases all the buffers from the current bucket (but not from other buckets of the list).
 	 * The list may be anyone (the owner of the current bucket or any other).
 	 * @param listToOverflow RSCL to overflow
 	 */
@@ -146,7 +146,7 @@ public:
 	void compact(MM_EnvironmentVLHGC *env);
 
 	/**
-	 * Is bucket Empty (it is sufficent to check if the current buffer is empty)
+	 * Is bucket Empty (it is sufficient to check if the current buffer is empty)
 	 * return true if empty
 	 */
 	bool isEmpty(MM_EnvironmentVLHGC *env) {

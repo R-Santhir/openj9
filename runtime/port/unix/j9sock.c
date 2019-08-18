@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -492,7 +492,7 @@ platformSocketOption(int32_t portableSocketOption)
  * entity, as known to the communications layer. The exact format of the addr parameter 
  * is determined by the address family established when the socket was created. 
  * @param[in] sockHandle A pointer to a j9socket_t  which will point to the newly created 
- * socket once accept returns succesfully
+ * socket once accept returns successfully
  *
  * @return 
  * \arg 0 on success
@@ -1068,7 +1068,7 @@ j9sock_getaddrinfo_family(struct J9PortLibrary *portLibrary, j9addrinfo_t handle
 	OSADDRINFO *addr;
     	int i;
 
-	/* If we have the IPv6 functions then we'll cast to a OSADDRINFO othewise we have a hostent */
+	/* If we have the IPv6 functions then we'll cast to a OSADDRINFO otherwise we have a hostent */
 #ifdef IPv6_FUNCTION_SUPPORT
 	addr = (OSADDRINFO *) handle->addr_info;
 	for( i=0; i<index; i++ ) {
@@ -1451,7 +1451,7 @@ j9sock_gethostname(struct J9PortLibrary *portLibrary, char *buffer, int32_t leng
  * @param[in] sockaddr_size The size of "in_addr"
  * @param[out] name The hostname of the passed address in a preallocated buffer.
  * @param[in] name_length The length of the buffer pointed to by name
- * @param[in] flags Flags on how to form the repsonse (see man pages or doc for getnameinfo)
+ * @param[in] flags Flags on how to form the response (see man pages or doc for getnameinfo)
  *
  * @return	0, if no errors occurred, otherwise the (negative) error code
  *
@@ -2131,7 +2131,7 @@ j9sock_ipmreq_init(struct J9PortLibrary *portLibrary, j9ipmreq_t handle, uint32_
  * @param[in] portLibrary The port library.
  * @param[out] handle A pointer to the j9ipv6_mreq_struct to populate.
  * @param[in] ipmcast_addr The ip mulitcast address.
- * @param[in] ipv6mr_interface The ip mulitcast inteface.
+ * @param[in] ipv6mr_interface The ip mulitcast interface.
  *
  * @return	0, if no errors occurred, otherwise the (negative) error code.
  *
@@ -2376,7 +2376,7 @@ j9sock_readfrom(struct J9PortLibrary *portLibrary, j9socket_t sock, uint8_t *buf
  *            by @ref j9sock_fdset_size().
  * @param[in] readfd The j9fdset_t representing the descriptor to be checked to see if data can be read without blocking.
  * @param[in] writefd The j9fdset_t representing the descriptor to be checked to see if data can be written without blocking.
- * @param[in] exceptfd_notSupported Not supported, must either by NULL or empty
+ * @param[in] exceptfd_notSupported Not supported, must either by NULL or empty. Must be NULL on AIX or z/OS.
  * @param[in] timeout Pointer to the timeout (a j9timeval struct).
  *
  * @return	Number of socket descriptors that are ready, otherwise return the (negative) error code.
@@ -2408,16 +2408,14 @@ j9sock_select(struct J9PortLibrary *portLibrary, int32_t nfds, j9fdset_t readfd,
 		rc = J9PORT_ERROR_SOCKET_ARGSINVALID;
 	} else {
 
-		if (NULL != exceptfd_notSupported) {
+		if ((NULL != exceptfd_notSupported)
 #if defined(LINUX) || defined(OSX)
-			if (-1 != exceptfd_notSupported->fd) {
-#else
-			if (NULL != &exceptfd_notSupported->handle) {
+			&& (-1 != exceptfd_notSupported->fd)
 #endif
-				rc = omrerror_set_last_error_with_message(J9PORT_ERROR_SOCKET_ARGSINVALID, "exceptfd_notSupported cannot contain a valid fd");
-				Trc_PRT_sock_j9sock_select_Exit(rc);
-				return rc;
-			}
+		) {
+			rc = omrerror_set_last_error_with_message(J9PORT_ERROR_SOCKET_ARGSINVALID, "exceptfd_notSupported cannot contain a valid fd");
+			Trc_PRT_sock_j9sock_select_Exit(rc);
+			return rc;
 		}
 
 #if defined(LINUX) || defined(OSX)
@@ -2485,7 +2483,7 @@ j9sock_select(struct J9PortLibrary *portLibrary, int32_t nfds, j9fdset_t readfd,
 		 * In the case of poll fails with EINTR, continue trying to poll since EINTR happens randomly for no reason.
 		 */
 		do {
-			/* Make sure revents is initilized to 0 before poll call. revents might not be initilized to 0 if this is not the first try of calling poll */
+			/* Make sure revents is initialized to 0 before poll call. revents might not be initialized to 0 if this is not the first try of calling poll */
 			pfds[0].revents = 0;
 			pfds[1].revents = 0;
 			pollrc = poll(pfds, numEntriesInPfd, timeoutms);
@@ -2596,8 +2594,12 @@ j9sock_set_nonblocking(struct J9PortLibrary *portLibrary, j9socket_t socketP, BO
 	uint32_t param = nonblocking;
 
 	Trc_PRT_sock_j9sock_setnonblocking_Entry(socketP, nonblocking);
-	/* set the socket to non blocking or block as requested */	
+	/* set the socket to non blocking or block as requested */
+#if defined(AIXPPC)
+	rc = ioctl (SOCKET_CAST(socketP), (int)FIONBIO, &param);
+#else /* defined(AIXPPC) */
 	rc = ioctl (SOCKET_CAST(socketP), FIONBIO, &param);
+#endif /* defined(AIXPPC) */
 	
 	if (rc < 0)	{
 		rc = errno;
@@ -2786,7 +2788,7 @@ j9sock_setopt_int(struct J9PortLibrary *portLibrary, j9socket_t socketP, int32_t
 	/* for LINUX in order to enable support sending the ipv6_flowinfo field we have to set the SEND_FLOWINFO option on the socket
 		In java one value is set that is used for both the traffic class in the flowinfo field and the IP_TOS option.  Therefore  if the caller is setting traffic class
 		then this indicates that we should also be setting the flowinfo field so we need to 
-		set this option.  Howerver it can only be set on IPv6 sockets */
+		set this option.  However it can only be set on IPv6 sockets */
 #if defined(IPv6_FUNCTION_SUPPORT)
 #if defined(LINUX) || defined(OSX)
 	if(( OS_IPPROTO_IP == platformLevel)&&(OS_IP_TOS==platformOption)&&(socketP->family == J9ADDR_FAMILY_AFINET6 )){
@@ -3484,7 +3486,7 @@ j9sock_sockaddr_port(struct J9PortLibrary *portLibrary, j9sockaddr_t handle)
  * @param[in] portLibrary The port library.
  * @param[out]	handle Pointer pointer to the j9socket struct, to be allocated
  * @param[in] family The address family (currently, only J9SOCK_AFINET is supported)
- * @param[in] socktype Secifies what type of socket is created
+ * @param[in] socktype Specifies what type of socket is created
  * \arg J9SOCK_STREAM, for a stream socket
  * \arg J9SOCK_DGRAM, for a datagram socket
  * @param[in] protocol Type/family specific creation parameter (currently, only J9SOCK_DEFPROTOCOL supported).
@@ -3937,7 +3939,7 @@ disconnectSocket(struct J9PortLibrary *portLibrary, j9socket_t sock, socklen_t f
   	Trc_PRT_sock_disconnectSocket_Entry(sock, fromlen);
 
 	/* must use AF_INET with an INADDR_ANY to disconnect a socket on AIX, and can not use port 0 */
-	j9sock_sockaddr_init6(portLibrary, &sockaddrP, INADDR_ANY, fromlen, J9ADDR_FAMILY_AFINET4, 1, 0, 0, sock);
+	j9sock_sockaddr_init6(portLibrary, &sockaddrP, (uint8_t *)INADDR_ANY, fromlen, J9ADDR_FAMILY_AFINET4, 1, 0, 0, sock);
 
 	rc = connectSocket(portLibrary, sock, &sockaddrP, fromlen);
 

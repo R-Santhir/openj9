@@ -339,7 +339,7 @@ j9shsem_deprecated_test4(J9PortLibrary *portLibrary, char* argv0)
 		case 0: /*Semaphore is opened*/
 			break;
 
-		case 1: /*sempahore is created*/
+		case 1: /*Semaphore is created*/
 			if(created) {
 				outputErrorMessage(PORTTEST_ERROR_ARGS, "more then 1 child created the semaphore.\n");
 			} else {
@@ -347,7 +347,7 @@ j9shsem_deprecated_test4(J9PortLibrary *portLibrary, char* argv0)
 			}
 			break;
 
-		default: /*semaphore open call failed*/
+		default: /*Semaphore open call failed*/
 			outputErrorMessage(PORTTEST_ERROR_ARGS, "child reported error. rc=%d\n",returnCode);
 			break;
 		}	
@@ -626,7 +626,7 @@ cleanup:
 #if defined(LINUX) || defined(J9ZOS390) || defined(AIXPPC) || defined(OSX)
 /*Note:
  * This is more than one test. The first test that fails blocks the rest of the test. The test should not fail :-) 
- * This test is meant to excercise the race conditions that can occur when mutliple vm's create sysv obj
+ * This test is meant to exercise the race conditions that can occur when multiple vm's create sysv obj
  * at the same time.
  */
 int
@@ -685,7 +685,7 @@ j9shsem_deprecated_test7(J9PortLibrary *portLibrary, char* argv0)
 	 	j9file_unlink(mybaseFilePath);
 	}
 
-	/*This test starts multuple process we use a semaphore to synchronize the launch*/
+	/*This test starts multiple process we use a semaphore to synchronize the launch*/
 	launchSemaphore = openLaunchSemaphore(PORTLIB, LAUNCH_CONTROL_SEMAPHORE, J9SHSEM_TEST4_CHILDCOUNT);
 	if(-1 == launchSemaphore) {
 		outputErrorMessage(PORTTEST_ERROR_ARGS, "Cannot open launch semaphore");
@@ -885,10 +885,10 @@ j9shsem_deprecated_test7(J9PortLibrary *portLibrary, char* argv0)
 			case J9PORT_INFO_SHSEM_OPENED: /*Semaphore is opened*/	
 				numOpensReturned +=1;
 				break;
-			case  J9PORT_INFO_SHSEM_CREATED: /*sempahore is created*/
+			case  J9PORT_INFO_SHSEM_CREATED: /*Semaphore is created*/
 				numCreatesReturned +=1;
 				break;
-			default: /*semaphore open call failed*/
+			default: /*Semaphore open call failed*/
 				numErrorsReturned+=1;
 				break;
 			}	

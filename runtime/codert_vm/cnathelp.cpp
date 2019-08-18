@@ -249,7 +249,7 @@ J9_EXTERN_BUILDER_SYMBOL(icallVMprJavaSendStatic1);
 
 #elif defined(J9VM_ARCH_AARCH64)
 
-#define JIT_STACK_OVERFLOW_SIZE_REGISTER gpr.numbered[18] // TODO: determine which register to use
+#define JIT_STACK_OVERFLOW_SIZE_REGISTER gpr.numbered[9]
 #define JIT_UDATA_RETURN_VALUE_REGISTER gpr.numbered[0]
 #define JIT_RETURN_ADDRESS_REGISTER gpr.numbered[30]
 #define JIT_J2I_METHOD_REGISTER gpr.numbered[0]
@@ -1455,7 +1455,7 @@ old_slow_jitResolveFieldImpl(J9VMThread *currentThread, UDATA parmCount, J9Const
 	if (NULL != addr) {
 		goto done;
 	}
-	valueOffset += J9_OBJECT_HEADER_SIZE;
+	valueOffset += J9VMTHREAD_OBJECT_HEADER_SIZE(currentThread);
 	JIT_RETURN_UDATA(valueOffset);
 done:
 	return addr;
@@ -1981,7 +1981,7 @@ old_slow_jitRetranslateMethod(J9VMThread *currentThread)
 		 *
 		 *	- the caller is jitted
 		 *	- caller invokes a non-compiled method
-		 *	- interprerer submits target for compilation
+		 *	- interpreter submits target for compilation
 		 *	- during compilation, a decomp is added for the caller
 		 *	- target is successfully compiled
 		 *	- decomp record is updated such that the savedPCAddres points to where the jitted method would save the RA
@@ -2063,7 +2063,7 @@ impl_jitReferenceArrayCopy(J9VMThread *currentThread, UDATA lengthInBytes)
 		(J9IndexableObject*)currentThread->floatTemp2,
 		(fj9object_t*)currentThread->floatTemp3,
 		(fj9object_t*)currentThread->floatTemp4,
-		(I_32)(lengthInBytes / (J9VMTHREAD_COMPRESS_OBJECT_REFERENCES(currentThread) ? sizeof(U_32) : sizeof(UDATA)))
+		(I_32)(lengthInBytes / J9VMTHREAD_REFERENCE_SIZE(currentThread))
 	)) {
 		exception = (void*)-1;
 	}
@@ -3118,6 +3118,12 @@ old_slow_jitReportStaticFieldWrite(J9VMThread *currentThread)
 	if (J9_EVENT_IS_HOOKED(vm->hookInterface, J9HOOK_VM_PUT_STATIC_FIELD)) {
 		J9Class *fieldClass = dataBlock->fieldClass;
 		if (J9_ARE_ANY_BITS_SET(fieldClass->classFlags, J9ClassHasWatchedFields)) {
+			/* Read the data now, as the incoming pointer is potentially into the
+			 * java stack, which would be invalidated by the class initialization below.
+			 * Ensure the read does not get reordered below by the compiler.
+			 */
+			U_64 value = *(U_64 volatile *)valuePointer;
+			VM_AtomicSupport::compilerReorderingBarrier();
 			void* oldPC = buildJITResolveFrameForRuntimeHelper(currentThread, parmCount);
 			/* Ensure that this call blocks before reporting the event if another thread
 			 * is initializing the class.
@@ -3131,7 +3137,7 @@ old_slow_jitReportStaticFieldWrite(J9VMThread *currentThread)
 					goto restore;
 				}
 			}
-			ALWAYS_TRIGGER_J9HOOK_VM_PUT_STATIC_FIELD(vm->hookInterface, currentThread, dataBlock->method, dataBlock->location, fieldClass, dataBlock->fieldAddress, *(U_64*)valuePointer);
+			ALWAYS_TRIGGER_J9HOOK_VM_PUT_STATIC_FIELD(vm->hookInterface, currentThread, dataBlock->method, dataBlock->location, fieldClass, dataBlock->fieldAddress, value);
 restore:
 			addr = restoreJITResolveFrame(currentThread, oldPC, true, false);
 		}

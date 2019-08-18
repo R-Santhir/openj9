@@ -21,14 +21,13 @@
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
 package java.lang;
+
 import java.lang.StackWalker.StackFrameImpl;
 /*[IF Java10]*/
 import java.lang.invoke.MethodType;
 /*[ENDIF]*/
 import java.lang.module.ModuleDescriptor;
 import java.lang.module.ModuleDescriptor.Version;
-import java.lang.IllegalCallerException;
-import java.lang.Module;
 import java.security.Permission;
 import java.util.Collections;
 import java.util.HashSet;
@@ -199,6 +198,7 @@ public final class StackWalker {
 	 * Traverse the calling thread's stack at the time this method is called and
 	 * apply {@code function} to each stack frame.
 	 * 
+	 * @param <T> the type of the return value from applying function to the stream 
 	 * @param function operation to apply to the stream
 	 * @param walkState Pointer to a J9StackWalkState struct
 	 * @return the value returned by {@code function}.
@@ -217,6 +217,7 @@ public final class StackWalker {
 	 * Traverse the calling thread's stack at the time this method is called and
 	 * apply {@code function} to each stack frame.
 	 * 
+	 * @param <T> the type of the return value from applying function to the stream 
 	 * @param function operation to apply to the stream
 	 * @return the value returned by {@code function}.
 	 */

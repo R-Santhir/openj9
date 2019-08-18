@@ -31,6 +31,7 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     compiler/optimizer/IdiomRecognition.cpp \
     compiler/optimizer/IdiomRecognitionUtils.cpp \
     compiler/optimizer/IdiomTransformations.cpp \
+    compiler/optimizer/J9CFGSimplifier.cpp \
     compiler/optimizer/J9LocalCSE.cpp \
     compiler/optimizer/J9OptimizationManager.cpp \
     compiler/optimizer/J9Optimizer.cpp \
@@ -56,6 +57,7 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     compiler/optimizer/SignExtendLoads.cpp \
     compiler/optimizer/SPMDParallelizer.cpp \
     compiler/optimizer/SPMDPreCheck.cpp \
+    compiler/optimizer/StaticFinalFieldFolding.cpp \
     compiler/optimizer/StringBuilderTransformer.cpp \
     compiler/optimizer/StringPeepholes.cpp \
     compiler/optimizer/UnsafeFastPath.cpp \
@@ -92,11 +94,12 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     omr/compiler/codegen/Relocation.cpp \
     omr/compiler/codegen/ScratchRegisterManager.cpp \
     omr/compiler/codegen/StorageInfo.cpp \
-    omr/compiler/compile/Method.cpp \
     omr/compiler/compile/OMRAliasBuilder.cpp \
     omr/compiler/compile/OMRCompilation.cpp \
+    omr/compiler/compile/OMRMethod.cpp \
     omr/compiler/compile/OMRSymbolReferenceTable.cpp \
     omr/compiler/compile/OSRData.cpp \
+    omr/compiler/compile/ResolvedMethod.cpp \
     omr/compiler/compile/TLSCompilationManager.cpp \
     omr/compiler/compile/VirtualGuard.cpp \
     omr/compiler/control/OMROptions.cpp \
@@ -157,7 +160,7 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     omr/compiler/optimizer/BackwardUnionBitVectorAnalysis.cpp \
     omr/compiler/optimizer/BitVectorAnalysis.cpp \
     omr/compiler/optimizer/CatchBlockRemover.cpp \
-    omr/compiler/optimizer/CFGSimplifier.cpp \
+    omr/compiler/optimizer/OMRCFGSimplifier.cpp \
     omr/compiler/optimizer/CompactLocals.cpp \
     omr/compiler/optimizer/CopyPropagation.cpp \
     omr/compiler/optimizer/DataFlowAnalysis.cpp \
@@ -244,7 +247,6 @@ JIT_PRODUCT_BACKEND_SOURCES+=\
     omr/compiler/ras/LimitFile.cpp \
     omr/compiler/ras/LogTracer.cpp \
     omr/compiler/ras/OptionsDebug.cpp \
-    omr/compiler/ras/PPCOpNames.cpp \
     omr/compiler/ras/Tree.cpp
 
 JIT_PRODUCT_SOURCE_FILES+=\
@@ -258,9 +260,12 @@ JIT_PRODUCT_SOURCE_FILES+=\
     compiler/codegen/J9Instruction.cpp \
     compiler/codegen/J9Snippet.cpp \
     compiler/codegen/J9TreeEvaluator.cpp \
+    compiler/codegen/J9WatchedInstanceFieldSnippet.cpp \
+    compiler/codegen/J9WatchedStaticFieldSnippet.cpp \
     compiler/codegen/MonitorState.cpp \
     compiler/compile/J9AliasBuilder.cpp \
     compiler/compile/J9Compilation.cpp \
+    compiler/compile/J9Method.cpp \
     compiler/compile/J9SymbolReferenceTable.cpp \
     compiler/control/CompilationController.cpp \
     compiler/control/CompilationThread.cpp \
@@ -309,6 +314,7 @@ JIT_PRODUCT_SOURCE_FILES+=\
     compiler/il/J9Node.cpp \
     compiler/il/J9SymbolReference.cpp \
     compiler/il/symbol/J9MethodSymbol.cpp \
+    compiler/il/symbol/J9ResolvedMethodSymbol.cpp \
     compiler/il/symbol/J9StaticSymbol.cpp \
     compiler/il/symbol/J9Symbol.cpp \
     compiler/ilgen/ClassLookahead.cpp \
@@ -373,8 +379,21 @@ JIT_PRODUCT_SOURCE_FILES+=\
     omr/compiler/runtime/OMRCodeCacheMemorySegment.cpp \
     omr/compiler/runtime/OMRRuntimeAssumptions.cpp
 
+ifneq ($(JITSERVER_SUPPORT),)
+JIT_PRODUCT_SOURCE_FILES+=\
+    compiler/net/ClientStream.cpp \
+    compiler/net/CommunicationStream.cpp \
+    compiler/net/ProtobufTypeConvert.cpp \
+    compiler/net/ServerStream.cpp \
+    compiler/runtime/CompileService.cpp \
+    compiler/runtime/Listener.cpp
+endif
+
 -include $(JIT_MAKE_DIR)/files/extra.mk
 include $(JIT_MAKE_DIR)/files/host/$(HOST_ARCH).mk
 include $(JIT_MAKE_DIR)/files/target/$(TARGET_ARCH).mk
 -include $(JIT_MAKE_DIR)/files/host/$(HOST_ARCH)-extra.mk
 -include $(JIT_MAKE_DIR)/files/target/$(TARGET_ARCH)-extra.mk
+ifneq ($(JITSERVER_SUPPORT),)
+include $(JIT_MAKE_DIR)/files/net.mk
+endif

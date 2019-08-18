@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 1991, 2014 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -28,9 +28,8 @@
 #include "omrthread.h"
 #include "util_internal.h"
 #include "ut_j9vmutil.h"
-#ifdef J9VM_THR_LOCK_NURSERY
-#include "lockNurseryUtil.h"
-#endif
+#include "j9protos.h"
+#include "j9consts.h"
 #include "monhelp.h"
 
 
@@ -62,15 +61,11 @@ getObjectMonitorOwner(J9JavaVM *vm, J9VMThread *vmThread, j9object_t object, UDA
 	UDATA count = 0;
 	J9VMThread *owner = NULL;
 	j9objectmonitor_t lock;
-#ifdef J9VM_THR_LOCK_NURSERY
-	J9ObjectMonitor *objectMonitor;
-#endif
 
 	Trc_VMUtil_getObjectMonitorOwner_Entry(vm, object, pcount);
 
-#ifdef J9VM_THR_LOCK_NURSERY
 	if (!LN_HAS_LOCKWORD(vmThread,object)) {
-		objectMonitor = monitorTablePeek(vm, vmThread, object);
+		J9ObjectMonitor *objectMonitor = monitorTablePeek(vm, vmThread, object);
 		if (objectMonitor != NULL){
 			lock = objectMonitor->alternateLockword;
 		} else {
@@ -79,9 +74,6 @@ getObjectMonitorOwner(J9JavaVM *vm, J9VMThread *vmThread, j9object_t object, UDA
 	} else {
 		lock = J9OBJECT_MONITOR(vmThread, object);
 	}
-#else
-	lock = J9OBJECT_MONITOR(vmThread, object);
-#endif
 
 	if (J9_LOCK_IS_INFLATED(lock)) {
 		J9ThreadAbstractMonitor *monitor = getInflatedObjectMonitor(vm, vmThread, object, lock);

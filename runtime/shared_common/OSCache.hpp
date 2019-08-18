@@ -61,7 +61,7 @@
 #define OSCACHE_LOWEST_ACTIVE_GEN 1
 
 /* Always increment this value by 2. For testing we use the (current generation - 1) and expect the cache contents to be compatible. */
-#define OSCACHE_CURRENT_CACHE_GEN 37
+#define OSCACHE_CURRENT_CACHE_GEN 39
 
 #define J9SH_VERSION(versionMajor, versionMinor) (versionMajor*100 + versionMinor)
 
@@ -109,7 +109,7 @@ typedef struct SH_OSCache_Info {
         UDATA isCompatible; /** Is the cache compatible with this VM */
         UDATA isCorrupt; /** Is set when the cache is found to be corrupt */
         UDATA isJavaCorePopulated; /** Is set when the javacoreData contains valid data */
-        J9SharedClassJavacoreDataDescriptor javacoreData; /** If isCompatible is true, then extra information about the cache is availaible in here*/
+        J9SharedClassJavacoreDataDescriptor javacoreData; /** If isCompatible is true, then extra information about the cache is available in here*/
 } SH_OSCache_Info;
 
 /* DO NOT use UDATA/IDATA in the cache headers so that 32-bit/64-bit JVMs can read each others headers

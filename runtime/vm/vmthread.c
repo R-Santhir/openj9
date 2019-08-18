@@ -117,15 +117,11 @@ allocateVMThread(J9JavaVM * vm, omrthread_t osThread, UDATA privateFlags, void *
 		/* Create the vmThread */
 		void *startOfMemoryBlock = NULL;
 		UDATA vmThreadAllocationSize = J9VMTHREAD_ALIGNMENT + ROUND_TO(sizeof(UDATA), vm->vmThreadSize);
-#if defined(OMR_GC_COMPRESSED_POINTERS)
 		if (J9JAVAVM_COMPRESS_OBJECT_REFERENCES(vm)) {
 			startOfMemoryBlock = (void *)j9mem_allocate_memory32(vmThreadAllocationSize, OMRMEM_CATEGORY_THREADS);
-		} else
-#else
-		{
+		} else {
 			startOfMemoryBlock = (void *)j9mem_allocate_memory(vmThreadAllocationSize, OMRMEM_CATEGORY_THREADS);
 		}
-#endif
 		if (NULL == startOfMemoryBlock) {
 			goto fail;
 		}
@@ -181,6 +177,10 @@ allocateVMThread(J9JavaVM * vm, omrthread_t osThread, UDATA privateFlags, void *
 		newThread->segregatedAllocationCache = (J9VMGCSegregatedAllocationCacheEntry *)(((UDATA)newThread) + J9_VMTHREAD_SEGREGATED_ALLOCATION_CACHE_OFFSET);
 	}
 
+#if defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS)
+	newThread->compressObjectReferences = J9JAVAVM_COMPRESS_OBJECT_REFERENCES(vm);
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS) */
+
 #ifdef J9VM_OPT_JAVA_OFFLOAD_SUPPORT
 	newThread->invokedCalldisp = FALSE;
 #endif
@@ -219,6 +219,7 @@ allocateVMThread(J9JavaVM * vm, omrthread_t osThread, UDATA privateFlags, void *
 	newThread->readBarrierRangeCheckBase = UDATA_MAX;
 	newThread->readBarrierRangeCheckTop = 0;
 #ifdef OMR_GC_COMPRESSED_POINTERS
+	/* No need for a runtime check here - it would just waste cycles */
 	newThread->readBarrierRangeCheckBaseCompressed = U_32_MAX;
 	newThread->readBarrierRangeCheckTopCompressed = 0;
 #endif /* OMR_GC_COMPRESSED_POINTERS */
@@ -408,7 +409,7 @@ void threadCleanup(J9VMThread * vmThread, UDATA forkedByVM)
 	omrthread_monitor_exit(vmThread->publicFlagsMutex);
 #endif
 
-	/* Increment zombie thread counter - indicates threads which have notified java of their death, but have not deallocated their vmThread and exitted their thread proc */
+	/* Increment zombie thread counter - indicates threads which have notified java of their death, but have not deallocated their vmThread and exited their thread proc */
 
 	omrthread_monitor_enter(vm->vmThreadListMutex);
 	++(vm->zombieThreadCount);
@@ -1388,11 +1389,11 @@ allocateJavaStack(J9JavaVM * vm, UDATA stackSize, J9JavaStack * previousStack)
 	 */
 
 	mallocSize = J9_STACK_OVERFLOW_AND_HEADER_SIZE + (stackSize + sizeof(UDATA)) + vm->thrStaggerMax;
-#if defined (OMR_GC_COMPRESSED_POINTERS)
-	stack = (J9JavaStack*)j9mem_allocate_memory32(mallocSize, OMRMEM_CATEGORY_THREADS_RUNTIME_STACK);
-#else
-	stack = (J9JavaStack*)j9mem_allocate_memory(mallocSize, OMRMEM_CATEGORY_THREADS_RUNTIME_STACK);
-#endif
+	if (J9JAVAVM_COMPRESS_OBJECT_REFERENCES(vm)) {
+		stack = (J9JavaStack*)j9mem_allocate_memory32(mallocSize, OMRMEM_CATEGORY_THREADS_RUNTIME_STACK);
+	} else {
+		stack = (J9JavaStack*)j9mem_allocate_memory(mallocSize, OMRMEM_CATEGORY_THREADS_RUNTIME_STACK);
+	}
 	if (stack != NULL) {
 		/* for hyperthreading platforms, make sure that stacks are relatively misaligned */
 		UDATA end = ((UDATA) stack) + J9_STACK_OVERFLOW_AND_HEADER_SIZE + stackSize;
@@ -1441,11 +1442,11 @@ freeJavaStack(J9JavaVM * vm, J9JavaStack * stack)
 {
 	PORT_ACCESS_FROM_JAVAVM(vm);
 
-#if defined (OMR_GC_COMPRESSED_POINTERS)
-	j9mem_free_memory32(stack);			
-#else
-	j9mem_free_memory(stack);
-#endif
+	if (J9JAVAVM_COMPRESS_OBJECT_REFERENCES(vm)) {
+		j9mem_free_memory32(stack);			
+	} else {
+		j9mem_free_memory(stack);
+	}
 }
 
 
@@ -1753,7 +1754,7 @@ createCachedOutOfMemoryError(J9VMThread * currentThread, j9object_t threadObject
 		currentThread, jlOutOfMemoryError, J9_GC_ALLOCATE_OBJECT_NON_INSTRUMENTABLE);
 	if (outOfMemoryError != NULL) {
 		J9Class * arrayClass;
-		J9IndexableObject *walkback;
+		j9object_t walkback;
 
 #ifdef J9VM_ENV_DATA64
 		arrayClass = vm->longArrayClass;
@@ -1761,7 +1762,7 @@ createCachedOutOfMemoryError(J9VMThread * currentThread, j9object_t threadObject
 		arrayClass = vm->intArrayClass;
 #endif
 		PUSH_OBJECT_IN_SPECIAL_FRAME(currentThread, outOfMemoryError);
-		walkback = (J9IndexableObject *)gcFuncs->J9AllocateIndexableObject(
+		walkback = gcFuncs->J9AllocateIndexableObject(
 			currentThread, arrayClass, 32, J9_GC_ALLOCATE_OBJECT_NON_INSTRUMENTABLE);
 		outOfMemoryError = POP_OBJECT_IN_SPECIAL_FRAME(currentThread);
 		if (walkback == NULL) {
@@ -2313,7 +2314,7 @@ findObjectDeadlockedThreads(J9VMThread *currentThread,
 
 	/* Finally, ready to output the list of deadlocked threads */
 	if (pDeadlockedThreads) {
-		deadlockedThreads = (j9object_t *)j9mem_allocate_memory(deadCount * sizeof(j9object_t), OMRMEM_CATEGORY_VM);
+		deadlockedThreads = (j9object_t *)j9mem_allocate_memory(deadCount * sizeof(UDATA), OMRMEM_CATEGORY_VM);
 		if (NULL == deadlockedThreads) {
 			j9mem_free_memory(thrChain);
 			return -1;
@@ -2321,7 +2322,7 @@ findObjectDeadlockedThreads(J9VMThread *currentThread,
 	}
 
 	if (pBlockingObjects) {
-		blockingObjects = (j9object_t *)j9mem_allocate_memory(deadCount * sizeof(j9object_t), OMRMEM_CATEGORY_VM);
+		blockingObjects = (j9object_t *)j9mem_allocate_memory(deadCount * sizeof(UDATA), OMRMEM_CATEGORY_VM);
 		if (NULL == blockingObjects) {
 			j9mem_free_memory(deadlockedThreads);
 			j9mem_free_memory(thrChain);

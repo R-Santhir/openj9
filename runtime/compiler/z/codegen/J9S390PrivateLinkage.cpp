@@ -47,7 +47,8 @@
 #include "z/codegen/S390HelperCallSnippet.hpp"
 #include "z/codegen/S390J9CallSnippet.hpp"
 #include "z/codegen/S390StackCheckFailureSnippet.hpp"
-#include "z/codegen/TRSystemLinkage.hpp"
+#include "z/codegen/SystemLinkage.hpp"
+#include "z/codegen/SystemLinkagezOS.hpp"
 #include "runtime/J9Profiler.hpp"
 #include "runtime/J9ValueProfiler.hpp"
 
@@ -97,7 +98,7 @@ TR::S390PrivateLinkage::S390PrivateLinkage(TR::CodeGenerator * codeGen,TR_S390Li
    setLongDoubleReturnRegister4  (TR::RealRegister::FPR4 );
    setLongDoubleReturnRegister6  (TR::RealRegister::FPR6 );
 
-   if(codeGen->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z13) && TR::Compiler->target.cpu.getS390SupportsVectorFacility() &&
+   if(TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z13) && TR::Compiler->target.cpu.getSupportsVectorFacility() &&
      !comp()->getOption(TR_DisableSIMD))
        {
        codeGen->setSupportsVectorRegisters();
@@ -823,7 +824,6 @@ TR::S390PrivateLinkage::mapStack(TR::ResolvedMethodSymbol * method)
 void
 TR::S390PrivateLinkage::mapSingleAutomatic(TR::AutomaticSymbol * p, uint32_t & stackIndex)
    {
-   // *this    swipeable for debugging purposeso
 
    mapSingleAutomatic(p, p->getRoundedSize(), stackIndex);
    }
@@ -851,7 +851,7 @@ TR::S390PrivateLinkage::hasToBeOnStack(TR::ParameterSymbol * parm)
    //      2. the address of the parameter is taken (JNI calls)
    //             (You can't get an address of the parameter if it is stored in a register -
    //              hence, parameter needs to be saved it onto the stack).
-   bool result = (  parm->getAllocatedIndex() >= 0 &&                        // is using global RA
+   bool result = (  parm->getAssignedGlobalRegisterIndex() >= 0 &&   // is using global RA
             (  (  parm->getLinkageRegisterIndex() == 0 &&            // is first parameter (this pointer)
                   parm->isCollectedReference() &&                    // is object reference
                   !bodySymbol->isStatic() &&                         // is virtual
@@ -1001,7 +1001,7 @@ TR::S390PrivateLinkage::setupLiteralPoolRegister(TR::Snippet *firstSnippet)
    if (!cg()->isLiteralPoolOnDemandOn() && firstSnippet != NULL)
       {
       // The immediate operand will be patched when the actual address of the literal pool is known
-      if (!cg()->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10) || cg()->anyLitPoolSnippets())
+      if (!TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10) || cg()->anyLitPoolSnippets())
          {
          return getLitPoolRealRegister()->getRegisterNumber();
          }
@@ -1330,7 +1330,7 @@ TR::S390PrivateLinkage::createPrologue(TR::Instruction * cursor)
    // Save or move arguments according to the result of register assignment.
    cursor = (TR::Instruction *) saveArguments(cursor, false);
 
-   if (cg()->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10))
+   if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10))
       {
       static const bool prefetchStack = feGetEnv("TR_PrefetchStack") != NULL;
 
@@ -1885,7 +1885,7 @@ TR::S390PrivateLinkage::buildVirtualDispatch(TR::Node * callNode, TR::RegisterDe
           * 2. for all virtual calls, resolved or not, this load immediate is used by the VM to find where
           * the method is in the VFT table when doing J2I transitions. We need this negative offset in a register
           * because S390 load address instruction used to find VFT table entires can't handle negative offsets.
-          * (VFT table preceeds the J9Class in memory; as a result of this, all VFT entries are some negative offsets
+          * (VFT table precedes the J9Class in memory; as a result of this, all VFT entries are some negative offsets
           * away from the J9Class)
           *
           *
@@ -2016,7 +2016,7 @@ TR::S390PrivateLinkage::buildVirtualDispatch(TR::Node * callNode, TR::RegisterDe
 
       if (numInterfaceCallCacheSlots == 0 )
          {
-         //Disabled interface call cahcing
+         //Disabled interface call caching
          TR::LabelSymbol * hitLabel = generateLabelSymbol(cg());
          TR::LabelSymbol * snippetLabel = generateLabelSymbol(cg());
 
@@ -2120,7 +2120,7 @@ TR::S390PrivateLinkage::buildVirtualDispatch(TR::Node * callNode, TR::RegisterDe
                                    TR::Compiler->om.generateCompressedObjectHeaders() // Classes are <2GB on CompressedRefs only.
                                    );
 
-            // Load the interface call data snippet pointer to register is requied for non-CLFI / BRCL sequence.
+            // Load the interface call data snippet pointer to register is required for non-CLFI / BRCL sequence.
             if (!useCLFIandBRCL)
                {
                cursor = new (trHeapMemory()) TR::S390RILInstruction(TR::InstOpCode::LARL, callNode, snippetReg, ifcSnippet->getDataConstantSnippet(), cg());
@@ -2604,7 +2604,7 @@ void TR::J9S390JNILinkage::acquireVMAccessMask(TR::Node * callNode, TR::Register
    //  As java stack is not yet restored , Make sure that no instruction in this function
    // should use stack.
    // If instruction uses literal pool, it must only be to do load, and such instruction's memory reference should be marked MemRefMustNotSpill
-   // so that in case of long disp, we will resue the target reg as a scratch reg
+   // so that in case of long disp, we will reuse the target reg as a scratch reg
 
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(self()->fe());
    intptrj_t aValue = fej9->constAcquireVMAccessOutOfLineMask();
@@ -2673,7 +2673,7 @@ TR::J9S390JNILinkage::releaseVMAccessMaskAtomicFree(TR::Node * callNode,
    TR::CodeGenerator* cg = self()->cg();
    TR::Compilation* comp = self()->comp();
 
-   if (cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10))
+   if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10))
       {
       // Store a 1 into vmthread->inNative
       generateSILInstruction(cg, TR::InstOpCode::getMoveHalfWordImmOpCode(), callNode,
@@ -2804,7 +2804,7 @@ TR::J9S390JNILinkage::processJNIReturnValue(TR::Node * callNode,
       }
    else if ((returnType == TR::Int8) && comp()->getSymRefTab()->isReturnTypeBool(callNode->getSymbolReference()))
       {
-      if (cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z13))
+      if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z13))
          {
          generateRIInstruction(cg, TR::InstOpCode::getCmpHalfWordImmOpCode(), callNode, javaReturnRegister, 0);
          generateRIEInstruction(cg, TR::Compiler->target.is64Bit() ? TR::InstOpCode::LOCGHI : TR::InstOpCode::LOCHI,
@@ -2971,7 +2971,7 @@ TR::Register * TR::J9S390JNILinkage::buildDirectDispatch(TR::Node * callNode)
      auto* literalOffsetMemoryReference = new (trHeapMemory()) TR::MemoryReference(methodMetaDataVirtualRegister, (int32_t)fej9->thisThreadGetJavaLiteralsOffset(), codeGen);
 
      // Set up literal offset slot to zero
-     if (codeGen->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10))
+     if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10))
         {
         generateSILInstruction(codeGen, TR::InstOpCode::getMoveHalfWordImmOpCode(), callNode, literalOffsetMemoryReference, 0);
         }
@@ -3151,7 +3151,7 @@ TR::S390PrivateLinkage::storeExtraEnvRegForBuildArgs(TR::Node * callNode, TR::Li
         TR::Register *stackRegister = linkage->getStackRegisterForOutgoingArguments(callNode, dependencies);  // delay (possibly) creating this till needed
         storeArgumentOnStack(callNode, TR::InstOpCode::getStoreOpCode(), jniEnvRegister, &stackOffset, stackRegister);
         }
-     if (linkage->isXPLinkLinkageType()) // call specifc
+     if (linkage->isXPLinkLinkageType()) // call specific
         {
         stackOffset += gprSize;
         }
@@ -3170,7 +3170,7 @@ TR::S390PrivateLinkage::addFECustomizedReturnRegDependency(int64_t killMask, TR:
    TR::Register * javaResultReg;
 
    //In zOS XPLink, return register(GPR3) is not same as privateLinkage (GPR2)
-   // hense we need to add another dependency
+   // hence we need to add another dependency
    if (linkage->getIntegerReturnRegister() != getIntegerReturnRegister())
       {
       javaResultReg =  (resType.isAddress())? cg()->allocateCollectedReferenceRegister() : cg()->allocateRegister();
@@ -3355,7 +3355,7 @@ TR::S390PrivateLinkage::buildIndirectDispatch(TR::Node * callNode)
 ////////////////////////////////////////////////////////////////////////////////
 // TR::S390PrivateLinkage::mapIncomingParms - maps parameters onto the stack for the given method.
 //   This function iterates over the parameters, mapping them onto the stack, either right
-//   to left, or left to right, depending on S390Linakge properties.
+//   to left, or left to right, depending on S390Linkage properties.
 //   This code was removed from TR::S390PrivateLinkage::mapStack as it is common code that
 //   is now called by TR::S390PrivateLinkage::mapCompactedStack as well.
 ////////////////////////////////////////////////////////////////////////////////

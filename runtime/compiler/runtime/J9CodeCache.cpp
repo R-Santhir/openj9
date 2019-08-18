@@ -353,7 +353,7 @@ J9::CodeCache::addFreeBlock(OMR::FaintCacheBlock *block)
    // Tiered Code Cache
    if (metaData->startColdPC)
       {
-      // startPC of the cold code is preceeded by OMR::CodeCacheMethodHeader
+      // startPC of the cold code is preceded by OMR::CodeCacheMethodHeader
       OMR::CodeCacheMethodHeader *coldBlock = (OMR::CodeCacheMethodHeader*)(metaData->startColdPC-sizeof(OMR::CodeCacheMethodHeader));
       if (self()->addFreeBlock2((uint8_t *)coldBlock, (uint8_t *)coldBlock+coldBlock->_size))
          {}
@@ -434,7 +434,7 @@ J9::CodeCache::addFreeBlock(void  *voidMetaData)
 
    if (metaData->startColdPC)
       {
-      // startPC of the cold code is preceeded by OMR::CodeCacheMethodHeader
+      // startPC of the cold code is preceded by OMR::CodeCacheMethodHeader
       OMR::CodeCacheMethodHeader *coldBlock = (OMR::CodeCacheMethodHeader*)((UDATA)metaData->startColdPC-sizeof(OMR::CodeCacheMethodHeader));
       if (self()->addFreeBlock2((uint8_t *)coldBlock, (uint8_t *)coldBlock+coldBlock->_size))
          {}
@@ -667,20 +667,20 @@ J9::CodeCache::reserveUnresolvedTrampoline(void *cp, int32_t cpIndex)
 void
 J9::CodeCache::setInitialAllocationPointers()
    {
-   _warmCodeAllocBase = _warmCodeAlloc;
-   _coldCodeAllocBase = _coldCodeAlloc;
+   _warmCodeAllocBase = self()->getWarmCodeAlloc();
+   _coldCodeAllocBase = self()->getColdCodeAlloc();
    }
 
 void
 J9::CodeCache::resetAllocationPointers()
    {
    // Compute how much memory we give back to update the free space in the repository
-   size_t warmSize = _warmCodeAlloc - _warmCodeAllocBase;
-   size_t coldSize = _coldCodeAllocBase - _coldCodeAlloc;
+   size_t warmSize = self()->getWarmCodeAlloc() - _warmCodeAllocBase;
+   size_t coldSize = _coldCodeAllocBase - self()->getColdCodeAlloc();
    size_t freedSpace = warmSize + coldSize;
    _manager->increaseFreeSpaceInCodeCacheRepository(freedSpace);
-   _warmCodeAlloc = _warmCodeAllocBase;
-   _coldCodeAlloc = _coldCodeAllocBase;
+   self()->setWarmCodeAlloc(_warmCodeAllocBase);
+   self()->setColdCodeAlloc(_coldCodeAllocBase);
    }
 
 void

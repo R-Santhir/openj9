@@ -500,13 +500,13 @@ parseLocals (J9BytecodeVerificationData * verifyData, U_8** stackMapData, J9Bran
 		for (;localDelta; localDelta--) {
 			stackEntry = parseElement (verifyData, stackMapData);
 			if (localsCount >= maxLocals) {
-				/* Oveflow */
+				/* Overflow */
 				goto _overflow;
 			}
 			liveStack->stackElements[localsCount++] = stackEntry;
 			if ((BCV_BASE_TYPE_DOUBLE == stackEntry) || (BCV_BASE_TYPE_LONG == stackEntry)) {
 				if (localsCount >= maxLocals) {
-					/* Oveflow */
+					/* Overflow */
 					goto _overflow;
 				}
 				liveStack->stackElements[localsCount++] = BCV_BASE_TYPE_TOP;
@@ -1351,7 +1351,7 @@ simulateStack (J9BytecodeVerificationData * verifyData)
 	maxStack = J9_MAX_STACK_FROM_ROM_METHOD(romMethod);
 
 	/* Jazz 105041: Initialize the 1st data slot on 'stack' with 'top' (placeholdler)
-	 * to avoid storing gargbage data type in the error message buffer
+	 * to avoid storing garbage data type in the error message buffer
 	 * when stack underflow occurs.
 	 */
 	liveStack->stackElements[liveStack->stackBaseIndex] = BCV_BASE_TYPE_TOP;
@@ -1689,7 +1689,7 @@ simulateStack (J9BytecodeVerificationData * verifyData)
 
 		case RTV_SEND:
 			if (bc == JBinvokeinterface2) {
-				/* Set to point to JBinvokenterface */
+				/* Set to point to JBinvokeinterface */
 				bcIndex += 2;
 			}
 			index = PARAM_16(bcIndex, 1);

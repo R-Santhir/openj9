@@ -22,7 +22,7 @@
 # First copy your public ssh key into a file named authorized_keys next to the Dockerfile
 # Then include a known_hosts file next to the Dockerfile, with github as a saved host
 # This can be done with "ssh-keyscan github.com >> path_to_dockerfile/known_hosts"
-# Make sure you are in the directory contianing the Dockerfile, authorized_keys file, and known_hosts file
+# Make sure you are in the directory containing the Dockerfile, authorized_keys file, and known_hosts file
 # Then run:
 #   docker build -t openj9 -f Dockerfile .
 #   docker run -it openj9
@@ -239,16 +239,36 @@ RUN cd /usr/src \
   && cd .. \
   && rm -rf /usr/src/curl-7.29.0
 
+# Install Python3 v3.7.3
+RUN yum -y update \
+  && yum -y install \
+    zlib-devel \
+    libffi-devel \
+  && yum clean all \
+  && cd /tmp \
+  && wget https://www.python.org/ftp/python/3.7.3/Python-3.7.3.tar.xz \
+  && tar -xJf Python-3.7.3.tar.xz \
+  && rm -f Python-3.7.3.tar.xz \
+  && cd /tmp/Python-3.7.3 \
+  && ./configure --prefix=/usr/local \
+  && make \
+  && make install \
+  && cd .. \
+  && rm -rf Python-3.7.3
+
 # Setup a reference repository cache for faster clones in the container
 RUN mkdir /home/${USER}/openjdk_cache \
   && cd /home/${USER}/openjdk_cache \
   && git init --bare \
+  && git remote add jdk13 https://github.com/ibmruntimes/openj9-openjdk-jdk13.git \
   && git remote add jdk8 https://github.com/ibmruntimes/openj9-openjdk-jdk8.git \
   && git remote add jdk11 https://github.com/ibmruntimes/openj9-openjdk-jdk11.git \
+  && git remote add jdk12 https://github.com/ibmruntimes/openj9-openjdk-jdk12.git \
   && git remote add jdk https://github.com/ibmruntimes/openj9-openjdk-jdk.git \
   && git remote add openj9 https://github.com/eclipse/openj9.git \
   && git remote add omr https://github.com/eclipse/openj9-omr.git \
-  && git fetch --all
+  && git fetch --all \
+  && git gc --aggressive --prune=all
 
 # set up sshd config
 RUN mkdir /var/run/sshd \
@@ -259,8 +279,13 @@ RUN mkdir /var/run/sshd \
 # SSH login fix. Otherwise user is kicked off after login
 RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
 
+# Expose SSH port and run SSHD
+EXPOSE 22
+
 # Generate ssh host keys
 RUN /usr/bin/ssh-keygen -A
 
-# Expose SSH port and run SSHD
-EXPOSE 22
+# Adding bash profile so ${USER} max user processes will be unlimited
+RUN echo >> /home/${USER}/.bashrc \
+  && echo "# Change max user processes in ${USER}" >> /home/${USER}/.bashrc \
+  && echo "ulimit -u unlimited" >> /home/${USER}/.bashrc

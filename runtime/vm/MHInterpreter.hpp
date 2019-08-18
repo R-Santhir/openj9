@@ -649,7 +649,7 @@ protected:
 
 public:
 	/**
-	 * Run the MethodHandle using the intepreter dispatch target implementation.
+	 * Run the MethodHandle using the interpreter dispatch target implementation.
 	 *
 	 * @param methodHandle[in] the j.l.i.MethodHandle to run
 	 * @return the next action for the interpreter
@@ -661,7 +661,7 @@ public:
 	 * FilterReturn:
 	 * 		[ ... MH bytecodeframe returnSlot0 returnslot1] --> [ ... MH returnSlot0 returnslot1]
 	 * ConstructorHandle:
-	 * 		[ ... newUnitializedObject bytecodeframe] --> [ ... newInitializedObject]
+	 * 		[ ... newUninitializedObject bytecodeframe] --> [ ... newInitializedObject]
 	 * FoldHandle:
 	 * 		Refer to the implementation in MHInterpreter.cpp
 	 * GuardWithTestHandle:

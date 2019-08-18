@@ -27,15 +27,14 @@ if (!binding.hasVariable('VENDOR_REPO_DEFAULT')) VENDOR_REPO_DEFAULT = ''
 if (!binding.hasVariable('VENDOR_BRANCH_DEFAULT')) VENDOR_BRANCH_DEFAULT = ''
 if (!binding.hasVariable('VENDOR_CREDENTIALS_ID_DEFAULT')) VENDOR_CREDENTIALS_ID_DEFAULT = ''
 if (!binding.hasVariable('DISCARDER_NUM_BUILDS')) DISCARDER_NUM_BUILDS = '1'
-if (!binding.hasVariable('GIT_URI')) GIT_URI = 'https://github.com/eclipse/openj9.git'
-if (!binding.hasVariable('SOURCE_BRANCH')) SOURCE_BRANCH = 'refs/heads/master'
-if (!binding.hasVariable('GIT_REFSPEC')) GIT_REFSPEC = ''
-if (!binding.hasVariable('LIGHTWEIGHT_CHECKOUT')) LIGHTWEIGHT_CHECKOUT = true
+if (!binding.hasVariable('SCM_URL')) SCM_URL = 'https://github.com/eclipse/openj9.git'
+if (!binding.hasVariable('SCM_BRANCH')) SCM_BRANCH = 'refs/heads/master'
+if (!binding.hasVariable('SCM_REFSPEC')) SCM_REFSPEC = 'refs/heads/*:refs/remotes/origin/*'
 
 if (jobType == 'build') {
-    pipelineScript = 'buildenv/jenkins/jobs/builds/Build-Test-Any-Platform'
+    pipelineScript = 'buildenv/jenkins/jobs/pipelines/Build-Any-Platform.groovy'
 } else if (jobType == 'pipeline') {
-    pipelineScript = 'buildenv/jenkins/jobs/pipelines/Pipeline-Build-Test-Any-Platform'
+    pipelineScript = 'buildenv/jenkins/jobs/pipelines/Pipeline-Build-Test-Any-Platform.groovy'
 } else {
     error "Unknown build type:'${jobType}'"
 }
@@ -47,17 +46,19 @@ pipelineJob("$JOB_NAME") {
             scm {
                 git {
                     remote {
-                        url(GIT_URI)
-                        refspec(GIT_REFSPEC)
+                        url(SCM_URL)
+                        refspec('$SCM_REFSPEC')
                     }
-                    branch("${SOURCE_BRANCH}")
+                    branch('$SCM_BRANCH')
                     extensions {
-                        cleanBeforeCheckout()
+                        cloneOptions {
+                            reference('$HOME/openjdk_cache')
+                        }
+                        wipeOutWorkspace()
                     }
                 }
             }
             scriptPath(pipelineScript)
-            lightweight(LIGHTWEIGHT_CHECKOUT)
         }
     }
     logRotator {
@@ -94,6 +95,8 @@ pipelineJob("$JOB_NAME") {
         stringParam('OPENJDK_CLONE_DIR')
         stringParam('PERSONAL_BUILD')
         stringParam('CUSTOM_DESCRIPTION')
+        stringParam('SCM_BRANCH', SCM_BRANCH)
+        stringParam('SCM_REFSPEC', SCM_REFSPEC)
 
         if (jobType == 'pipeline'){
             stringParam('TESTS_TARGETS')
@@ -102,7 +105,6 @@ pipelineJob("$JOB_NAME") {
             stringParam('SLACK_CHANNEL')
             stringParam('RESTART_TIMEOUT')
             stringParam('RESTART_TIMEOUT_UNITS')
-            stringParam('BUILD_LIST')
             choiceParam('AUTOMATIC_GENERATION', ['true', 'false'])
         } else if (jobType == 'build'){
             stringParam('NODE')

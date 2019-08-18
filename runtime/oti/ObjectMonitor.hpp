@@ -24,9 +24,6 @@
 #define OBJECTMONITOR_HPP_
 
 #include "j9.h"
-#ifdef J9VM_THR_LOCK_NURSERY
-#include "lockNurseryUtil.h"
-#endif
 #include "j9modron.h"
 #include "j9consts.h"
 #include "vm_api.h"
@@ -71,15 +68,12 @@ public:
 	inlineGetLockAddress(J9VMThread *currentThread, j9object_t object)
 	{
 		j9objectmonitor_t *lockEA = NULL;
-#ifdef J9VM_THR_LOCK_NURSERY
 		if (!LN_HAS_LOCKWORD(currentThread, object)) {
 			J9ObjectMonitor *objectMonitor = J9_VM_FUNCTION(currentThread, monitorTableAt)(currentThread, object);
 			if (NULL != objectMonitor) {
 				lockEA = &(objectMonitor->alternateLockword);
 			}
-		} else
-#endif
-		{
+		} else {
 			lockEA = J9OBJECT_MONITOR_EA(currentThread, object);
 		}
 		return lockEA;
@@ -106,7 +100,6 @@ public:
 		j9objectmonitor_t lock = (j9objectmonitor_t)NULL;
 		J9ObjectMonitor *objectMonitor = NULL;
 
-#ifdef J9VM_THR_LOCK_NURSERY
 		if (!LN_HAS_LOCKWORD(currentThread, object)) {
 			objectMonitor = monitorTableAt(currentThread, object);
 			if (objectMonitor == NULL) {
@@ -116,9 +109,7 @@ public:
 			}
 			lock = objectMonitor->alternateLockword;
 		}
-		else
-#endif
-		{
+		else {
 			lock = J9OBJECT_MONITOR(currentThread, object);
 		}
 
@@ -264,10 +255,7 @@ done:
 	inlineFastObjectMonitorEnter(J9VMThread *currentThread, j9object_t object)
 	{
 		bool locked = false;
-#if defined(J9VM_THR_LOCK_NURSERY)
-		if (LN_HAS_LOCKWORD(currentThread, object))
-#endif /* J9VM_THR_LOCK_NURSERY */
-		{
+		if (LN_HAS_LOCKWORD(currentThread, object)) {
 			locked = inlineFastInitAndEnterMonitor(currentThread, J9OBJECT_MONITOR_EA(currentThread, object));
 		}
 		return locked;
@@ -285,10 +273,7 @@ done:
 	inlineFastObjectMonitorExit(J9VMThread *currentThread, j9object_t object)
 	{
 		bool unlocked = false;
-#if defined(J9VM_THR_LOCK_NURSERY)
-		if (LN_HAS_LOCKWORD(currentThread, object))
-#endif /* J9VM_THR_LOCK_NURSERY */
-		{
+		if (LN_HAS_LOCKWORD(currentThread, object)) {
 			j9objectmonitor_t *lockEA = J9OBJECT_MONITOR_EA(currentThread, object);
 
 			if ((j9objectmonitor_t)(UDATA)currentThread == *lockEA) {
@@ -392,7 +377,7 @@ done:
 	 *
 	 * @param currentThread[in] the current J9VMThread
 	 * @param object[in] the object whose monitor was just entered
-	 * @param arg0EA[in] the curent arg0EA
+	 * @param arg0EA[in] the current arg0EA
 	 *
 	 * @returns	true on success, false if out of memory
 	 */
@@ -426,7 +411,7 @@ done:
 	 * record for the object is found, nothing happens.
 	 *
 	 * @param currentThread[in] the current J9VMThread
-	 * @param object[in] the object whose monitor was just exitted
+	 * @param object[in] the object whose monitor was just exited
 	 * @param recordList[in/out] pointer to the head of the monitor enter record list to update
 	 */
 	static VMINLINE void
@@ -459,7 +444,7 @@ done:
 	 * record for the object is found, nothing happens.
 	 *
 	 * @param currentThread[in] the current J9VMThread
-	 * @param object[in] the object whose monitor was just exitted
+	 * @param object[in] the object whose monitor was just exited
 	 */
 	static VMINLINE void
 	recordBytecodeMonitorExit(J9VMThread *currentThread, j9object_t object)
@@ -476,7 +461,7 @@ done:
 	 * record for the object is found, nothing happens.
 	 *
 	 * @param currentThread[in] the current J9VMThread
-	 * @param object[in] the object whose monitor was just exitted
+	 * @param object[in] the object whose monitor was just exited
 	 */
 	static VMINLINE void
 	recordJNIMonitorExit(J9VMThread *currentThread, j9object_t object)

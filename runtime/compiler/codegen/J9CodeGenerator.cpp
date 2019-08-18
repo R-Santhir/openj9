@@ -73,7 +73,11 @@ J9::CodeGenerator::CodeGenerator() :
       OMR::CodeGeneratorConnector(),
    _gpuSymbolMap(self()->comp()->allocator()),
    _stackLimitOffsetInMetaData(self()->comp()->fej9()->thisThreadGetStackLimitOffset()),
-   _liveMonitors(NULL)
+   _uncommonedNodes(self()->comp()->trMemory(), stackAlloc),
+   _liveMonitors(NULL),
+   _nodesSpineCheckedList(getTypedAllocator<TR::Node*>(TR::comp()->allocator())),
+   _jniCallSites(getTypedAllocator<TR_Pair<TR_ResolvedMethod,TR::Instruction> *>(TR::comp()->allocator())),
+   _dummyTempStorageRefNode(NULL)
    {
    }
 
@@ -587,8 +591,8 @@ J9::CodeGenerator::preLowerTrees()
 */
 
    // For dual operator lowering
-   _uncommmonedNodes.reset();
-   _uncommmonedNodes.init(64, true);
+   _uncommonedNodes.reset();
+   _uncommonedNodes.init(64, true);
    }
 
 
@@ -2734,7 +2738,6 @@ J9::CodeGenerator::processRelocations()
             case TR_InlinedVirtualMethodWithNopGuard:
             case TR_InlinedInterfaceMethodWithNopGuard:
             case TR_InlinedAbstractMethodWithNopGuard:
-            case TR_InlinedHCRMethod:
             case TR_ProfiledClassGuardRelocation:
             case TR_ProfiledMethodGuardRelocation:
             case TR_ProfiledInlinedMethodRelocation:
@@ -2911,6 +2914,27 @@ void J9::CodeGenerator::addProjectSpecializedPairRelocation(uint8_t *location, u
          generatingFileName, generatingLineNumber, node);
    }
 
+
+TR::Node *
+J9::CodeGenerator::createOrFindClonedNode(TR::Node *node, int32_t numChildren)
+   {
+   TR_HashId index;
+   if (!_uncommonedNodes.locate(node->getGlobalIndex(), index))
+      {
+      // has not been uncommoned already, clone and store for later
+      TR::Node *clone = TR::Node::copy(node, numChildren);
+      _uncommonedNodes.add(node->getGlobalIndex(), index, clone);
+      node = clone;
+      }
+   else
+      {
+      // found previously cloned node
+      node = (TR::Node *) _uncommonedNodes.getData(index);
+      }
+   return node;
+   }
+
+
 void
 J9::CodeGenerator::jitAddUnresolvedAddressMaterializationToPatchOnClassRedefinition(void *firstInstruction)
    {
@@ -2972,7 +2996,6 @@ J9::CodeGenerator::compressedReferenceRematerialization()
          node = tt->getNode();
          if (node->getOpCodeValue() == TR::BBStart && !node->getBlock()->isExtensionOfPreviousBlock())
             {
-            _compressedRefs.clear();
 
             ListIterator<TR::Node> nodesIt(&rematerializedNodes);
             for (TR::Node * rematNode = nodesIt.getFirst(); rematNode != NULL; rematNode = nodesIt.getNext())
@@ -2990,7 +3013,6 @@ J9::CodeGenerator::compressedReferenceRematerialization()
            {
            if (node->getFirstChild()->getVisitCount() == visitCount)
               alreadyVisitedFirstChild = true;
-           _compressedRefs.push_front(node->getFirstChild());
            }
 
          self()->rematerializeCompressedRefs(autoSymRef, tt, NULL, -1, node, visitCount, &rematerializedNodes);
@@ -3354,9 +3376,10 @@ J9::CodeGenerator::rematerializeCompressedRefs(
       TR::Node *child = node->getChild(i);
       self()->rematerializeCompressedRefs(autoSymRef, tt, node, i, child, visitCount, rematerializedNodes);
       }
-
+   
+   static bool disableBranchlessPassThroughNULLCHK = feGetEnv("TR_disableBranchlessPassThroughNULLCHK") != NULL;
    if (node->getOpCode().isNullCheck() && reference &&
-          (!isLowMemHeap || self()->performsChecksExplicitly() || (node->getFirstChild()->getOpCodeValue() == TR::PassThrough)) &&
+          (!isLowMemHeap || self()->performsChecksExplicitly() || (disableBranchlessPassThroughNULLCHK && node->getFirstChild()->getOpCodeValue() == TR::PassThrough)) &&
           ((node->getFirstChild()->getOpCodeValue() == TR::l2a) ||
            (reference->getOpCodeValue() == TR::l2a)) &&
          performTransformation(self()->comp(), "%sTransforming null check reference %p in null check node %p to be checked explicitly\n", OPT_DETAILS, reference, node))
@@ -3924,6 +3947,37 @@ J9::CodeGenerator::collectSymRefs(
    return true;
    }
 
+bool
+J9::CodeGenerator::willGenerateNOPForVirtualGuard(TR::Node *node)
+   {
+   TR::Compilation *comp = self()->comp();
+
+   if (!(node->isNopableInlineGuard() || node->isHCRGuard() || node->isOSRGuard())
+           || !self()->getSupportsVirtualGuardNOPing())
+      return false;
+
+   TR_VirtualGuard *virtualGuard = comp->findVirtualGuardInfo(node);
+
+   if (!((comp->performVirtualGuardNOPing() || node->isHCRGuard() || node->isOSRGuard() || self()->needClassAndMethodPointerRelocations()) &&
+         comp->isVirtualGuardNOPingRequired(virtualGuard)) &&
+         virtualGuard->canBeRemoved())
+      return false;
+
+   if (   node->getOpCodeValue() != TR::ificmpne
+       && node->getOpCodeValue() != TR::ifacmpne
+       && node->getOpCodeValue() != TR::iflcmpne)
+      {
+      // not expecting reversed comparison
+      // Raise an assume if the optimizer requested that this virtual guard must be NOPed
+      //
+      TR_ASSERT(virtualGuard->canBeRemoved(), "virtualGuardHelper: a non-removable virtual guard cannot be NOPed");
+
+      return false;
+      }
+
+   return true;
+   }
+
   /** \brief
     *       Following codegen phase walks the blocks in the CFG and checks for the virtual guard performing TR_MethodTest
     *       and guarding an inlined interface call.
@@ -3979,8 +4033,7 @@ J9::CodeGenerator::fixUpProfiledInterfaceGuardTest()
          {
          TR_VirtualGuard *vg = comp->findVirtualGuardInfo(node);
          // Mainly we need to make sure that virtual guard which performs the TR_MethodTest and can be NOP'd are needed the range check.
-         if (vg && vg->getTestType() == TR_MethodTest &&
-            !(comp->performVirtualGuardNOPing() && (node->isNopableInlineGuard() || comp->isVirtualGuardNOPingRequired(vg))))
+         if (vg && vg->getTestType() == TR_MethodTest && !(self()->willGenerateNOPForVirtualGuard(node)))
             {
             TR::SymbolReference *callSymRef = vg->getSymbolReference();
             TR_ASSERT_FATAL(callSymRef != NULL, "Guard n%dn for the inlined call should have stored symbol reference for the call", node->getGlobalIndex());
@@ -4654,7 +4707,7 @@ J9::CodeGenerator::generateCatchBlockBBStartPrologue(
       {
       // Note we should not use `fenceInstruction` here because it is not the first instruction in this BB. The first
       // instruction is a label that incoming branches will target. We will use this label (first instruction in the
-      // block) in `createMethodMetaData` to populate a list of non-mergable GC maps so as to ensure the GC map at the
+      // block) in `createMethodMetaData` to populate a list of non-mergeable GC maps so as to ensure the GC map at the
       // catch block entry is always present if requested.
       node->getBlock()->getFirstInstruction()->setNeedsGCMap();
       }

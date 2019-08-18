@@ -30,7 +30,7 @@
 #endif
 #endif /* defined(WIN32) */
 
-/* _GNU_SOURCE forces GLIBC_2.0 sscanf/vsscanf/fscanf for RHEL5 compatability */
+/* _GNU_SOURCE forces GLIBC_2.0 sscanf/vsscanf/fscanf for RHEL5 compatibility */
 #if defined(LINUX) && !defined(J9ZTPF)
 #define _GNU_SOURCE
 #endif /* defined(LINUX) && !defined(J9ZTPF) */
@@ -50,7 +50,7 @@
 #endif
 
 #if !defined(WIN32)
-/* Needed for JCL dependancy on JVM to set SIGPIPE to SIG_IGN */
+/* Needed for JCL dependency on JVM to set SIGPIPE to SIG_IGN */
 #include <signal.h>
 #endif
 
@@ -96,9 +96,7 @@
 
 #include "j2sever.h"
 
-#ifdef J9VM_THR_LOCK_NURSERY
 #include "locknursery.h"
-#endif
 
 #include "vmargs_api.h"
 #include "rommeth.h"
@@ -194,9 +192,11 @@ static const struct J9VMIgnoredOption ignoredOptionTable[] = {
 	{ MAPOPT_XK, EXACT_MEMORY_MATCH },
 	{ MAPOPT_XP, EXACT_MEMORY_MATCH },
 	{ VMOPT_XNORTSJ, EXACT_MATCH },
-	{ MAPOPT_XCOMPRESSEDREFS, EXACT_MATCH },
-	{ MAPOPT_XNOCOMPRESSEDREFS, EXACT_MATCH },
-#endif
+#if !(defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS))
+	{ VMOPT_XCOMPRESSEDREFS, EXACT_MATCH },
+	{ VMOPT_XNOCOMPRESSEDREFS, EXACT_MATCH },
+#endif /* !(defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS)) */
+#endif /* defined(J9VM_OPT_SIDECAR) */
 };
 #define ignoredOptionTableSize (sizeof(ignoredOptionTable) / sizeof(struct J9VMIgnoredOption))
 
@@ -297,13 +297,16 @@ const U_8 J9Impdep1PC[] = { 0xFE, 0x00, 0x00, 0xFE }; /* impdep1, parm, parm, im
 static jint (JNICALL * vprintfHookFunction)(FILE *fp, const char *format, va_list args) = NULL;
 static IDATA (* portLibrary_file_write_text) (struct OMRPortLibrary *portLibrary, IDATA fd, const char *buf, IDATA nbytes) = NULL;
 
-#if defined(WIN32)
+#if defined(WIN32) && !defined(OPENJ9_BUILD)
+/* Remove the "shutDownHookWrapper" once IBMJ9 uses the JVM_*Signal native functions
+ * in the sun.misc.Signal class. OpenJ9 does not depend on the "shutDownHookWrapper".
+ */
 static UDATA shutDownHookWrapper(struct J9PortLibrary* portLibrary, U_32 gpType, void* gpInfo, void* userData);
-#endif
+#endif /* defined(WIN32) && !defined(OPENJ9_BUILD) */
 
 #if !defined(WIN32)
 static UDATA sigxfszHandler(struct J9PortLibrary* portLibrary, U_32 gpType, void* gpInfo, void* userData);
-#endif
+#endif /* !defined(WIN32) */
 
 /* SSE2 support on 32 bit linux_x86 and win_x86 */
 #ifdef J9VM_ENV_SSE2_SUPPORT_DETECTION
@@ -552,7 +555,7 @@ void OMRNORETURN exitJavaVM(J9VMThread * vmThread, IDATA rc)
 		}
 
 #if defined(WIN32)
-		/* Do not attempt to exit while a JNI sharead library open is in progress */
+		/* Do not attempt to exit while a JNI shared library open is in progress */
 		omrthread_monitor_enter(vm->nativeLibraryMonitor);
 		omrthread_monitor_enter(vm->classLoaderBlocksMutex);
 #endif
@@ -602,7 +605,11 @@ freeJavaVM(J9JavaVM * vm)
 	J9VMThread *currentThread = currentVMThread(vm);
 	IDATA traceDescriptor = 0;
 #if defined(WIN32)
-	/* Install the handler for running the shutdown hooks when the console window is closed
+#if !defined(OPENJ9_BUILD)
+	/* Remove the "shutDownHookWrapper" once IBMJ9 uses the JVM_*Signal native functions
+	 * in the sun.misc.Signal class. OpenJ9 does not depend on the "shutDownHookWrapper".
+	 *
+	 * Install the handler for running the shutdown hooks when the console window is closed
 	 * J2SE/Sidecar builds:
 	 *			This applies to Windows only. Shutdown hooks for all other platforms are handled by the Hursley JCLs
 	 *
@@ -610,9 +617,10 @@ freeJavaVM(J9JavaVM * vm)
 	 * 			This applies to Windows only for now. Since we don't have Hursley JCLs for this, we will need to provide our own support for all other cases/platforms.
 	 */
 	j9sig_set_async_signal_handler(shutDownHookWrapper, vm, 0);
-#else
+#endif /* !defined(OPENJ9_BUILD) */
+#else /* defined(WIN32) */
 	j9sig_set_async_signal_handler(sigxfszHandler, NULL, 0);
-#endif
+#endif /* defined(WIN32) */
 
 	/* Remove the predefinedHandlerWrapper. */
 	j9sig_set_single_async_signal_handler(predefinedHandlerWrapper, vm, 0, NULL);
@@ -684,9 +692,7 @@ freeJavaVM(J9JavaVM * vm)
 
 	freeNativeMethodBindTable(vm);
 	freeHiddenInstanceFieldsList(vm);
-#ifdef J9VM_THR_LOCK_NURSERY
 	cleanupLockwordConfig(vm);
-#endif
 
 	destroyJvmInitArgs(vm->portLibrary, vm->vmArgsArray);
 	vm->vmArgsArray = NULL;
@@ -860,7 +866,7 @@ freeJavaVM(J9JavaVM * vm)
 }
 
 /**
- * Do a runtime check of the processor and operating sytem to determine if
+ * Do a runtime check of the processor and operating system to determine if
  * this is a supported configuration.
  *
  * @param[in] portLibrary - the port library.
@@ -1418,7 +1424,7 @@ initializeClassPathEntry (J9JavaVM * javaVM, J9ClassPathEntry *cpEntry)
  * Create and initialize modules path entries.
  * Currently JVM searches system modules at following locations:
  * 	<JAVA_HOME>/lib/modules - should be a jimage file
- * 	<JAVA-HOME>/modules - should be a directory containining modules in exploded form
+ * 	<JAVA-HOME>/modules - should be a directory containing modules in exploded form
  */
 IDATA
 initializeModulesPath(J9JavaVM *vm) {
@@ -1805,6 +1811,26 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 				}
 			}
 
+			/* -XX commandline option for +/- TransparentHugepage */
+			argIndex = FIND_ARG_IN_VMARGS(EXACT_MATCH, VMOPT_XXNOTRANSPARENT_HUGEPAGE, NULL);
+			argIndex2 = FIND_ARG_IN_VMARGS(EXACT_MATCH, VMOPT_XXTRANSPARENT_HUGEPAGE, NULL);
+			{
+				/* Last instance of +/- TransparentHugepage found on the command line wins
+				 * Default to -XX:-TransparentHugepage for performance reasons
+				 */
+				if (argIndex2 > argIndex) {
+					j9port_control(J9PORT_CTLDATA_VMEM_ADVISE_HUGEPAGE, 1);
+				} else {
+					j9port_control(J9PORT_CTLDATA_VMEM_ADVISE_HUGEPAGE, 0);
+				}
+			}
+
+			argIndex = FIND_ARG_IN_VMARGS(EXACT_MATCH, VMOPT_XXNLSMESSAGES, NULL);
+			argIndex2 = FIND_ARG_IN_VMARGS(EXACT_MATCH, VMOPT_XXNONLSMESSAGES, NULL);
+			if (argIndex2 > argIndex) {
+				j9port_control(OMRPORT_CTLDATA_NLS_DISABLE, 1);
+			} 
+
 			if (J9_ARE_ANY_BITS_SET(vm->extendedRuntimeFlags, J9_EXTENDED_RUNTIME_PAGE_ALIGN_DIRECT_MEMORY)) {
 				J9VMSystemProperty* prop = NULL;
 
@@ -1815,11 +1841,6 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 					loadInfo->fatalErrorStr = "cannot set system property sun.nio.PageAlignDirectMemory=true";
 					goto _error;
 				}
-			}
-
-			/* Consume and issue warning for -Xdiagnosticscollector */
-			if (FIND_AND_CONSUME_ARG(STARTSWITH_MATCH, VMOPT_XDIAGNOSTICSCOLLECTOR, NULL) >= 0) {
-				j9nls_printf(PORTLIB, J9NLS_WARNING, J9NLS_VM_DIAGNOSTIC_COLLECTOR_NOT_SUPPORTED);
 			}
 
 #if !defined(WIN32) && !defined(J9ZTPF)
@@ -1863,20 +1884,23 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 				}
 				if (TRUE == enableGcOnIdle) {
 					vm->vmRuntimeStateListener.idleTuningFlags |= (UDATA)J9_IDLE_TUNING_GC_ON_IDLE;
+					/*
+ 					 * 
+				  	 * CompactOnIdle is enabled only if XX:+IdleTuningGcOnIdle is set and:
+				  	 * 1. -XX:+IdleTuningCompactOnIdle is set, or
+				  	 * 2. running in container
+				  	 *
+				  	 * Setting Xtune:virtualized on java versions 9 or above does not enable CompactOnIdle.
+				  	 */
+					if ((argIndexCompactOnIdleEnable > argIndexCompactOnIdleDisable)
+					|| ((-1 == argIndexCompactOnIdleDisable) && inContainer)
+					) {
+						vm->vmRuntimeStateListener.idleTuningFlags |= (UDATA)J9_IDLE_TUNING_COMPACT_ON_IDLE;
+					} else {
+						vm->vmRuntimeStateListener.idleTuningFlags &= ~(UDATA)J9_IDLE_TUNING_COMPACT_ON_IDLE;
+					}
 				} else {
 					vm->vmRuntimeStateListener.idleTuningFlags &= ~(UDATA)J9_IDLE_TUNING_GC_ON_IDLE;
-				}
-				/*
-				 * CompactOnIdle is enabled only if:
-				 * 1. -XX:+IdleTuningCompactOnIdle is set, or
-				 * 2. running in container
-				 */
-				if ((argIndexCompactOnIdleEnable > argIndexCompactOnIdleDisable)
-				|| ((-1 == argIndexCompactOnIdleDisable) && inContainer)
-				) {
-					vm->vmRuntimeStateListener.idleTuningFlags |= (UDATA)J9_IDLE_TUNING_COMPACT_ON_IDLE;
-				} else {
-					vm->vmRuntimeStateListener.idleTuningFlags &= ~(UDATA)J9_IDLE_TUNING_COMPACT_ON_IDLE;
 				}
 				/* default ignore if idle tuning options not supported */
 				vm->vmRuntimeStateListener.idleTuningFlags |= (UDATA)J9_IDLE_TUNING_IGNORE_UNRECOGNIZED_OPTIONS;
@@ -2060,7 +2084,7 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 		case ALL_VM_ARGS_CONSUMED :
 #if defined(J9VM_RAS_EYECATCHERS)
 			/*
-			 * defer initialization of network data until after heap allocated, since the intialization
+			 * defer initialization of network data until after heap allocated, since the initialization
 			 * can initiate DLL loads which prevent allocation of large heaps.
 			 */
 			argIndex = FIND_AND_CONSUME_ARG(EXACT_MATCH, VMOPT_XXREADIPINFOFORRAS, NULL);
@@ -2084,6 +2108,11 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 				 * Runtimeflag XFUTURE can also be set in bcverify.c if -Xverify:all is seen
 				 */
 				vm->runtimeFlags |= J9_RUNTIME_XFUTURE;
+			}
+			if ((J2SE_VERSION(vm) & J2SE_VERSION_MASK) >= J2SE_V11) {
+				if (FIND_AND_CONSUME_ARG(EXACT_MATCH, VMOPT_ENABLE_PREVIEW, NULL) >= 0) {
+					vm->extendedRuntimeFlags2 |= J9_EXTENDED_RUNTIME2_ENABLE_PREVIEW;
+				}
 			}
 			if ((argIndex = FIND_AND_CONSUME_ARG(STARTSWITH_MATCH, VMOPT_XSIGQUITTOFILE, NULL)) >= 0) {
 				GET_OPTION_VALUE(argIndex, ':', &optionValue);
@@ -2156,7 +2185,6 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 			}
 #endif
 
-#ifdef J9VM_THR_LOCK_NURSERY
 			/* set the default mode */
 			vm->lockwordMode =LOCKNURSERY_ALGORITHM_ALL_BUT_ARRAY;
 
@@ -2174,7 +2202,6 @@ IDATA VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved) {
 				printLockwordWhat(vm);
 			}
 
-#endif
 			break;
 
 		case BYTECODE_TABLE_SET:
@@ -2499,8 +2526,11 @@ static void consumeVMArgs(J9JavaVM* vm, J9VMInitArgs* j9vm_args) {
 	BOOLEAN assertOptionFound = FALSE;
 
 	findArgInVMArgs( PORTLIB, j9vm_args, EXACT_MATCH, VMOPT_XINT, NULL, TRUE);
-	/* If -Xverify:none, other -Xverify args previous to that should be ignored */
+	/* If -Xverify:none, other -Xverify args previous to that should be ignored. As of Java 13 -Xverify:none and -noverify are deprecated. */
 	if (findArgInVMArgs( PORTLIB, j9vm_args, STARTSWITH_MATCH, VMOPT_XVERIFY_COLON, OPT_NONE, TRUE) >= 0) {
+		if (J2SE_VERSION(vm) >= J2SE_V13) {
+			j9nls_printf(PORTLIB, J9NLS_WARNING, J9NLS_VM_XVERIFYNONE_DEPRECATED);
+		}
 		findArgInVMArgs( PORTLIB, j9vm_args, OPTIONAL_LIST_MATCH, VMOPT_XVERIFY, NULL, TRUE);
 	}
 #if defined(J9VM_INTERP_VERBOSE)
@@ -2680,6 +2710,11 @@ modifyDllLoadTable(J9JavaVM * vm, J9Pool* loadTable, J9VMInitArgs* j9vm_args)
 			}
 		}
 	}
+
+#if defined(J9AARCH64)
+	// temporary change until the JIT becomes available
+	xint = TRUE;
+#endif
 
 	if (xint) {
 		JVMINIT_VERBOSE_INIT_VM_TRACE(vm, "-Xint set\n");
@@ -3197,6 +3232,18 @@ processVMArgsFromFirstToLast(J9JavaVM * vm)
 		}
 	}
 
+#if defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS)
+	{
+		IDATA compressed = FIND_AND_CONSUME_ARG(EXACT_MATCH, VMOPT_XCOMPRESSEDREFS, NULL);
+		IDATA nocompressed = FIND_AND_CONSUME_ARG(EXACT_MATCH, VMOPT_XNOCOMPRESSEDREFS, NULL);
+		if (compressed > nocompressed) {
+			vm->extendedRuntimeFlags2 |= J9_EXTENDED_RUNTIME2_COMPRESS_OBJECT_REFERENCES;
+		} else if (compressed < nocompressed) {
+			vm->extendedRuntimeFlags2 &= ~(UDATA)J9_EXTENDED_RUNTIME2_COMPRESS_OBJECT_REFERENCES;
+		}
+	}
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS) */
+
 	return JNI_OK;
 }
 
@@ -3207,7 +3254,7 @@ static jint runInitializationStage(J9JavaVM* vm, IDATA stage) {
 	RunDllMainData userData;
 	J9VMThread *mainThread = vm->mainThread;
 
-	/* Once the main J9VMThread has been cretaed, each init stage expects the thread
+	/* Once the main J9VMThread has been created, each init stage expects the thread
 	 * to have entered the VM and released VM access.
 	 */
 	if (NULL != mainThread) {
@@ -5377,7 +5424,7 @@ runExitStages(J9JavaVM* vm, J9VMThread* vmThread)
 
 
 /**
- * PostInit load is used to load or intialize a library after initialization has completed.
+ * PostInit load is used to load or initialize a library after initialization has completed.
  * It is not currently protected by a mutex.
  * The library must be tagged with ALLOW_POST_INIT_LOAD in initializeDllLoadTable to allow this.
  * postInitLoadJ9DLL can be called on a library even if it is already loaded.
@@ -5572,7 +5619,7 @@ protectedInitializeJavaVM(J9PortLibrary* portLibrary, void * userData)
 #endif
 
 #if !defined(WIN32)
-	/* Needed for JCL dependancy on JVM to set SIGPIPE to SIG_IGN */
+	/* Needed for JCL dependency on JVM to set SIGPIPE to SIG_IGN */
 	struct sigaction newSignalAction;
 #endif
 
@@ -5590,7 +5637,7 @@ protectedInitializeJavaVM(J9PortLibrary* portLibrary, void * userData)
 		goto error;
 	}
 	
-	/* Needed for JCL dependancy on JVM to set SIGPIPE to SIG_IGN */
+	/* Needed for JCL dependency on JVM to set SIGPIPE to SIG_IGN */
 	sigemptyset(&newSignalAction.sa_mask);
 #ifndef J9ZTPF
 	newSignalAction.sa_flags = SA_RESTART;
@@ -5712,8 +5759,11 @@ protectedInitializeJavaVM(J9PortLibrary* portLibrary, void * userData)
 		goto error;
 	}
 
-#if defined(WIN32)
-	/* Install the handler for running the shutdown hooks when the console window is closed
+#if defined(WIN32) && !defined(OPENJ9_BUILD)
+	/* Remove the "shutDownHookWrapper" once IBMJ9 uses the JVM_*Signal native functions
+	 * in the sun.misc.Signal class. OpenJ9 does not depend on the "shutDownHookWrapper".
+	 *
+	 * Install the handler for running the shutdown hooks when the console window is closed
 	 * J2SE/Sidecar builds:
 	 *			This applies to Windows only. Shutdown hooks for all other platforms are handled by the Hursley JCLs
 	 *
@@ -5730,7 +5780,7 @@ protectedInitializeJavaVM(J9PortLibrary* portLibrary, void * userData)
 			goto error;
 		}
 	}
-#endif
+#endif /* defined(WIN32) && !defined(OPENJ9_BUILD) */
 
 #ifndef J9VM_SIZE_SMALL_CODE
 	if (NULL == fieldIndexTableNew(vm, portLibrary)) {
@@ -5762,7 +5812,7 @@ protectedInitializeJavaVM(J9PortLibrary* portLibrary, void * userData)
 
 
 #ifdef J9VM_OPT_SIDECAR
-	/* Whinge about -Djava.compiler after extra VM options are added, but before mappings are set */
+	/* Whine about -Djava.compiler after extra VM options are added, but before mappings are set */
 	if (RC_FAILED == checkDjavacompiler(portLibrary, vm->vmArgsArray)) {
 		goto error;
 	}
@@ -6456,7 +6506,10 @@ freeClassNativeMemory(J9HookInterface** hook, UDATA eventNum, void* eventData, v
 
 #endif /* GC_DYNAMIC_CLASS_UNLOADING */
 
-#if defined(WIN32)
+#if defined(WIN32) && !defined(OPENJ9_BUILD)
+/* Remove the "shutDownHookWrapper" once IBMJ9 uses the JVM_*Signal native functions
+ * in the sun.misc.Signal class. OpenJ9 does not depend on the "shutDownHookWrapper".
+ */
 static UDATA
 shutDownHookWrapper(struct J9PortLibrary* portLibrary, U_32 gpType, void* gpInfo, void* userData)
 {
@@ -6482,7 +6535,7 @@ shutDownHookWrapper(struct J9PortLibrary* portLibrary, U_32 gpType, void* gpInfo
 	return 0;
 
 }
-#endif
+#endif /* defined(WIN32) && !defined(OPENJ9_BUILD) */
 
 /**
  * Invoke jdk.internal.misc.Signal.dispatch(int number) in Java 9 and

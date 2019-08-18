@@ -736,7 +736,7 @@ TR::OptionTable OMR::Options::_feOptions[] = {
         TR::Options::setJitConfigNumericValue, offsetof(J9JITConfig, dataCacheTotalKB), 0, " %d (KB)"},
    {"disableIProfilerClassUnloadThreshold=",      "R<nnn>\tNumber of classes that can be unloaded before we disable the IProfiler",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_disableIProfilerClassUnloadThreshold, 0, "F%d", NOT_IN_SUBSET},
-   {"dltPostponeThreshold=",      "M<nnn>\tNumber of dlt attepts inv. count for a method is seen not advancing",
+   {"dltPostponeThreshold=",      "M<nnn>\tNumber of dlt attempts inv. count for a method is seen not advancing",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_dltPostponeThreshold, 0, "F%d", NOT_IN_SUBSET },
    {"exclude=",           "D<xxx>\tdo not compile methods beginning with xxx", TR::Options::limitOption, 1, 0, "P%s"},
    {"expensiveCompWeight=", "M<nnn>\tweight of a comp request to be considered expensive",
@@ -850,9 +850,6 @@ TR::OptionTable OMR::Options::_feOptions[] = {
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_iprofilerSamplesBeforeTurningOff, 0, "P%d", NOT_IN_SUBSET},
    {"itFileNamePrefix=",  "L<filename>\tprefix for itrace filename",
         TR::Options::setStringForPrivateBase, offsetof(TR_JitPrivateConfig,itraceFileNamePrefix), 0, "P%s"},
-#if defined(AIXPPC)
-   {"j2prof",             0, SET_JITCONFIG_RUNTIME_FLAG(J9JIT_J2PROF) },
-#endif
    {"jProfilingEnablementSampleThreshold=", "M<nnn>\tNumber of global samples to allow generation of JProfiling bodies",
         TR::Options::setStaticNumeric, (intptrj_t)&TR::Options::_jProfilingEnablementSampleThreshold, 0, "F%d", NOT_IN_SUBSET },
    {"kcaoffsets",         "I\tGenerate a header file with offset data for use with KCA", TR::Options::kcaOffsets, 0, 0, "F" },
@@ -1773,10 +1770,10 @@ J9::Options::fePreProcess(void * base)
    TR_Processor proc = TR_J9VMBase::getPPCProcessorType();
    preferTLHPrefetch = proc >= TR_PPCp6 && proc <= TR_PPCp7;
 #elif defined(TR_HOST_S390)
-   preferTLHPrefetch = TR::Compiler->target.cpu.getS390SupportsZ10();
+   preferTLHPrefetch = TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10);
 #else /* TR_HOST_X86 */
    preferTLHPrefetch = true;
-   // Disable TM on x86 because we cannot tell whether a Haswell chip supports TM or not, plus it's killing the performace on dayTrader3
+   // Disable TM on x86 because we cannot tell whether a Haswell chip supports TM or not, plus it's killing the performance on dayTrader3
    self()->setOption(TR_DisableTM);
 #endif
 
@@ -1852,15 +1849,12 @@ J9::Options::fePreProcess(void * base)
       {
       self()->setOption(TR_InlineVeryLargeCompiledMethods);
       }
-
-   // Disable zNext support until it has been gone through several rounds of functional stress testing
-   self()->setOption(TR_DisableZ15);
 #endif
 
    // On big machines we can afford to spend more time compiling
    // (but not on zOS where customers care about CPU or on Xquickstart
    // which should be skimpy on compilation resources).
-   // TR_SuspendEarly is set on zOS becuse test results indicate that
+   // TR_SuspendEarly is set on zOS because test results indicate that
    // it does not benefit much by spending more time compiling.
 #if !defined(J9ZOS390)
    if (!self()->isQuickstartDetected())
@@ -1922,6 +1916,8 @@ J9::Options::fePreProcess(void * base)
             }
          }
       }
+   if (!TR::Compiler->target.cpu.isZ())
+      self()->setOption(TR_DisableAOTBytesCompression);
 
 #if (defined(TR_HOST_X86) || defined(TR_HOST_S390) || defined(TR_HOST_POWER)) && defined(TR_TARGET_64BIT)
    self()->setOption(TR_EnableSymbolValidationManager);
@@ -2288,7 +2284,7 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
       self()->setOption(TR_DisableNextGenHCR);
       }
 
-#if !defined(TR_HOST_X86)
+#if !defined(TR_HOST_X86) && !defined(TR_HOST_S390) && !defined(TR_HOST_POWER)
    //The bit is set when -XX:+JITInlineWatches is specified
    if (J9_ARE_ANY_BITS_SET(javaVM->extendedRuntimeFlags, J9_EXTENDED_RUNTIME_JIT_INLINE_WATCHES))
       TR_ASSERT_FATAL(false, "this platform doesn't support JIT inline field watch");
@@ -2332,11 +2328,17 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
          {
          if (!self()->getOption(TR_DisablePersistIProfile))
             {
-            TR::CompilationInfo * compInfo = getCompilationInfo(jitConfig);
-            static char * dnipdsp = feGetEnv("TR_DisableNoIProfilerDuringStartupPhase");
-            if (compInfo->isWarmSCC() == TR_yes && !dnipdsp) // turn off Iprofiler only for the warm runs
+            // Turn off Iprofiler for the warm runs, but not if we cache only bootstrap classes
+            // This is because we may be missing IProfiler information for non-bootstrap classes
+            // that could not be stored in SCC
+            if (J9_ARE_ALL_BITS_SET(javaVM->sharedClassConfig->runtimeFlags, J9SHR_RUNTIMEFLAG_ENABLE_CACHE_NON_BOOT_CLASSES))
                {
-               self()->setOption(TR_NoIProfilerDuringStartupPhase);
+               TR::CompilationInfo * compInfo = getCompilationInfo(jitConfig);
+               static char * dnipdsp = feGetEnv("TR_DisableNoIProfilerDuringStartupPhase");
+               if (compInfo->isWarmSCC() == TR_yes && !dnipdsp)
+                  {
+                  self()->setOption(TR_NoIProfilerDuringStartupPhase);
+                  }
                }
             }
          }
@@ -2432,6 +2434,42 @@ bool J9::Options::feLatePostProcess(void * base, TR::OptionSet * optionSet)
       {
       TR::Options::_coldUpgradeSampleThreshold = 10;
       }
+
+#if defined(TR_HOST_ARM64)
+   // Recompilation support is not available in AArch64 yet.
+   // OpenJ9 issue #6607 tracks the work to enable.
+   //
+   self()->setAllowRecompilation(false);
+
+   // Internal Pointers support is not available in AArch64 yet.
+   // OpenJ9 issue #6367 tracks the work to enable.
+   //
+   self()->setOption(TR_DisableInternalPointers);
+
+   // ArraySet support is not available in AArch64 yet.
+   // OpenJ9 issue #6443 tracks the work to enable.
+   //
+   self()->setOption(TR_DisableArraySetOpts);
+
+   // EDO catch block profiling support is not available in AArch64 yet.
+   // OpenJ9 issue #6538 tracks the work to enable.
+   //
+   self()->setOption(TR_DisableEDO);
+
+   // Full support for GRA is not available on AArch64 yet, mainly to
+   // work out all the subtleties with GlRegDeps.
+   //
+   // OpenJ9 issue #6606 tracks the work to enable.
+   //
+   self()->setDisabled(OMR::tacticalGlobalRegisterAllocator, true);
+
+   // Support for shuffling linkage registers to GRA registers is not
+   // available on AArch64 yet.
+   //
+   // OpenJ9 issue #6657 tracks the work to enable.
+   //
+   self()->setOption(TR_DisableLinkageRegisterAllocation);
+#endif
 
    return true;
    }

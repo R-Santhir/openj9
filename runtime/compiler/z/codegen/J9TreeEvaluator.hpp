@@ -34,6 +34,7 @@ namespace J9 { typedef J9::Z::TreeEvaluator TreeEvaluatorConnector; }
 #error J9::Z::TreeEvaluator expected to be a primary connector, but a J9 connector is already defined
 #endif
 
+#include "codegen/Snippet.hpp"
 #include "compiler/codegen/J9TreeEvaluator.hpp"  // include parent
 
 #define INSN_HEAP cg->trHeapMemory()
@@ -48,11 +49,8 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
    {
    public:
 
-   static TR::Register *awrtbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *awrtbariEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *monentEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *monexitEvaluator(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *monexitfenceEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *asynccheckEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *instanceofEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *checkcastEvaluator(TR::Node *node, TR::CodeGenerator *cg);
@@ -63,7 +61,6 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
    static TR::Register *anewArrayEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *multianewArrayEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *arraylengthEvaluator(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *resolveCHKEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *DIVCHKEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *BNDCHKEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *ArrayCopyBNDCHKEvaluator(TR::Node *node, TR::CodeGenerator *cg);
@@ -73,8 +70,6 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
    static TR::Register *conditionalHelperEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static float interpreterProfilingInstanceOfOrCheckCastTopProb(TR::CodeGenerator * cg, TR::Node * node);
 
-   // Software Concurrent Scavenge evaluators
-   static TR::Register *ardbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    /**
     * \brief
     * In concurrent scavenge (CS) mode, this is used to evaluate ardbari nodes and inlined-compare-and-swap to
@@ -95,7 +90,7 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
     * \param deps
     *       A register dependency condition pointer used when the software read barrier, which itself is an internal
     *       control flow (ICF), is built inside another ICF. This is the outer ICF's dependency conditions.
-    *       When the deps parameter is not NULL, this evalutor helper does not build its own dependencies. Instead,
+    *       When the deps parameter is not NULL, this evaluator helper does not build its own dependencies. Instead,
     *       it builds on top of this outer deps.
     *
     * \param produceUnshiftedValue
@@ -122,7 +117,7 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
     *     also generate write barrier checks on \p byteSrcObjNode and \p byteDstObjNode.
     *
     *     When software concurrent scavenge is enabled, it generates a internal control flow that first checks if the current
-    *     execution is in the GC cycle and perfoms either a loop-based array copy or a helper call.
+    *     execution is in the GC cycle and performs either a loop-based array copy or a helper call.
     *
     *  \param node
     *     The reference arraycopy node.
@@ -451,18 +446,36 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
    static void         genGuardedLoadOOL(TR::Node *node, TR::CodeGenerator *cg, TR::Register *byteSrcReg, TR::Register *byteDstReg, TR::Register *byteLenReg, TR::LabelSymbol *mergeLabel, TR_S390ScratchRegisterManager *srm, bool isForward);
    static void         genArrayCopyWithArrayStoreCHK(TR::Node *node, TR::Register *srcObjReg, TR::Register *dstObjReg, TR::Register *srcAddrReg, TR::Register *dstAddrReg, TR::Register *lengthReg, TR::CodeGenerator *cg);
    static void         genWrtbarForArrayCopy(TR::Node *node, TR::Register *srcObjReg, TR::Register *dstObjReg, bool srcNonNull, TR::CodeGenerator *cg);
-   static TR::Register *VMgenCoreInstanceofEvaluator(TR::Node *node, TR::CodeGenerator *cg, TR::LabelSymbol * falseLabel, TR::LabelSymbol * trueLabel, bool needsResult, bool trueFallThrough, TR::RegisterDependencyConditions * conditions, bool isIfInstanceOf=false);
-   static TR::Register *VMgenCoreInstanceofEvaluator2(TR::Node *node, TR::CodeGenerator *cg, TR::LabelSymbol * trueLabel, TR::LabelSymbol * falseLabel, bool initialResult, bool needResult, TR::RegisterDependencyConditions * conditions, bool ifInstanceOf=false);
-   static TR::Register *VMinstanceOfEvaluator(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *VMinstanceOfEvaluator2(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *VMifInstanceOfEvaluator2(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *VMcheckcastEvaluator2(TR::Node *node, TR::CodeGenerator *cg);
-   static TR::Register *VMcheckcastEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *VMgenCoreInstanceofEvaluator(TR::Node *node, TR::CodeGenerator *cg, TR::LabelSymbol * trueLabel, TR::LabelSymbol * falseLabel, bool initialResult, bool needResult, TR::RegisterDependencyConditions * conditions, bool ifInstanceOf=false);
    static TR::Register *VMmonentEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *VMmonexitEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *VMnewEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *VMarrayCheckEvaluator(TR::Node *node, TR::CodeGenerator *cg);
-   static void         restoreGPR7(TR::Node *node, TR::CodeGenerator *cg);   
+   static void         restoreGPR7(TR::Node *node, TR::CodeGenerator *cg);
+
+   /*
+    * Generate instructions for static/instance field access report.
+    * @param dataSnippetRegister: Optional, can be used to pass the address of the snippet inside the register.
+    */ 
+   static void generateTestAndReportFieldWatchInstructions(TR::CodeGenerator *cg, TR::Node *node, TR::Snippet *dataSnippet, bool isWrite, TR::Register *sideEffectRegister, TR::Register *valueReg, TR::Register *dataSnippetRegister);
+
+
+   /*
+    * Generate instructions to fill in the J9JITWatchedStaticFieldData.fieldAddress, J9JITWatchedStaticFieldData.fieldClass for static fields,
+    * and J9JITWatchedInstanceFieldData.offset for instance fields at runtime. Used for fieldwatch support.
+    * @param dataSnippetRegister: Optional, can be used to pass the address of the snippet inside the register.  
+    */
+   static void generateFillInDataBlockSequenceForUnresolvedField (TR::CodeGenerator *cg, TR::Node *node, TR::Snippet *dataSnippet, bool isWrite, TR::Register *sideEffectRegister, TR::Register *dataSnippetRegister);
+   static TR::Register *irdbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *irdbariEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *ardbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *ardbariEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *fwrtbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *fwrtbariEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *dwrtbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *dwrtbariEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *awrtbarEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *awrtbariEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    };
 }
 

@@ -329,7 +329,7 @@ static void genStoreDFP(
    TR::Compilation* comp = cg->comp();
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(comp->fe());
 
-   // query the VM for the field offset to wich we are going to store
+   // query the VM for the field offset to which we are going to store
    if (dfpFieldOffset == -1)
       {
       TR_OpaqueClassBlock * bigDClass = NULL;
@@ -1374,7 +1374,7 @@ extern TR::Register *inlineBigDecimalScaledDivide(
    generateTrg1ImmInstruction(cg, TR::InstOpCode::mcrfs, node, crRegister, 0x3); //move FPSCR field 4 (bits 44 to 47)
 
    // assume inexact failed - so we'll load the result for BigDecimal class to test
-   // against an UNNECESSARY rouding mode....
+   // against an UNNECESSARY rounding mode....
    loadConstant(cg, node, 0, retRegister);
 
    generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, labelEND, crRegister);
@@ -1938,7 +1938,7 @@ extern TR::Register *inlineBigDecimalUnaryOp(
       }
    else // handles all 32-bit, except dxex
       {
-      // Alocate temporary memory
+      // Allocate temporary memory
       temp = cg->allocateLocalTemp(TR::Int64);
       tempMR = new (cg->trHeapMemory()) TR::MemoryReference(node, temp, 8, cg);
 
@@ -2316,7 +2316,7 @@ extern TR::Register *inlineBigDecimalUnscaledValue(
       }
    else // 32-bit or if no direct move support
       {
-      // Alocate temporary memory
+      // Allocate temporary memory
       TR::SymbolReference * tempSymRef = cg->allocateLocalTemp(TR::Int64);
       TR::MemoryReference * tempMR = new (cg->trHeapMemory()) TR::MemoryReference(node, tempSymRef, 8, cg);
 

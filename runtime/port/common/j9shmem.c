@@ -312,7 +312,7 @@ j9shmem_statDeprecated(struct J9PortLibrary *portLibrary, const char* cacheDirNa
  * \arg J9PORT_INFO_SHMEM_STAT_PASSED			Success - Successfully retrieved stats of the shared memory
  * \arg J9PORT_ERROR_SHMEM_HANDLE_INVALID 		Failure - 'handle' is NULL
  * \arg J9PORT_ERROR_SHMEM_STAT_BUFFER_INVALID	Failure - 'statbuf' is NULL
- * \arg J9PORT_ERROR_SHMEM_STAT_FAILED			Failure - Error in retrieving stats of the shared memroy
+ * \arg J9PORT_ERROR_SHMEM_STAT_FAILED			Failure - Error in retrieving stats of the shared memory
  */
 intptr_t
 j9shmem_handle_stat(struct J9PortLibrary *portLibrary, struct j9shmem_handle *handle, struct J9PortShmemStatistic *statbuf)
@@ -390,7 +390,7 @@ j9shmem_getFilepath(struct J9PortLibrary* portLibrary, char* cacheDirName, char*
  * Sets the protection as specified by flags for the memory pages containing all or part of the interval address->(address+len).
  * The size of the memory page for a specified memory region can be requested via @ref j9shmem_get_region_granularity
  *
- * The memory region must have been aquired using j9shmap_file
+ * The memory region must have been acquired using j9shmap_file
  *
  * This call has no effect on the protection of other processes.
  *
@@ -418,7 +418,7 @@ j9shmem_protect(struct J9PortLibrary *portLibrary, const char* cacheDirName, uin
 }
  
 /**
- * Returns the minumum granularity in bytes on which permissions can be set for a memory region containing the address provided.
+ * Returns the minimum granularity in bytes on which permissions can be set for a memory region containing the address provided.
  *
  * @param[in] portLibrary the Port Library.
  * @param[in] cacheDirName The name of the cache directory

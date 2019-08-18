@@ -375,25 +375,6 @@ typedef struct J9WalkFieldHierarchyState {
  */
 void walkFieldHierarchyDo(J9Class *clazz, J9WalkFieldHierarchyState *state);
 
-#if defined(J9VM_OUT_OF_PROCESS)
-
-/**
-* @brief
-* @param state
-* @return J9ROMFieldShape *
-*/
-J9ROMFieldShape * debugRomFieldsNextDo(J9ROMFieldWalkState *state);
-
-
-/**
-* @brief
-* @param romClass
-* @param state
-* @return J9ROMFieldShape *
-*/
-J9ROMFieldShape * debugRomFieldsStartDo(J9ROMClass *romClass, J9ROMFieldWalkState *state);
-
-#endif /* defined(J9VM_OUT_OF_PROCESS) */
 
 /* ---------------- final.c ---------------- */
 
@@ -505,7 +486,7 @@ void helperConvertIntegerToFloat(I_32 *src, jfloat *dst);
 /**
 * @brief Helper function called by VM interpreter, using pointers 
 *        to values. Converts a long number to double precision.
-* @param[in] *src Pointer to long value to be converted to doble.
+* @param[in] *src Pointer to long value to be converted to double.
 * @param[out] *dst Pointer to the resulting double value.
 * @return Void.
 *
@@ -1509,17 +1490,6 @@ variableInfoNextDo(J9VariableInfoWalkState *state);
 
 /**
 * @brief
-* @param variableInfo
-* @param variableInfoCount
-* @param state
-* @param readLocation
-* @return J9VariableInfoValues *
-*/
-J9VariableInfoValues *
-debugVariableInfoStartDo(U_8 * variableInfo, U_32 variableInfoCount, J9VariableInfoWalkState* state, UDATA readLocation);
-
-/**
-* @brief
 * @param methodInfo
 * @param state
 * @return J9VariableInfoValues *
@@ -2041,7 +2011,7 @@ typedef struct J9JVMTIHCRJitEventData {
 	UDATA * dataCursor;      /*!< cursor into the data buffer */
 	UDATA * data;            /*!< data buffer containing the jit class redefinition event data */
 	UDATA classCount;        /*!< number of classes in the data buffer */
-	UDATA initialized;       /*!< indicates that the strucutre has been initialized and is ready for use and dealloc */
+	UDATA initialized;       /*!< indicates that the structure has been initialized and is ready for use and dealloc */
 } J9JVMTIHCRJitEventData;
 
 void
@@ -2106,7 +2076,7 @@ enum jvmtiError
 verifyNewClasses (J9VMThread * currentThread, jint class_count, J9JVMTIClassPair * classPairs);
 
 jvmtiError
-fixMethodEquivalences(J9VMThread * currentThread, 
+fixMethodEquivalencesAndCallSites(J9VMThread * currentThread, 
 	J9HashTable * classPairs,
 	J9JVMTIHCRJitEventData * eventData,
 	BOOLEAN fastHCR, J9HashTable ** methodEquivalences,
@@ -2277,7 +2247,7 @@ getModuleJRTURL(J9VMThread *currentThread, J9ClassLoader *classLoader, J9Module 
 UDATA
 addJarToSystemClassLoaderClassPathEntries(J9JavaVM *vm, const char *filename);
 
-/* ---------------- genericSignalHander.c ---------------- */
+/* ---------------- genericSignalHandler.c ---------------- */
 
 /**
 * @brief generic signal handler that dumps the registers contents from the time of crash and aborts.
@@ -2347,7 +2317,7 @@ void props_file_do(j9props_file_t file, j9props_file_iterator iterator, void* us
  * Function to determine if the zos version is at least a given
  * release and version.  The implementation is based on uname(),
  * NOT on __osname() as the __osname() release numbers are not
- * guarenteed to increase.
+ * guaranteed to increase.
  *
  * For release and version numbers, see
  * 	http://publib.boulder.ibm.com/infocenter/zos/v1r10/index.jsp?topic=/com.ibm.zos.r10.bpxbd00/osnm.htm

@@ -38,6 +38,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -61,6 +65,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -70,11 +78,12 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 	<test>
 		<testCaseName>jniargtests</testCaseName>
 		<variations>
-			<variation>NoOptions</variation>
+			<variation>-Xint</variation>
 			<variation>-Xjit:count=0</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(JAVA_COMMAND) $(JVM_OPTIONS) -Xint \
+	$(JAVA_COMMAND) $(JVM_OPTIONS) \
 	-cp $(Q)$(TEST_RESROOT)$(D)jniargtests$(D)jniargtests.jar$(Q) JniArgTests ; \
 	$(TEST_STATUS)</command>
 		<levels>
@@ -86,6 +95,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -109,6 +122,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -135,6 +152,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -160,6 +181,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -184,6 +209,10 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 			<subset>9</subset>
@@ -197,7 +226,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.linux</platformRequirements>
@@ -210,10 +239,15 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>9</subset>
 			<subset>11+</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_zos</testCaseName>
@@ -222,7 +256,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all zos ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.zos</platformRequirements>
@@ -235,10 +269,15 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>9</subset>
 			<subset>11+</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_aix</testCaseName>
@@ -247,7 +286,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all aix ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.aix</platformRequirements>
@@ -260,10 +299,15 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>9</subset>
 			<subset>11+</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_win</testCaseName>
@@ -271,7 +315,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)$(SQ) $(SQ)-Xbootclasspath/a:$(Q)dummy1$(P)dummy2$(P)dummy3$(Q)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.win</platformRequirements>
@@ -284,10 +328,15 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>9</subset>
 			<subset>11+</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_linux_SE80</testCaseName>
@@ -296,7 +345,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)jre$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.linux</platformRequirements>
@@ -309,9 +358,14 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_zos_SE80</testCaseName>
@@ -320,7 +374,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all zos ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)jre$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.zos</platformRequirements>
@@ -333,9 +387,14 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_aix_SE80</testCaseName>
@@ -344,7 +403,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</variations>
 		<command>perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all aix ; \
 	$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)jre$(D)$(SQ) ; \
 	$(TEST_STATUS)
 	</command>
 		<platformRequirements>os.aix</platformRequirements>
@@ -357,9 +416,14 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>shrtest_win_SE80</testCaseName>
@@ -367,9 +431,9 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) ; \
-	$(TEST_STATUS)
-	</command>
+			$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)shrtest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)jre$(D)$(SQ) ; \
+			$(TEST_STATUS)
+		</command>
 		<platformRequirements>os.win</platformRequirements>
 		<levels>
 			<level>sanity</level>
@@ -380,9 +444,14 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		<types>
 			<type>native</type>
 		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 		<subsets>
 			<subset>8</subset>
 		</subsets>
+		<aot>explicit</aot>
 	</test>
 	<test>
 		<testCaseName>thrstatetest</testCaseName>
@@ -390,9 +459,9 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<variation>NoOptions</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)thrstatetest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) -Dcom.ibm.tools.attach.enable=no -Dibm.java9.forceCommonCleanerShutdown=true ; \
-	$(TEST_STATUS)
-	</command>
+			$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)thrstatetest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)jre$(D)$(SQ) -Dcom.ibm.tools.attach.enable=no -Dibm.java9.forceCommonCleanerShutdown=true ; \
+			$(TEST_STATUS)
+		</command>
 		<levels>
 			<level>sanity</level>
 		</levels>
@@ -404,9 +473,38 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 		</types>
 		<subsets>
 			<subset>8</subset>
+		</subsets>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
+	</test>
+	<test>
+		<testCaseName>thrstatetest</testCaseName>
+		<variations>
+			<variation>NoOptions</variation>
+		</variations>
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+			$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)thrstatetest$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)$(SQ) -Dcom.ibm.tools.attach.enable=no -Dibm.java9.forceCommonCleanerShutdown=true ; \
+			$(TEST_STATUS)
+		</command>
+		<levels>
+			<level>sanity</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<types>
+			<type>native</type>
+		</types>
+		<subsets>
 			<subset>9</subset>
 			<subset>11+</subset>
 		</subsets>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
 	</test>
 	<test>
 		<testCaseName>vmLifecyleTests</testCaseName>
@@ -419,7 +517,38 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<variation>Mode551</variation>
 		</variations>
 		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
-	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmLifecyleTests$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(JAVA_BIN)$(D)..$(D)$(SQ) -Dibm.java9.forceCommonCleanerShutdown=true ; \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmLifecyleTests$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)jre$(D)$(SQ) -Dibm.java9.forceCommonCleanerShutdown=true ; \
+	$(TEST_STATUS)</command>
+		<levels>
+			<level>extended</level>
+		</levels>
+		<groups>
+			<group>functional</group>
+		</groups>
+		<types>
+			<type>native</type>
+		</types>
+		<impls>
+			<impl>openj9</impl>
+			<impl>ibm</impl>
+		</impls>
+		<subsets>
+			<subset>8</subset>
+		</subsets>
+		<disabled>https://github.com/eclipse/openj9/issues/3561</disabled>
+	</test>
+	<test>
+		<testCaseName>vmLifecyleTests</testCaseName>
+		<variations>
+			<variation>Mode110</variation>
+			<variation>Mode610</variation>
+			<variation>Mode301</variation>
+			<variation>Mode351</variation>
+			<variation>Mode501</variation>
+			<variation>Mode551</variation>
+		</variations>
+		<command>$(ADD_JVM_LIB_DIR_TO_LIBPATH) \
+	$(SQ)$(JAVA_SHARED_LIBRARIES_DIR)$(D)vmLifecyleTests$(SQ) $(JVM_OPTIONS) -Djava.home=$(SQ)$(TEST_JDK_HOME)$(D)$(SQ) -Dibm.java9.forceCommonCleanerShutdown=true ; \
 	$(TEST_STATUS)</command>
 		<levels>
 			<level>extended</level>
@@ -431,7 +560,6 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<type>native</type>
 		</types>
 		<subsets>
-			<subset>8</subset>
 			<subset>9</subset>
 			<subset>11+</subset>
 		</subsets>

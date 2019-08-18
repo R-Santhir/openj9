@@ -20,7 +20,6 @@
 
 J9_VERSION?=29
 J9LIBS = j9jit_vm j9codert_vm j9util j9utilcore j9pool j9avl j9stackmap j9hashtable
-VERSION_MAJOR?=9
 
 OMR_DIR ?= $(J9SRC)/omr
 -include $(OMR_DIR)/omrmakefiles/jitinclude.mk
@@ -80,6 +79,14 @@ PRODUCT_SLINK=$(J9LIBS) $(J9LIBS)
 # Optional project-specific settings
 -include $(JIT_MAKE_DIR)/toolcfg/common-extra.mk
 
+ifneq ($(JITSERVER_SUPPORT),)
+#
+# Networking
+#
+PRODUCT_INCLUDES+=\
+    $(FIXED_SRCBASE)/compiler/net/gen \
+    $(FIXED_SRCBASE)/compiler/net
+endif
 #
 # Now we include the host and target tool config
 # These don't really do much generally... They set a few defines but there really

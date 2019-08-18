@@ -33,6 +33,7 @@
 #include "codegen/Relocation.hpp"
 #include "compile/Compilation.hpp"
 #include "compile/CompilationTypes.hpp"
+#include "compile/Method.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "compile/VirtualGuard.hpp"
 #include "control/MethodToBeCompiled.hpp"
@@ -1135,7 +1136,7 @@ TR_DebugExt::dxTrPrint(const char* name1, void* addr2, uintptrj_t argCount, cons
 
    /*
     * Re-process arguments here
-    * The delimiter is space or comma (maintain compatability with j9)
+    * The delimiter is space or comma (maintain compatibility with j9)
     * The algorithm is not bullet proof, but should be sufficient for us
     */
    #define ARGSIZE 200
@@ -1449,7 +1450,7 @@ TR_DebugExt::dxTrPrint(const char* name1, void* addr2, uintptrj_t argCount, cons
       {
       dxPrintJ9RamAndRomMethod((J9Method *) addr);
       }
-   else if (stricmp_ignore_locale(className, "optimizationplan") == 0 && addr != NULL) // optimzationplan
+   else if (stricmp_ignore_locale(className, "optimizationplan") == 0 && addr != NULL) // optimizationplan
       {
       dxPrintOptimizationPlan((TR_OptimizationPlan *) addr);
       }
@@ -2560,7 +2561,6 @@ TR_DebugExt::dxPrintCompilation()
    _dbgPrintf("\tList<TR::Instruction> _staticMethodPICSites = 0x%p\n",(char*)_remoteCompiler +((char*)&(localCompiler->_staticMethodPICSites) - (char*)localCompiler) );
    _dbgPrintf("\tList<TR_Snippet> _snippetsToBePatchedOnClassUnload = 0x%p\n",(char*)_remoteCompiler +((char*)&(localCompiler->_snippetsToBePatchedOnClassUnload) - (char*)localCompiler) );
    _dbgPrintf("\tList<TR_Snippet> _methodSnippetsToBePatchedOnClassUnload = 0x%p\n",(char*)_remoteCompiler +((char*)&(localCompiler->_methodSnippetsToBePatchedOnClassUnload) - (char*)localCompiler) );
-   _dbgPrintf("\tList<TR_Pair<TR_Snippet,TR_ResolvedMethod> > _snippetsToBePatchedOnRegisterNative = 0x%p\n",(char*)_remoteCompiler +((char*)&(localCompiler->_snippetsToBePatchedOnRegisterNative) - (char*)localCompiler) );
    _dbgPrintf("\t&(TR::SymbolReferenceTable _symRefTab) = 0x%p\n",(char*)_remoteCompiler +((char*)&(localCompiler->_symRefTab) - (char*)localCompiler) );
    _dbgPrintf("\tTR::Options *_options = 0x%p\n",localCompiler->_options);
    _dbgPrintf("\tuint32_t _returnInfo = %d\n",localCompiler->_returnInfo);
@@ -2758,8 +2758,8 @@ TR_DebugExt::dxPrintCodeCacheInfo(TR::CodeCache *cacheInfo)
       }
    TR::CodeCache *localCacheInfo = (TR::CodeCache*) dxMallocAndRead(sizeof(TR::CodeCache), cacheInfo);
    _dbgPrintf("TR::CodeCache = 0x%p\n", cacheInfo);
-   _dbgPrintf("  ->warmCodeAlloc = (U_8*)0x%p\n", localCacheInfo->_warmCodeAlloc);
-   _dbgPrintf("  ->coldCodeAlloc = (U_8*)0x%p\n", localCacheInfo->_coldCodeAlloc);
+   _dbgPrintf("  ->warmCodeAlloc = (U_8*)0x%p\n", localCacheInfo->getWarmCodeAlloc());
+   _dbgPrintf("  ->coldCodeAlloc = (U_8*)0x%p\n", localCacheInfo->getColdCodeAlloc());
    _dbgPrintf("  ->segment = (TR::CodeCacheMemorySegment*)0x%p\n", localCacheInfo->_segment);
    _dbgPrintf("  ->helperBase = (U_8*)0x%p\n", localCacheInfo->_helperBase);
    _dbgPrintf("  ->helperTop = (U_8*)0x%p\n", localCacheInfo->_helperTop);
@@ -3640,7 +3640,6 @@ TR_DebugExt::dxPrintAOTinfo(void *addr)
          case TR_InlinedSpecialMethodWithNopGuard:
          case TR_InlinedVirtualMethodWithNopGuard:
          case TR_InlinedInterfaceMethodWithNopGuard:
-         case TR_InlinedHCRMethod:
             {
             TR_RelocationRecordValidateMethod *record = (TR_RelocationRecordValidateMethod *) reloRecord;
             _dbgPrintf("0x%-16x  0x%-16x  0x%-16x", record->inlinedSiteIndex, record->constantPool, record->cpIndex, record->destinationAddress, record->romClassOffsetInSharedCache);
@@ -3804,7 +3803,7 @@ TR_DebugExt::dxGetSignature(J9UTF8 *className, J9UTF8 *name, J9UTF8 *signature)
 const char *
 TR_DebugExt::getMethodName(TR::SymbolReference * symRef)
    {
-   TR_Method * method = symRef->getSymbol()->castToMethodSymbol()->getMethod();
+   TR::Method * method = symRef->getSymbol()->castToMethodSymbol()->getMethod();
    TR_J9MethodBase *localMethod = (TR_J9MethodBase *) dxMallocAndRead(sizeof(TR_J9MethodBase), (void*)method);
    //TR_J9MethodBase *localMethod = (TR_J9MethodBase *)symRef->getSymbol()->castToMethodSymbol()->getMethod();
 

@@ -182,7 +182,8 @@ ClassFileOracle::ClassFileOracle(BufferManager *bufferManager, J9CfrClassFile *c
 #endif /* J9VM_OPT_VALHALLA_NESTMATES */
 	_isClassContended(false),
 	_isClassUnmodifiable(context->isClassUnmodifiable()),
-	_isInnerClass(false)
+	_isInnerClass(false),
+	_needsStaticConstantInit(false)
 {
 	Trc_BCU_Assert_NotEquals( classFile, NULL );
 
@@ -282,7 +283,7 @@ ClassFileOracle::walkFields()
 	U_16 fieldsCount = getFieldsCount();
 
 	/* CMVC 197718 : After the first compliance offense is detected, if we do not stop, annotations on subsequent fields
-	 * will not be parsed, resulting in all subsequent valid fields to be noted as not having proper @Length annotation, hence overwritting
+	 * will not be parsed, resulting in all subsequent valid fields to be noted as not having proper @Length annotation, hence overwriting
 	 * the good error message. Checking (OK == _buildResult) in for-loop condition achieves the desired error handling behavior.
 	 */
 	for (U_16 fieldIndex = 0; (OK == _buildResult) && (fieldIndex < fieldsCount); fieldIndex++) {
@@ -296,6 +297,7 @@ ClassFileOracle::walkFields()
 
 		if (isStatic) {
 			if (NULL != field->constantValueAttribute) {
+				_needsStaticConstantInit = true;
 				U_16 constantValueIndex = field->constantValueAttribute->constantValueIndex;
 				if (CFR_CONSTANT_String == _classFile->constantPool[constantValueIndex].tag) {
 					markStringAsReferenced(constantValueIndex);

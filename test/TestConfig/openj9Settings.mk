@@ -41,7 +41,11 @@ endif
 # Set JAVA_SHARED_LIBRARIES_DIR  and VM_SUBDIR for tests which need native library.
 # Set ADD_JVM_LIB_DIR_TO_LIBPATH as tests on some platforms need LIBPATH containing VM directory
 #######################################
-JAVA_LIB_DIR:=$(JAVA_BIN)$(D)..$(D)lib
+TEST_JRE_BIN:=$(TEST_JDK_HOME)$(D)jre$(D)bin
+TEST_JRE_LIB_DIR:=$(TEST_JRE_BIN)$(D)..$(D)lib
+TEST_JDK_BIN:=$(TEST_JDK_HOME)$(D)bin
+TEST_JDK_LIB_DIR:=$(TEST_JDK_BIN)$(D)..$(D)lib
+
 VM_SUBDIR=default
 ifneq (,$(findstring cmprssptrs,$(SPEC)))
 VM_SUBDIR=compressedrefs
@@ -69,33 +73,44 @@ ifndef NATIVE_TEST_LIBS
 	NATIVE_TEST_LIBS=$(TEST_JDK_HOME)$(D)..$(D)native-test-libs$(D)
 endif
 
-# if JCL_VESION is current check for default locations for native test libs
+# if JCL_VERSION is current check for default locations for native test libs
 # otherwise, native test libs are under NATIVE_TEST_LIBS
 ifneq (, $(findstring current, $(JCL_VERSION)))
-	ifneq (,$(findstring win,$(SPEC)))
-		JAVA_SHARED_LIBRARIES_DIR:=$(JAVA_BIN)$(D)$(VM_SUBDIR)
-		J9VM_PATH=$(JAVA_BIN)$(D)j9vm
+	ifneq (, $(findstring 8, $(JDK_VERSION)))
+		ifneq (,$(findstring win,$(SPEC)))
+			JAVA_SHARED_LIBRARIES_DIR:=$(TEST_JRE_BIN)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JRE_BIN)$(D)j9vm
+		else
+			JAVA_SHARED_LIBRARIES_DIR:=$(TEST_JRE_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JRE_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
+		endif
+		ADD_JVM_LIB_DIR_TO_LIBPATH:=export LIBPATH=$(Q)$(LIBPATH)$(P)$(TEST_JRE_LIB_DIR)$(D)$(VM_SUBDIR)$(P)$(JAVA_SHARED_LIBRARIES_DIR)$(P)$(TEST_JRE_BIN)$(D)j9vm$(Q);
 	else
-		JAVA_SHARED_LIBRARIES_DIR:=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
-		J9VM_PATH=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
+		ifneq (,$(findstring win,$(SPEC)))
+			JAVA_SHARED_LIBRARIES_DIR:=$(TEST_JDK_BIN)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JDK_BIN)$(D)j9vm
+		else
+			JAVA_SHARED_LIBRARIES_DIR:=$(TEST_JDK_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JDK_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
+		endif
+		ADD_JVM_LIB_DIR_TO_LIBPATH:=export LIBPATH=$(Q)$(LIBPATH)$(P)$(TEST_JDK_LIB_DIR)$(D)$(VM_SUBDIR)$(P)$(JAVA_SHARED_LIBRARIES_DIR)$(P)$(TEST_JDK_BIN)$(D)j9vm$(Q);
 	endif
-	ADD_JVM_LIB_DIR_TO_LIBPATH:=export LIBPATH=$(Q)$(LIBPATH)$(P)$(JAVA_LIB_DIR)$(D)$(VM_SUBDIR)$(P)$(JAVA_SHARED_LIBRARIES_DIR)$(P)$(JAVA_BIN)$(D)j9vm$(Q);
 else
 	ifneq (, $(findstring 8, $(JDK_VERSION)))
 		ifneq (,$(findstring win,$(SPEC)))
-			VM_SUBDIR_PATH=$(JAVA_BIN)$(D)$(VM_SUBDIR)
-			J9VM_PATH=$(JAVA_BIN)$(D)j9vm
+			VM_SUBDIR_PATH=$(TEST_JRE_BIN)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JRE_BIN)$(D)j9vm
 		else
-			VM_SUBDIR_PATH=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
-			J9VM_PATH=$(JAVA_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
+			VM_SUBDIR_PATH=$(TEST_JRE_LIB_DIR)$(D)$(ARCH_DIR)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JRE_LIB_DIR)$(D)$(ARCH_DIR)$(D)j9vm
 		endif
 	else
 		ifneq (,$(findstring win,$(SPEC))) 
-			VM_SUBDIR_PATH=$(JAVA_BIN)$(D)$(VM_SUBDIR)
-			J9VM_PATH=$(JAVA_BIN)$(D)j9vm
+			VM_SUBDIR_PATH=$(TEST_JDK_BIN)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JDK_BIN)$(D)j9vm
 		else
-			VM_SUBDIR_PATH=$(JAVA_LIB_DIR)$(D)$(VM_SUBDIR)
-			J9VM_PATH=$(JAVA_LIB_DIR)$(D)j9vm
+			VM_SUBDIR_PATH=$(TEST_JDK_LIB_DIR)$(D)$(VM_SUBDIR)
+			J9VM_PATH=$(TEST_JDK_LIB_DIR)$(D)j9vm
 		endif
 	endif
 
@@ -157,7 +172,7 @@ endif
 # convert ascii to ebcdic on zos
 #######################################
 TOEBCDIC_CMD= \
-$(ECHO) $(Q)coverting asciii files to ebcdic$(Q); \
+$(ECHO) $(Q)converting ascii files to ebcdic$(Q); \
 find | grep \\.java$ | while read f; do echo $$f; iconv -f iso8859-1 -t ibm-1047 < $$f > $$f.ebcdic; rm $$f; mv $$f.ebcdic $$f; done; \
 find | grep \\.txt$ | while read f; do echo $$f; iconv -f iso8859-1 -t ibm-1047 < $$f > $$f.ebcdic; rm $$f; mv $$f.ebcdic $$f; done; \
 find | grep \\.mf$ | while read f; do echo $$f; iconv -f iso8859-1 -t ibm-1047 < $$f > $$f.ebcdic; rm $$f; mv $$f.ebcdic $$f; done; \

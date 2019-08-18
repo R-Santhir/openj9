@@ -291,9 +291,6 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 #if defined(J9VM_INTERP_COMPRESSED_OBJECT_HEADER)
 			writeConstant(OMRPORTLIB, fd, "ASM_J9VM_INTERP_COMPRESSED_OBJECT_HEADER", 1) |
 #endif /* J9VM_INTERP_COMPRESSED_OBJECT_HEADER */
-#if defined(J9VM_THR_LOCK_NURSERY)
-			writeConstant(OMRPORTLIB, fd, "ASM_J9VM_THR_LOCK_NURSERY", 1) |
-#endif /* J9VM_THR_LOCK_NURSERY */
 #if defined(J9VM_INTERP_SMALL_MONITOR_SLOT)
 			writeConstant(OMRPORTLIB, fd, "ASM_J9VM_INTERP_SMALL_MONITOR_SLOT", 1) |
 #endif /* J9VM_INTERP_SMALL_MONITOR_SLOT */
@@ -419,6 +416,9 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 #endif /* J9ZOS390 */
 
 			/* J9VMThread */
+#if defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS)
+			writeConstant(OMRPORTLIB, fd, "J9TR_VMThreadCompressObjectReferences", offsetof(J9VMThread, compressObjectReferences)) |
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS) */
 			writeConstant(OMRPORTLIB, fd, "J9TR_VMThreadCurrentException", offsetof(J9VMThread, currentException)) |
 #if defined(J9VM_ENV_SHARED_LIBS_USE_GLOBAL_TABLE)
 			writeConstant(OMRPORTLIB, fd, "J9TR_VMThreadRTOCOffset", offsetof(J9VMThread, jitTOC)) |
@@ -477,6 +477,7 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 			writeConstant(OMRPORTLIB, fd, "J9TR_JavaVM_cInterpreter", offsetof(J9JavaVM, cInterpreter)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_JavaVM_bytecodeLoop", offsetof(J9JavaVM, bytecodeLoop)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_JavaVM_extendedRuntimeFlags", offsetof(J9JavaVM, extendedRuntimeFlags)) |
+			writeConstant(OMRPORTLIB, fd, "J9TR_JavaVM_extendedRuntimeFlags2", offsetof(J9JavaVM, extendedRuntimeFlags2)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_JavaVMInternalFunctionTable", offsetof(J9JavaVM, internalVMFunctions)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_JavaVM_memoryManagerFunctions", offsetof(J9JavaVM, memoryManagerFunctions)) |
 #if defined(OMR_GC_CONCURRENT_SCAVENGER) && defined(J9VM_ARCH_S390)
@@ -505,9 +506,7 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 			/* J9Class */
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9Class_classLoader", offsetof(J9Class, classLoader)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9Class_lastITable", offsetof(J9Class, lastITable)) |
-#if defined(J9VM_THR_LOCK_NURSERY)
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9Class_lockOffset", offsetof(J9Class, lockOffset)) |
-#endif /* J9VM_THR_LOCK_NURSERY */
 			writeConstant(OMRPORTLIB, fd, "J9TR_ArrayClass_componentType", offsetof(J9ArrayClass, componentType)) |
 
 			/* J9ITable */
@@ -721,6 +720,7 @@ writeConstants(OMRPortLibrary *OMRPORTLIB, IDATA fd)
 			writeConstant(OMRPORTLIB, fd, "J9TR_ELSSize", sizeof(J9VMEntryLocalStorage)) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME_DEBUG_MODE", J9_EXTENDED_RUNTIME_DEBUG_MODE) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS", J9_EXTENDED_RUNTIME_USE_VECTOR_REGISTERS) |
+			writeConstant(OMRPORTLIB, fd, "J9TR_J9_EXTENDED_RUNTIME2_COMPRESS_OBJECT_REFERENCES", J9_EXTENDED_RUNTIME2_COMPRESS_OBJECT_REFERENCES) |
 			writeConstant(OMRPORTLIB, fd, "J9TR_J9_INLINE_JNI_MAX_ARG_COUNT", J9_INLINE_JNI_MAX_ARG_COUNT) |
 
 			/* Flags for iTable offset in resolved interface snippet data */

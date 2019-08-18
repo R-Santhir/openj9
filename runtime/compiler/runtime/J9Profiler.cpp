@@ -443,7 +443,7 @@ void TR_ValueProfiler::modifyTrees()
 
             if (methodSymbol->isInterface())
                {
-               TR_Method *interfaceMethod = methodSymbol->getMethod();
+               TR::Method *interfaceMethod = methodSymbol->getMethod();
                int32_t         cpIndex      = methodSymRef->getCPIndex();
                int32_t len = interfaceMethod->classNameLength();
                char * s = classNameToSignature(interfaceMethod->classNameChars(), len, comp());
@@ -1351,7 +1351,7 @@ TR_ExternalValueProfileInfo::getInfo(TR_OpaqueMethodBlock *method, TR::Compilati
          return *info;
       }
 
-   return NULL; 
+   return NULL;
    }
 
 /**
@@ -1663,7 +1663,7 @@ TR_BlockFrequencyInfo::TR_BlockFrequencyInfo(
       /*
        * The explicit parens value initialize the array,
        * which in turn value initializes each array member,
-       * which for ints is zero initializaiton.
+       * which for ints is zero initialization.
        */
       new (comp->trMemory(), allocKind, TR_Memory::BlockFrequencyInfo) int32_t[_numBlocks]() :
       NULL
@@ -1786,7 +1786,7 @@ TR_BlockFrequencyInfo::getFrequencyInfo(
          callStack.push_back(std::make_pair(comp->fe()->getInlinedCallSiteMethod(callSite), bciToCheck));
          bciToCheck = callSite->_byteCodeInfo;
          }
-      
+
       // step 2 - find the level at which the inlining has begun to differ for the previous compile
       // eg find the point where the current profiling info has no profiling data for the given bci
       TR_ByteCodeInfo lastProfiledBCI = bciToCheck;
@@ -1953,7 +1953,7 @@ TR_BlockFrequencyInfo::getOriginalBlockNumberToGetRawCount(TR_ByteCodeInfo &bci,
    int32_t byteCodeToSearch = resolvedMethod->getProfilingByteCodeIndex(bci.getByteCodeIndex());
    TR_ByteCodeInfo searchBCI = bci;
    searchBCI.setByteCodeIndex(byteCodeToSearch);
-   bool currentCallSiteInfo = TR_CallSiteInfo::getCurrent(comp) == _callSiteInfo; 
+   bool currentCallSiteInfo = TR_CallSiteInfo::getCurrent(comp) == _callSiteInfo;
    for (auto i=0; i < _numBlocks; ++i)
       {
       if (currentCallSiteInfo && _callSiteInfo->hasSameBytecodeInfo(_blocks[i], searchBCI, comp) ||
@@ -2700,7 +2700,7 @@ TR_PersistentProfileInfo *TR_AccessedProfileInfo::compare(TR_PersistentMethodInf
 
 /**
  * For the current method.
- * More frequenct request, so avoid the overhead of the map.
+ * More frequent request, so avoid the overhead of the map.
  */
 TR_PersistentProfileInfo *TR_AccessedProfileInfo::get(TR::Compilation *comp)
    {
@@ -2717,7 +2717,7 @@ TR_PersistentProfileInfo *TR_AccessedProfileInfo::get(TR::Compilation *comp)
       // it may mislead and confuse
       if (_current && _current == TR_PersistentProfileInfo::getCurrent(comp))
          {
-         TR_PersistentProfileInfo::decRefCount(_current); 
+         TR_PersistentProfileInfo::decRefCount(_current);
          _current = NULL;
          }
       }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -40,6 +40,9 @@
 #include "infra/Statistics.hpp"
 #include "control/rossa.h"
 #include "runtime/RelocationRuntime.hpp"
+#if defined(JITSERVER_SUPPORT)
+#include "env/PersistentCollections.hpp"
+#endif /* defined(JITSERVER_SUPPORT) */
 
 extern "C" {
 struct J9Method;
@@ -71,6 +74,10 @@ struct TR_JitPrivateConfig;
 struct TR_MethodToBeCompiled;
 template <typename T> class TR_PersistentArray;
 typedef J9JITExceptionTable TR_MethodMetaData;
+
+#if defined(JITSERVER_SUPPORT)
+namespace JITServer { class ServerStream; }
+#endif /* defined(JITSERVER_SUPPORT) */
 
 struct TR_SignatureCountPair
 {
@@ -249,7 +256,7 @@ class TR_JitSampleInfo
 
 // The following class is used for tracking methods that have their invocation
 // count decremented due to a sample in interpreted code. When that happens
-// we add teh method to a list. When a method needs to be compiled we check
+// we add the method to a list. When a method needs to be compiled we check
 // the list and if the method is in the list we delete it and schedule a
 // SamplingJprofiling compilation for the count that has been skipped
 class TR_InterpreterSamplingTracking
@@ -371,7 +378,7 @@ public:
       SAMPLER_STOPPED,
       SAMPLER_LAST_STATE, // must be the last one
       // If adding new state, one must add a new name as well in samplerThreadStateNames array
-      // and a frequency in samplerThreadStateFreqencies array
+      // and a frequency in samplerThreadStateFrequencies array
      };
 
    enum TR_SamplingThreadLifetimeStates
@@ -555,7 +562,9 @@ public:
 
    TR_MethodToBeCompiled *addMethodToBeCompiled(TR::IlGeneratorMethodDetails &details, void *pc, CompilationPriority priority,
       bool async, TR_OptimizationPlan *optPlan, bool *queued, TR_YesNoMaybe methodIsInSharedCache);
-
+#if defined(JITSERVER_SUPPORT)
+   TR_MethodToBeCompiled *addOutOfProcessMethodToBeCompiled(JITServer::ServerStream *stream);
+#endif /* defined(JITSERVER_SUPPORT) */
    void                   queueEntry(TR_MethodToBeCompiled *entry);
    void                   recycleCompilationEntry(TR_MethodToBeCompiled *cur);
    TR_MethodToBeCompiled *adjustCompilationEntryAndRequeue(TR::IlGeneratorMethodDetails &details,
@@ -838,7 +847,7 @@ public:
    /**
    * @brief Compute free physical memory taking into account container limits
    *
-   * @param incompleteInfo   [OUTPUT] Boolean indicating that cached/buffered mmeory couldn't be read
+   * @param incompleteInfo   [OUTPUT] Boolean indicating that cached/buffered memory couldn't be read
    * @return                 A value representing the free physicalMemory
                              or OMRPORT_MEMINFO_NOT_AVAILABLE in case of error
    */
@@ -851,7 +860,7 @@ public:
    * only refreshes it if more than "updatePeriodMs" have passed since the last update
    * If updatePeriodMs==-1, then updatePeriodMs uses a default value of 500 ms
    *
-   * @param incompleteInfo   [OUTPUT] Boolean indicating that cached/buffered mmeory couldn't be read
+   * @param incompleteInfo   [OUTPUT] Boolean indicating that cached/buffered memory couldn't be read
    * @param updatePeriodMs   Indicates how often the cached values are refreshed
    * @return                 A value representing the free physicalMemory 
                              or OMRPORT_MEMINFO_NOT_AVAILABLE in case of error
@@ -880,6 +889,14 @@ public:
    bool getSuspendThreadDueToLowPhysicalMemory() const { return _suspendThreadDueToLowPhysicalMemory; }
    void setSuspendThreadDueToLowPhysicalMemory(bool b) { _suspendThreadDueToLowPhysicalMemory = b; }
 
+#if defined(JITSERVER_SUPPORT)
+   const PersistentVector<std::string> &getJITServerSslKeys() const { return _sslKeys; }
+   void  addJITServerSslKey(const std::string &key) { _sslKeys.push_back(key); }
+   const PersistentVector<std::string> &getJITServerSslCerts() const { return _sslCerts; }
+   void  addJITServerSslCert(const std::string &cert) { _sslCerts.push_back(cert); }
+   const std::string &getJITServerSslRootCerts() const { return _sslRootCerts; }
+   void  setJITServerSslRootCerts(const std::string &cert) { _sslRootCerts = cert; }
+#endif /* defined(JITSERVER_SUPPORT) */
    static int32_t         VERY_SMALL_QUEUE;
    static int32_t         SMALL_QUEUE;
    static int32_t         MEDIUM_LARGE_QUEUE;
@@ -976,7 +993,7 @@ private:
    int32_t                _samplingThreadWaitTimeInDeepIdleToNotifyVM;
    int32_t                _numMethodsFoundInSharedCache;
    int32_t                _numInvRequestsInCompQueue; // number of invalidation requests present in the compilation queue
-   uint64_t               _lastReqStartTime; // time (ms) when procesing the last request started
+   uint64_t               _lastReqStartTime; // time (ms) when processing the last request started
    uint64_t               _lastCompilationsShouldBeInterruptedTime; // RAS
 // statistics
    int32_t                _statsOptLevels[numHotnessLevels]; // will be zeroed with memset
@@ -1042,7 +1059,7 @@ private:
    TR_LowPriorityCompQueue _lowPriorityCompilationScheduler;
    TR_JProfilingQueue      _JProfilingQueue;
 
-   TR::CompilationTracingFacility _compilationTracingFacility; // Must be intialized before using
+   TR::CompilationTracingFacility _compilationTracingFacility; // Must be initialized before using
    TR_CpuEntitlement _cpuEntitlement;
    TR_JitSampleInfo  _jitSampleInfo;
    TR_SharedCacheRelocationRuntime _reloRuntime;
@@ -1059,6 +1076,11 @@ private:
    // freeing scratch segments it holds to
    bool _suspendThreadDueToLowPhysicalMemory;
    TR_InterpreterSamplingTracking *_interpSamplTrackingInfo;
+#if defined(JITSERVER_SUPPORT)
+   std::string                   _sslRootCerts;
+   PersistentVector<std::string> _sslKeys;
+   PersistentVector<std::string> _sslCerts;
+#endif /* defined(JITSERVER_SUPPORT) */
    }; // CompilationInfo
 }
 

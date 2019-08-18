@@ -1,6 +1,4 @@
 /*[INCLUDE-IF Sidecar16]*/
-package com.ibm.tools.attach.target;
-
 /*******************************************************************************
  * Copyright (c) 2009, 2019 IBM Corp. and others
  *
@@ -23,30 +21,32 @@ package com.ibm.tools.attach.target;
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
 
+package com.ibm.tools.attach.target;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
-import java.security.SecureRandom;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
+import java.security.SecureRandom;
 import java.util.EnumSet;
-import java.util.Set;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Random;
+import java.util.Set;
 
 import static java.nio.file.attribute.PosixFilePermission.GROUP_READ;
 import static java.nio.file.attribute.PosixFilePermission.GROUP_WRITE;
 import static java.nio.file.attribute.PosixFilePermission.OTHERS_READ;
 import static java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE;
-import static openj9.tools.attach.diagnostics.base.DiagnosticsInfo.OPENJ9_DIAGNOSTICS_PREFIX;
+import static openj9.tools.attach.diagnostics.base.DiagnosticProperties.OPENJ9_DIAGNOSTICS_PREFIX;
 
 /**
  * Utility class for operating system calls
@@ -153,7 +153,7 @@ public class IPC {
 				actualPermissions.retainAll(NON_OWNER_READ_WRITE);
 				if (!actualPermissions.isEmpty()) {
 					final String permissionString = Files.getPosixFilePermissions(Paths.get(filePath), LinkOption.NOFOLLOW_LINKS).toString();
-					logMessage("Wrong permissions: " +permissionString + " for ", filePath); //$NON-NLS-1$ //$NON-NLS-2$
+					logMessage("Wrong permissions: " + permissionString + " for ", filePath); //$NON-NLS-1$ //$NON-NLS-2$
 					/*[MSG "K0805", "{0} has permissions {1}, should have owner access only"]*/
 					throw new IOException(com.ibm.oti.util.Msg.getString("K0805", filePath, permissionString));//$NON-NLS-1$
 				}
@@ -167,15 +167,13 @@ public class IPC {
 		}
 	}
 
-	/*[PR Jazz 30075] setupSemaphore was re-doing what createDirectoryAndSemaphore (now called prepareCommonDirectory) did already */
-
 	/**
-	 * 
+	 * Open a semaphore.  On Windows, use the global namespace if requested.
 	 * @param ctrlDir Location of the control file
 	 * @param SemaphoreName key used to identify the semaphore
 	 * @return non-zero on failure
 	 */
-	native static int openSemaphore(String ctrlDir, String SemaphoreName);
+	native static int openSemaphore(String ctrlDir, String SemaphoreName, boolean global);
 
 	/**
 	 * wait for a post on the semaphore for this VM. Use notify() to do the post
@@ -185,19 +183,25 @@ public class IPC {
 
 	/**
 	 * Open the semaphore, post to it, and close it
+	 * @param ctrlDir directory containing the semaphore
+	 * @param semaphoreName name of the semaphore
 	 * @param numberOfTargets number of times to post to the semaphore
+	 * @param global open the semaphore in the global namespace (Windows only)
 	 * @return 0 on success
 	 */
-	native static int notifyVm(String ctrlDir, String SemaphoreName,
-			int numberOfTargets);
+	native static int notifyVm(String ctrlDir, String semaphoreName,
+			int numberOfTargets, boolean global);
 
 	/**
 	 * Open the semaphore, decrement it without blocking to it, and close it
-	 * @param numberOfTargets number of times to decrement to the semaphore
+	 * @param ctrlDir directory containing the semaphore
+	 * @param semaphoreName name of the semaphore
+	 * @param numberOfTargets number of times to post to the semaphore
+	 * @param global open the semaphore in the global namespace (Windows only)
 	 * @return 0 on success
 	 */
-	static native int cancelNotify(String ctrlDir, String SemaphoreName,
-			int numberOfTargets);
+	static native int cancelNotify(String ctrlDir, String semaphoreName,
+			int numberOfTargets, boolean global);
 
 	/**
 	 * close but do not destroy this VM's notification semaphore.
@@ -304,8 +308,8 @@ public class IPC {
 	static String getTmpDir() {
 		String tmpDir = getTempDirImpl();
 		if (null == tmpDir) {
-			IPC.logMessage("Could not get system temporary directory. Trying "+JAVA_IO_TMPDIR); //$NON-NLS-1$
-			tmpDir = com.ibm.oti.vm.VM.getVMLangAccess().internalGetProperties().getProperty(JAVA_IO_TMPDIR); //$NON-NLS-1$
+			logMessage("Could not get system temporary directory. Trying " + JAVA_IO_TMPDIR); //$NON-NLS-1$
+			tmpDir = com.ibm.oti.vm.VM.getVMLangAccess().internalGetProperties().getProperty(JAVA_IO_TMPDIR);
 		}
 		return tmpDir;
 	}
@@ -418,14 +422,16 @@ public class IPC {
 	 * Print the information about a throwable, including the exact class,
 	 * message, and stack trace.
 	 * @param msg User supplied message
-	 * @param thrown throwable
+	 * @param thrown Throwable object or null
 	 * @note nothing is printed if logging is disabled
 	 */
 	public static void logMessage(String msg, Throwable thrown) {
 		synchronized (accessorMutex) {
 			if (isLoggingEnabled()) {
 				printMessageWithHeader(msg, logStream);
-				thrown.printStackTrace(logStream);
+				if (null != thrown) {
+					thrown.printStackTrace(logStream);
+				}
 				logStream.flush();
 			}
 		}
@@ -518,9 +524,9 @@ public class IPC {
 	public static Properties receiveProperties(InputStream inStream, boolean requireNull)
 			throws IOException {
 		byte msgBuff[] = AttachmentConnection.streamReceiveBytes(inStream, 0, requireNull);
-		if (IPC.isLoggingEnabled()) {
+		if (isLoggingEnabled()) {
 			String propsString = new String(msgBuff, StandardCharsets.UTF_8);
-			IPC.logMessage("Received properties file:", propsString); //$NON-NLS-1$
+			logMessage("Received properties file:", propsString); //$NON-NLS-1$
 		}
 		Properties props = new Properties();
 		props.load(new ByteArrayInputStream(msgBuff));

@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -125,10 +124,11 @@ MM_GlobalMarkCardScrubber::scrubObject(MM_EnvironmentVLHGC *env, J9Object *objec
 {
 	bool doScrub = true;
 	
-	J9Class* clazz = J9GC_J9OBJECT_CLAZZ(objectPtr);
+	J9Class* clazz = J9GC_J9OBJECT_CLAZZ(objectPtr, env);
 	Assert_MM_mustBeClass(clazz);
 	switch(MM_GCExtensions::getExtensions(env)->objectModel.getScanType(clazz)) {
 		case GC_ObjectModel::SCAN_ATOMIC_MARKABLE_REFERENCE_OBJECT:
+		case GC_ObjectModel::SCAN_MIXED_OBJECT_LINKED:
 		case GC_ObjectModel::SCAN_MIXED_OBJECT:
 		case GC_ObjectModel::SCAN_OWNABLESYNCHRONIZER_OBJECT:
 		case GC_ObjectModel::SCAN_REFERENCE_MIXED_OBJECT:
@@ -236,20 +236,21 @@ MM_GlobalMarkCardScrubber::scrubClassLoaderObject(MM_EnvironmentVLHGC *env, J9Ob
 			doScrub = mayScrubReference(env, classLoaderObject, classObject);
 		}
 
-		Assert_MM_true(NULL != classLoader->moduleHashTable);
-		J9HashTableState walkState;
-		J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
-		while (doScrub && (NULL != modulePtr)) {
-			J9Module * const module = *modulePtr;
-			Assert_MM_true(NULL != module->moduleObject);
-			doScrub = mayScrubReference(env, classLoaderObject, module->moduleObject);
-			if (doScrub) {
-				doScrub = mayScrubReference(env, classLoaderObject, module->moduleName);
+		if (NULL != classLoader->moduleHashTable) {
+			J9HashTableState walkState;
+			J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
+			while (doScrub && (NULL != modulePtr)) {
+				J9Module * const module = *modulePtr;
+				Assert_MM_true(NULL != module->moduleObject);
+				doScrub = mayScrubReference(env, classLoaderObject, module->moduleObject);
+				if (doScrub) {
+					doScrub = mayScrubReference(env, classLoaderObject, module->moduleName);
+				}
+				if (doScrub) {
+					doScrub = mayScrubReference(env, classLoaderObject, module->version);
+				}
+				modulePtr = (J9Module**)hashTableNextDo(&walkState);
 			}
-			if (doScrub) {
-				doScrub = mayScrubReference(env, classLoaderObject, module->version);
-			}
-			modulePtr = (J9Module**)hashTableNextDo(&walkState);
 		}
 	}
 	

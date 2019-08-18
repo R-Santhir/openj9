@@ -55,7 +55,7 @@ PERL?=perl
 
 #
 # z/Architecture arch and tune level
-# z/TPF uses z10 as minminum supported z/Architecture.
+# z/TPF uses z10 as minimum supported z/Architecture.
 # mtune of z9-109 allows builtin versions of memcpy, etc.
 # instead of calling "arch-optimized" glibc functions.
 #
@@ -75,7 +75,7 @@ ZASM_SCRIPT?=$(JIT_SCRIPT_DIR)/s390m4check.pl
 
 # Set up z/TPF directories and flags
 # Note: -isystem $(TPF_ROOT) is used for a2e calls to opensource functions
-TPF_ROOT ?= /ztpf/java/bld/jvm/userfiles /ztpf/svtcur/gnu/all /ztpf/commit
+TPF_ROOT ?= /ztpf/java/bld/jvm/userfiles /zbld/svtcur/gnu/all /ztpf/commit
 
 TPF_INCLUDES := $(foreach d,$(TPF_ROOT),-I$d/base/a2e/headers)
 TPF_INCLUDES += $(foreach d,$(TPF_ROOT),-I$d/base/include)
@@ -87,7 +87,8 @@ TPF_INCLUDES += $(foreach d,$(TPF_ROOT),-isystem $d/opensource/include)
 TPF_INCLUDES += $(foreach d,$(TPF_ROOT),-isystem $d/noship/include)
 TPF_INCLUDES += $(foreach d,$(TPF_ROOT),-isystem $d)
 
-TPF_FLAGS += -fexec-charset=ISO-8859-1 -fmessage-length=0 -funsigned-char -fverbose-asm -fno-builtin-abort -fno-builtin-exit -fno-builtin-sprintf -ffloat-store -gdwarf-2 -Wno-format-extra-args -Wno-int-to-pointer-cast -Wno-unused-but-set-variable -Wno-write-strings
+TPF_FLAGS += -fexec-charset=ISO-8859-1 -fmessage-length=0 -funsigned-char -fverbose-asm -fno-builtin-abort -fno-builtin-exit -ffloat-store -gdwarf-2 -Wno-format-extra-args -Wno-int-to-pointer-cast -Wno-unused-but-set-variable -Wno-write-strings -fno-delete-null-pointer-checks -fno-tree-dse -fno-lifetime-dse -fno-optimize-strlen
+ 
 
 #
 # First setup C and C++ compilers.

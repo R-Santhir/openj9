@@ -44,6 +44,7 @@
 #include "j9protos.h"
 #include "vmaccess.h"
 #include "objhelp.h"
+#include "shcdatatypes.h"
 #include "codegen/CodeGenerator.hpp"
 #include "codegen/Instruction.hpp"
 #include "compile/CompilationTypes.hpp"
@@ -92,7 +93,20 @@
 #include "env/J9SegmentCache.hpp"
 #include "env/SystemSegmentProvider.hpp"
 #include "env/DebugSegmentProvider.hpp"
-
+#ifdef COMPRESS_AOT_DATA
+#ifdef J9ZOS390
+// inflateInit checks the version of the zlib with which data was deflated. 
+// Reason we need to avoid conversion here is because, we are statically linking
+// system zlib which would have encoded String literals in some version which is not 
+// same as the version we are converting out string literals in. This leads to issue
+// where we fail inflating data with version mismatch. 
+#pragma convlit(suspend)
+#include <zlib.h>
+#pragma convlit(resume)
+#else
+#include "zlib.h"
+#endif
+#endif
 #if defined(J9VM_OPT_SHARED_CLASSES)
 #include "j9jitnls.h"
 #endif
@@ -112,8 +126,6 @@ static void printCompFailureInfo(TR::Compilation * comp, const char * reason);
 
 #if defined(AIXPPC)
 #include <unistd.h>
-extern FILE *j2Profile;
-extern void  j2Prof_methodReport(TR_Method * vmMethod, TR::Compilation * comp);
 #endif
 
 #if defined(J9VM_INTERP_PROFILING_BYTECODES)
@@ -127,6 +139,9 @@ extern TR::OptionSet *findOptionSet(J9Method *, bool);
 
 #define VM_STATE_COMPILING 64
 #define MAX_NUM_CRASHES 4
+#define COMPRESSION_FAILED -1
+#define DECOMPRESSION_FAILED -1
+#define DECOMPRESSION_SUCCEEDED 0
 
 #if defined(WINDOWS)
 void setThreadAffinity(unsigned _int64 handle, unsigned long mask)
@@ -249,7 +264,126 @@ jitSignalHandler(struct J9PortLibrary *portLibrary, U_32 gpType, void *gpInfo, v
 
    return J9PORT_SIG_EXCEPTION_CONTINUE_SEARCH;
    }
+#ifdef COMPRESS_AOT_DATA
+#ifdef J9ZOS390
+#pragma convlit(suspend)
+#endif
+/*
+ * \brief
+ *    Inflates the data buffer using zlib into output buffer
+ *
+ * \param 
+ *    buffer Input buffer that is going to be inflated 
+ * 
+ * \param 
+ *    numberOfBytes Size of the data in the input buffer to inflate
+ * 
+ * \param
+ *    outBuffer Output buffer to hold the deflated data
+ * 
+ * \param
+ *    unCompressedSize Size of the original data
+ * 
+ * \return
+ *    Returns DECOMPRESSION_FAILED if it can not inflate the buffer
+ * 
+ */
+static
+int inflateBuffer(U_8 *buffer, int numberOfBytes, U_8 *outBuffer, int unCompressedSize)
+   {
+   Bytef *in = (Bytef*)buffer;
+   Bytef *out = (Bytef*)outBuffer;
+   z_stream _stream;
+   _stream.zalloc = Z_NULL;
+   _stream.zfree = Z_NULL;
+   _stream.opaque = Z_NULL;
+   _stream.avail_in = 0;
+   _stream.next_in = Z_NULL;
+   int ret = inflateInit(&_stream);
+   if (ret != Z_OK)
+      return DECOMPRESSION_FAILED;
+   _stream.avail_out = unCompressedSize;
+   _stream.next_out = out;
+   _stream.next_in = in;
+   _stream.avail_in = numberOfBytes;
+   ret = inflate(&_stream, Z_NO_FLUSH);
+   /**
+    * ZLIB returns Z_STREAM_END if the buffer stream to be inflated is finished.
+    * In this case it returns DECOMPRESSION_FAILED.
+    * Caller of this routine can then decide if they want to retry deflating
+    * Using larger output buffer. 
+    */
+   if (ret != Z_STREAM_END)
+      {
+      TR_ASSERT(0, "Fails while inflating buffer");
+      ret = DECOMPRESSION_FAILED;
+      }
+   else
+      {
+      ret = DECOMPRESSION_SUCCEEDED;
+      }
+   inflateEnd(&_stream);
+   return ret;
+   }
 
+/*
+ * \brief
+ *    Deflates the data buffer using zlib into output buffer
+ *
+ * \param 
+ *    buffer Input buffer that is going to be deflated 
+ * 
+ * \param 
+ *    numberOfBytes Size of the data in the input buffer to deflate
+ * 
+ * \param
+ *    outBuffer Output buffer to hold the deflated data
+ * 
+ * \param
+ *    level Level of compression
+ * 
+ * \return
+ *    If successful, returns Size of data in the deflated bufer
+ *    else returns COMPRESSION_FAILED
+ * 
+ */
+static
+int deflateBuffer(const U_8 *buffer, int numberOfBytes, U_8 *outBuffer, int level)
+   {
+   z_stream _stream;
+   _stream.zalloc = Z_NULL;
+   _stream.zfree = Z_NULL;
+   _stream.opaque = Z_NULL;
+   int ret=deflateInit(&_stream, level);
+   if (ret != Z_OK)
+      return COMPRESSION_FAILED;
+   // Start deflating
+   _stream.avail_in = numberOfBytes;
+   _stream.next_in = (Bytef*) buffer;
+   _stream.avail_out = numberOfBytes;
+   _stream.next_out = (Bytef*) outBuffer;
+   ret = deflate(&_stream, Z_FINISH);
+   /**
+    * ZLIB returns Z_STREAM_END if the buffer stream to be deflated is finished.
+    * That Return COMPRESSION_FAILED in case we are ending up inflating the data.
+    * Caller of this routine can then decide if they want to retry deflating
+    * Using larger output buffer. 
+    */
+   if ( ret != Z_STREAM_END )
+      {
+      TR_ASSERT(0, "Deflated data is larger than original data.");
+      deflateEnd(&_stream);
+      return COMPRESSION_FAILED;
+      }
+   
+   int compressedSize = numberOfBytes - _stream.avail_out;
+   deflateEnd(&_stream);
+   return compressedSize;
+   }
+#ifdef J9ZOS390
+#pragma convlit(resume)
+#endif
+#endif
 inline void
 TR::CompilationInfo::incrementMethodQueueSize()
    {
@@ -581,8 +715,8 @@ TR::CompilationInfo::createCompilationInfo(J9JITConfig * jitConfig)
       {
       TR::RawAllocator rawAllocator(jitConfig->javaVM);
       void * alloc = rawAllocator.allocate(sizeof(TR::CompilationInfo));
-      /* FIXME: Replace this with the appropriate intializers in the constructor */
-      /* Note: there are embbeded objects in TR::CompilationInfo that rely on the fact
+      /* FIXME: Replace this with the appropriate initializers in the constructor */
+      /* Note: there are embedded objects in TR::CompilationInfo that rely on the fact
          that we do memset this object to 0 */
       memset(alloc, 0, sizeof(TR::CompilationInfo));
       _compilationRuntime = new (alloc) TR::CompilationInfo(jitConfig);
@@ -605,7 +739,7 @@ void TR::CompilationInfo::freeCompilationInfo(J9JITConfig *jitConfig)
    TR::CompilationInfo * compilationRuntime = _compilationRuntime;
    _compilationRuntime = NULL;
    TR::RawAllocator rawAllocator(jitConfig->javaVM);
-   _compilationRuntime->~CompilationInfo();
+   compilationRuntime->~CompilationInfo();
    rawAllocator.deallocate(compilationRuntime);
    }
 
@@ -786,6 +920,10 @@ TR::CompilationInfoPerThread::CompilationInfoPerThread(TR::CompilationInfo &comp
    }
 
 TR::CompilationInfo::CompilationInfo(J9JITConfig *jitConfig) :
+#if defined(JITSERVER_SUPPORT)
+   _sslKeys(decltype(_sslKeys)::allocator_type(TR::Compiler->persistentAllocator())),
+   _sslCerts(decltype(_sslCerts)::allocator_type(TR::Compiler->persistentAllocator())),
+#endif /* defined(JITSERVER_SUPPORT) */
    _persistentMemory(pointer_cast<TR_PersistentMemory *>(jitConfig->scratchSegment)),
    _reloRuntime(jitConfig),
    _samplingThreadWaitTimeInDeepIdleToNotifyVM(-1)
@@ -960,10 +1098,8 @@ void TR::CompilationInfo::setAllCompilationsShouldBeInterrupted()
 
 bool TR::CompilationInfo::useSeparateCompilationThread()
    {
-#if (defined(TR_HOST_X86) || defined(TR_HOST_S390) || (defined(TR_HOST_POWER)) || defined(TR_HOST_ARM))
    if (!TR::Options::getCmdLineOptions()->getOption(TR_AOT))
       return !TR::Options::getCmdLineOptions()->getOption(TR_DisableCompilationThread);
-#endif
    return TR::Options::getCmdLineOptions()->getOption(TR_EnableCompilationThread);
    }
 
@@ -1016,7 +1152,7 @@ TR_YesNoMaybe TR::CompilationInfo::detectCompThreadStarvation()
    for (int32_t compId = 0; compId < _compThreadIndex; compId++)
       {
       // We must look at all active threads because we want to avoid the
-      // case where they compete with each other (4 comp threads on a single procesor)
+      // case where they compete with each other (4 comp threads on a single processor)
       //
       TR::CompilationInfoPerThread *compInfoPT = _arrayOfCompilationInfoPerThread[compId];
       TR_ASSERT(compInfoPT, "compInfoPT must exist because we don't destroy compilation threads");
@@ -1538,7 +1674,7 @@ TR::CompilationInfo::updateCompQueueAccountingOnDequeue(TR_MethodToBeCompiled *e
       TR_ASSERT(_numQueuedFirstTimeCompilations >= 0, "_numQueuedFirstTimeCompilations is negative : %d", _numQueuedFirstTimeCompilations);
       }
    // Note: queue weight is handled separately because a method that is currently being
-   // compiled is considered as bringing some weigth to the processing backlog
+   // compiled is considered as bringing some weight to the processing backlog
    }
 
 
@@ -1662,7 +1798,7 @@ void TR::CompilationInfo::invalidateRequestsForUnloadedMethods(TR_OpaqueClassBlo
       TR_ASSERT(curCompThreadInfoPT, "a thread's compinfo is missing\n");
 
       TR_MethodToBeCompiled *methodBeingCompiled = curCompThreadInfoPT->getMethodBeingCompiled();
-      // Mark the method beign compiled that it has been unloaded.
+      // Mark the method being compiled that it has been unloaded.
       // If it is already marked, then there is nothing to do.
       //
       if (methodBeingCompiled && !methodBeingCompiled->_unloadedMethod)
@@ -1697,7 +1833,7 @@ void TR::CompilationInfo::invalidateRequestsForUnloadedMethods(TR_OpaqueClassBlo
             }
          }
       } // end for
-   // if compilin on app thread, there is no compilation queue
+   // if compiling on app thread, there is no compilation queue
    TR_MethodToBeCompiled *cur  = _methodQueue;
    TR_MethodToBeCompiled *prev = NULL;
    bool verboseDetails = TR::Options::getCmdLineOptions()->getVerboseOption(TR_VerboseHookDetails);
@@ -1803,6 +1939,7 @@ bool TR::CompilationInfo::shouldRetryCompilation(TR_MethodToBeCompiled *entry, T
             case compilationAotValidateStringCompressionFailure:
             case compilationSymbolValidationManagerFailure:
             case compilationAOTNoSupportForAOTFailure:
+            case compilationAOTValidateTMFailure:
                // switch to JIT for these cases (we don't want to relocate again)
                entry->_doNotUseAotCodeFromSharedCache = true;
                tryCompilingAgain = true;
@@ -2324,7 +2461,7 @@ TR::CompilationInfoPerThread* TR::CompilationInfo::getCompInfoForThread(J9VMThre
 //-------------------------- startCompilationThread --------------------------
 // Start ONE compilation thread and initialize the associated
 // TR::CompilationInfoPerThread structure
-// This function returns immediatelly after the thread is created
+// This function returns immediately after the thread is created
 // Parameters:
 //   priority - the desired priority of the thread (0..5); negative number
 //               means that the priority will be computed automatically
@@ -2631,7 +2768,7 @@ void TR::CompilationInfo::stopCompilationThreads()
    //fprintf(stderr, "stopCompilationThread\n");
    // if we compile on application thread, there is no compilation
    // request queue and there is no compilation thread
-   // The SMALL jit case is already treated separatelly
+   // The SMALL jit case is already treated separately
    if (!useSeparateCompilationThread())
       {
       acquireCompMonitor(vmThread);
@@ -3072,7 +3209,7 @@ IDATA J9THREAD_PROC compilationThreadProc(void *entryarg)
    // It is possible that the shutdown signal came before this thread has had the time
    // to become fully initialized. If that's the case, the state will appear as STOPPING
    // instead of UNINITIALIZED. This can happen when we destroy the cache; the java app
-   // starts and finishes immediatelly
+   // starts and finishes immediately
    if (compInfoPT->getCompilationThreadState() == COMPTHREAD_SIGNAL_TERMINATE)
       {
       compInfoPT->setCompilationThreadState(COMPTHREAD_STOPPING);
@@ -3728,7 +3865,7 @@ TR::CompilationInfoPerThread::processEntry(TR_MethodToBeCompiled &entry, J9::J9S
 
       compInfo->debugPrint("\trequeueing interrupted compilation request", details, compThread);
 
-      // After releaseing the monitors and vm access below, we will loop back to the head of the loop, and retry the
+      // After releasing the monitors and vm access below, we will loop back to the head of the loop, and retry the
       // compilation.  Do not put the request back into the pool, instead requeue.
       //
       requeue();
@@ -4534,7 +4671,7 @@ TR::CompilationInfo::getNextMethodToBeCompiled(TR::CompilationInfoPerThread *com
    if (_methodQueue)
       {
       // If the request is sync or AOT load or InstantReplay, take it now
-      if (compInfoPT->isDiagnosticThread() || // InstantReplay compilations must be processed immediatelly
+      if (compInfoPT->isDiagnosticThread() || // InstantReplay compilations must be processed immediately
          _methodQueue->_priority >= CP_SYNC_MIN ||       // sync comp
          _methodQueue->_methodIsInSharedCache == TR_yes) // very cheap relocation
          {
@@ -4694,7 +4831,7 @@ TR::CompilationInfo::getNextMethodToBeCompiled(TR::CompilationInfoPerThread *com
 
 //----------------------------- computeCompThreadSleepTime ----------------------
 // Compute how much the compilation thread should sleep for throttling purposes
-// Parameters: compilationTimeMs is the wall clock time spent by previuous
+// Parameters: compilationTimeMs is the wall clock time spent by previous
 // compilation
 // The return value is in ms.
 //-------------------------------------------------------------------------------
@@ -4799,7 +4936,7 @@ void *TR::CompilationInfo::startPCIfAlreadyCompiled(J9VMThread * vmThread, TR::I
    if (!oldStartPC)
       {
       // first compilation of the method: J9Method would be updated if the
-      // compilatoin has already taken place
+      // compilation has already taken place
       //
       if (isCompiled(method))
          startPC = getJ9MethodStartPC(method);
@@ -4960,7 +5097,7 @@ void *TR::CompilationInfo::compileMethod(J9VMThread * vmThread, TR::IlGeneratorM
 
    // If compiling on this thread acquire the application thread monitor.
    // This is the monitor that prevents compilation on multiple application
-   // threadsat the same time. It is held for the duration of the compilation.
+   // threads at the same time. It is held for the duration of the compilation.
    //
    if (!useSeparateCompilationThread())
       {
@@ -5255,7 +5392,7 @@ void *TR::CompilationInfo::compileOnSeparateThread(J9VMThread * vmThread, TR::Il
                  ((!TR::Options::getCmdLineOptions()->getOption(TR_DisableDFP) || !TR::Options::getAOTCmdLineOptions()->getOption(TR_DisableDFP)) &&
                   (TR::Compiler->target.cpu.supportsDecimalFloatingPoint()
 #ifdef TR_TARGET_S390
-                  || TR::Compiler->target.cpu.getS390SupportsDFP()
+                  || TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility()
 #endif
                   ) && TR_J9MethodBase::isBigDecimalMethod((J9Method *)method))))
                 async = false;
@@ -6069,7 +6206,7 @@ void TR::CompilationInfo::queueForcedAOTUpgrade(TR_MethodToBeCompiled *originalE
          {
          if (!TR::Options::isQuickstartDetected())
             hotness = warm;
-         else  if (TR::Options::getCmdLineOptions()->getOption(TR_UpgradeBootstrapAtWarm))// This is a JIT option because it perteins to JIT compilations
+         else  if (TR::Options::getCmdLineOptions()->getOption(TR_UpgradeBootstrapAtWarm))// This is a JIT option because it pertains to JIT compilations
             {
             // To reduce affect on short applications like tomcat
             // upgrades to warm should be performed only outside the grace period
@@ -6198,6 +6335,9 @@ TR::CompilationInfoPerThreadBase::generatePerfToolEntry()
 #endif
    }
 
+
+
+
 /**
  * @brief TR::CompilationInfoPerThreadBase::preCompilationTasks
  * @param vmThread Pointer to the current J9VMThread (input)
@@ -6268,9 +6408,73 @@ TR::CompilationInfoPerThreadBase::preCompilationTasks(J9VMThread * vmThread,
             *aotCachedMethod = javaVM->sharedClassConfig->findCompiledMethodEx1(vmThread, J9_ROM_METHOD_FROM_RAM_METHOD(method), &flags);
             if (!(flags & J9SHR_AOT_METHOD_FLAG_INVALIDATED))
                {
+#ifdef COMPRESS_AOT_DATA
+               TR_AOTMethodHeader *aotMethodHeader = (TR_AOTMethodHeader*)(((J9JITDataCacheHeader*)*aotCachedMethod) + 1);
+               if (aotMethodHeader->flags & TR_AOTMethodHeader_CompressedMethodInCache)
+                  {
+                  /**
+                    * For each AOT compiled method we store in the shareclass cache we have following layout.
+                    * ---------------------------------------------------------------------------------------
+                    * | CompiledMethodWrapper | J9JITDataCacheHeader | AOTMethodHeader | Metadata | Codedata|
+                    * ---------------------------------------------------------------------------------------
+                    * When we compile and store a method, it stores J9RomMethod for the method in the CompiledMethodWrapper along side
+                    * size of metadata and codedata in the cache. Now when we request a method from shared class cache
+                    * it returns address that points to J9JITDataCacheHeader. As while decompressing the data, we need information about
+                    * the size of original data (We get that information from AOTMethodHeader) and size of deflated data in the cache (Which is stored in
+                    * CompiledMethodWrapper)
+                    * So to access data size in shared class cache, we need to access CompiledMethodWrapper.
+                    */
+                  CompiledMethodWrapper *wrapper = ((CompiledMethodWrapper*)(*aotCachedMethod))-1;
+                  int sizeOfCompressedDataInCache = wrapper->dataLength;
+                  int originalDataSize = aotMethodHeader->compileMethodDataSize + aotMethodHeader->compileMethodCodeSize;
+                  void *originalData = trMemory.allocateHeapMemory(originalDataSize);
+                  int aotMethodHeaderSize = sizeof(J9JITDataCacheHeader) + sizeof(TR_AOTMethodHeader);
+                  memcpy(originalData, *aotCachedMethod, aotMethodHeaderSize);
+                  if (inflateBuffer((U_8 *)(*aotCachedMethod)+aotMethodHeaderSize, sizeOfCompressedDataInCache-aotMethodHeaderSize, (U_8* )(originalData)+aotMethodHeaderSize, originalDataSize-aotMethodHeaderSize) == DECOMPRESSION_FAILED)
+                     {
+                     if (TR::Options::getVerboseOption(TR_VerboseAOTCompression))
+                        {
+                        J9UTF8 *className;
+                        J9UTF8 *name;
+                        J9UTF8 *signature;
+                        getClassNameSignatureFromMethod(method, className, name, signature);
+                        TR_VerboseLog::writeLineLocked(TR_Vlog_AOTCOMPRESSION, "!%.*s.%.*s%.*s : Decompression of method data failed - Compressed Method Size = %d bytes, Stored original method size = %d bytes",
+                           J9UTF8_LENGTH(className), (char *) J9UTF8_DATA(className),
+                           J9UTF8_LENGTH(name), (char *) J9UTF8_DATA(name),
+                           J9UTF8_LENGTH(signature), (char *) J9UTF8_DATA(signature),
+                           sizeOfCompressedDataInCache, originalDataSize);
+                        }
+                     // If we can not inflate the method data, JIT compile the method.
+                     canRelocateMethod = false;
+                     *aotCachedMethod = NULL;
+                     entry->_doNotUseAotCodeFromSharedCache = false;
+                     }
+                  else
+                     {
+                     if (TR::Options::getVerboseOption(TR_VerboseAOTCompression))
+                        {
+                        J9UTF8 *className;
+                        J9UTF8 *name;
+                        J9UTF8 *signature;
+                        getClassNameSignatureFromMethod(method, className, name, signature);
+                        TR_VerboseLog::writeLineLocked(TR_Vlog_AOTCOMPRESSION, "%.*s.%.*s%.*s : Decompression of method data Successful - Compressed Method Size = %d bytes, Stored original method size = %d bytes",
+                           J9UTF8_LENGTH(className), (char *) J9UTF8_DATA(className),
+                           J9UTF8_LENGTH(name), (char *) J9UTF8_DATA(name),
+                           J9UTF8_LENGTH(signature), (char *) J9UTF8_DATA(signature),
+                           sizeOfCompressedDataInCache, originalDataSize);
+                        }
+                     *aotCachedMethod = originalData;
+                     }
+                  }
+               if (canRelocateMethod)
+                  {
+                  entry->setAotCodeToBeRelocated(*aotCachedMethod);
+                  reloRuntime->setReloStartTime(getTimeWhenCompStarted());
+                  }
+#else
                entry->setAotCodeToBeRelocated(*aotCachedMethod);
                reloRuntime->setReloStartTime(getTimeWhenCompStarted());
-
+#endif
                }
             else
                {
@@ -6397,7 +6601,7 @@ TR::CompilationInfoPerThreadBase::preCompilationTasks(J9VMThread * vmThread,
                   (
                   TR::Compiler->target.cpu.supportsDecimalFloatingPoint()
 #ifdef TR_TARGET_S390
-                  || TR::Compiler->target.cpu.getS390SupportsDFP()
+                  || TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility()
 #endif
                   ) &&
                   TR_J9MethodBase::isBigDecimalMethod(method)
@@ -6657,7 +6861,7 @@ TR::CompilationInfoPerThreadBase::postCompilationTasks(J9VMThread * vmThread,
             }
          }
 
-      // Check conditions for adding to JProfling queue.
+      // Check conditions for adding to JProfiling queue.
       // TODO: How should be AOT loads treated?
       if (_addToJProfilingQueue &&
          entry->_oldStartPC == 0 && startPC != 0)// Must be a first time compilation that succeeded
@@ -7206,7 +7410,7 @@ TR::CompilationInfoPerThreadBase::wrappedCompile(J9PortLibrary *portLib, void * 
                }
 
             // Check if user allows us to do samplingJProfiling.
-            // If so, enable it programatically on a method by method basis
+            // If so, enable it programmatically on a method by method basis
             //
             if (!options->getOption(TR_DisableSamplingJProfiling))
                {
@@ -8280,7 +8484,7 @@ TR::CompilationInfoPerThreadBase::compile(
          // FAR: should we do postpone this copying until after CHTable commit?
          metaData->runtimeAssumptionList = *(compiler->getMetadataAssumptionList());
 
-         // We don't need to delete the metadataAsumptionList from the compilation object,
+         // We don't need to delete the metadataAssumptionList from the compilation object,
          // and in fact it would be wrong to do so because code during chtable.commit is
          // expecting something in the compiler object
          }
@@ -8977,6 +9181,7 @@ TR::CompilationInfo::emitJvmpiExtendedDataBuffer(TR::Compilation *&compiler, J9V
 extern J9_CFUNC void  jitMethodHandleTranslated (J9VMThread *currentThread, j9object_t methodHandle, j9object_t arg, void *jitEntryPoint, void *intrpEntryPoint);
 #endif
 
+
 // static method
 void *
 TR::CompilationInfo::compilationEnd(J9VMThread * vmThread, TR::IlGeneratorMethodDetails & details, J9JITConfig *jitConfig, void *startPC,
@@ -9121,15 +9326,99 @@ TR::CompilationInfo::compilationEnd(J9VMThread * vmThread, TR::IlGeneratorMethod
 
                   if (safeToStore)
                      {
+                     const U_8 *metadataToStore = dataStart;
+                     const U_8 *codedataToStore = codeStart;
+                     int metadataToStoreSize = dataSize;
+                     int codedataToStoreSize = codeSize;
+#ifdef COMPRESS_AOT_DATA
+                     try 
+                        {
+                        if (!comp->getOption(TR_DisableAOTBytesCompression))
+                           {
+                           /**
+                            * For each compiled method data we store in the shareclass cache looks like following.
+                            * -----------------------------------------------------------------------------------------------------
+                            * | CompiledMethodWrapper | J9JITDataCacheHeader | TR_AOTMethodHeader | Metadata | Compiled Code Data |
+                            * -----------------------------------------------------------------------------------------------------
+                            * 
+                            * When we compile a method, we send data from J9JITDataCacheHeader to store in the cache.
+                            * For each method Shared Class Cache API adds CompiledMethodWrapper header which holds the size of data in cache, 
+                            * as well as J9ROMMethod of compiled method. 
+                            * Size of the original data is extracted from the TR_AOTMethodHeader while size of compressed data is extracted from
+                            * CompiledMethodWrapper. 
+                            * That is why We do not compress header as we can extract the original data size 
+                            * which is useful information while inflating the method data while loading compiled method. 
+                            * 
+                            * Compressed data stored in the cache looks like following
+                            * ------------------------------------------------------------------------------------------------------------------------------------------------
+                            * | CompiledMethodWrapper | J9JITDataCacheHeader (UnCompressed)| TR_AOTMethodHeader (UnCompressed)| (Metadata + Compiled Code Data) (Compressed) |
+                            * ------------------------------------------------------------------------------------------------------------------------------------------------
+                            *  
+                            */
+                           void * originalData = comp->trMemory()->allocateHeapMemory(codeSize+dataSize);
+                           void * compressedData = comp->trMemory()->allocateHeapMemory(codeSize+dataSize);
+
+                           // Copy the metadata and codedata combined into single buffer so that we can compress it together
+                           memcpy(originalData, dataStart, dataSize);
+                           memcpy((U_8*)(originalData)+dataSize, codeStart, codeSize);
+                           int aotMethodHeaderSize = sizeof(J9JITDataCacheHeader)+sizeof(TR_AOTMethodHeader);
+                           int compressedDataSize = deflateBuffer((U_8*)(originalData)+aotMethodHeaderSize, dataSize+codeSize-aotMethodHeaderSize, (U_8*)(compressedData)+aotMethodHeaderSize, Z_DEFAULT_COMPRESSION);
+                           if (compressedDataSize != COMPRESSION_FAILED)
+                              {
+                              /**
+                               * We are going to store both metadata and code in contiguous memory in shared class cache.
+                               * In load run we get the whole buffer from the cache and use the information from header to
+                               * Get the relocation data and compiled code.
+                               * Because of this reason we copy both metadata and compiled code in one buffer and deflate it together.
+                               * TODO: We will always query the shared class cache to get full data for stored AOT compiled method 
+                               * that is combined meta data and code data. Even if compression of AOT bytes is disabled, we do not need
+                               * to send two different buffers to store in cache and also as no one queries either code data / metadata for
+                               * method, clean up the share classs cache API.
+                               */
+                              aotMethodHeaderEntry->flags |= TR_AOTMethodHeader_CompressedMethodInCache;
+                              memcpy(compressedData, dataStart, aotMethodHeaderSize);
+                              metadataToStore = (const U_8*) compressedData;
+                              metadataToStoreSize = compressedDataSize+aotMethodHeaderSize;
+                              codedataToStore = NULL;
+                              codedataToStoreSize = 0;  
+                              if (TR::Options::getVerboseOption(TR_VerboseAOTCompression))
+                                 {
+                                 TR_VerboseLog::writeLineLocked(TR_Vlog_AOTCOMPRESSION, "%s : Compression of method data Successful - Original method size = %d bytes, Compressed Method Size = %d bytes",
+                                    comp->signature(),
+                                    dataSize+codeSize, metadataToStoreSize);
+                                 }
+                              }
+                           else
+                              {
+                              if (TR::Options::getVerboseOption(TR_VerboseAOTCompression))
+                                 {
+                                 TR_VerboseLog::writeLineLocked(TR_Vlog_AOTCOMPRESSION, "!%s : Compression of method data Failed - Original method size = %d bytes",
+                                    comp->signature(),
+                                    dataSize+codeSize);
+                                 }
+                              }
+                           }
+                        }
+                     catch (const std::bad_alloc &allocationFailure)
+                        {
+                        // In case we can not allocate extra memory to hold temp data for compressing, we still the uncompressed data into the cache
+                        if (TR::Options::getVerboseOption(TR_VerboseAOTCompression))
+                           {
+                           TR_VerboseLog::writeLineLocked(TR_Vlog_AOTCOMPRESSION, "!%s : Method will not be compressed as necessary memory can not be allocated, Method Size = %d bytes",
+                              comp->signature(),
+                              dataSize+codeSize);   
+                           }   
+                        }
+#endif
                      switch(
                         reinterpret_cast<uintptr_t>(
                            jitConfig->javaVM->sharedClassConfig->storeCompiledMethod(
                               vmThread,
                               J9_ROM_METHOD_FROM_RAM_METHOD(method),
-                              dataStart,
-                              dataSize,
-                              codeStart,
-                              codeSize,
+                              (const U_8*)metadataToStore,
+                              metadataToStoreSize,
+                              (const U_8*)codedataToStore,
+                              codedataToStoreSize,
                               0
                               )
                            )
@@ -9607,11 +9896,6 @@ void TR::CompilationInfoPerThreadBase::logCompilationSuccess(
 
       if (!vm.isAOT_DEPRECATED_DO_NOT_USE())
          {
-#if defined(AIXPPC)
-         if (j2Profile != NULL)
-            j2Prof_methodReport(compilee->convertToMethod(), compiler);
-#endif
-
          if (J9_EVENT_IS_HOOKED(javaVM->hookInterface, J9HOOK_VM_DYNAMIC_CODE_LOAD))
             {
             OMR::CodeCacheMethodHeader *ccMethodHeader;
@@ -11079,7 +11363,7 @@ TR::CompilationInfo::scheduleLPQAndBumpCount(TR::IlGeneratorMethodDetails &detai
    // If method is found, move it to main queue
    // We prevent concurrency issues by making sure the invocation count is 0 when adding to LPQ
    // We must make sure that if the method is not found in LPQ there is absolutely no way
-   // it can be present in main queue (invocation count being 0 should guatantee us that
+   // it can be present in main queue (invocation count being 0 should guarantee us that
    // because a method waiting in main queue should be marked QUEUED_FOR_COMPILATION)
    // We should put an assert that all ordinary async first time compilations in the main
    // queue are marked QUEUED_FOR_COMPILATION

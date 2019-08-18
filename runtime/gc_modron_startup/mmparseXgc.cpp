@@ -1,6 +1,6 @@
 
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -185,7 +185,7 @@ j9gc_initialize_parse_gc_colon(J9JavaVM *javaVM, char **scan_start)
 
 #endif /* J9VM_GC_REALTIME */
 
-//todo tempoary option to allow LOA to be enabled for testing with non-default gc policies
+//todo temporary option to allow LOA to be enabled for testing with non-default gc policies
 //Remove once LOA code stable 
 #if defined(J9VM_GC_LARGE_OBJECT_AREA)
 
@@ -233,6 +233,17 @@ j9gc_initialize_parse_gc_colon(J9JavaVM *javaVM, char **scan_start)
 	}
 
 #if defined(J9VM_GC_MODRON_SCAVENGER)
+
+	if(try_scan(scan_start, "tenureBytesDeviationBoost=")) {
+		UDATA value;
+		if(!scan_udata_helper(javaVM, scan_start, &value, "tenureBytesDeviationBoost=")) {
+			goto _error;
+		}
+
+		extensions->tenureBytesDeviationBoost = value / (float)10.0; 
+		goto _exit;
+	}
+
 	if(try_scan(scan_start, "scavenge")) {
 		extensions->configurationOptions._forceOptionScavenge = true;
 		extensions->scavengerEnabled = true;
@@ -245,6 +256,20 @@ j9gc_initialize_parse_gc_colon(J9JavaVM *javaVM, char **scan_start)
 		goto _exit;
 	}
 
+	if(try_scan(scan_start, "concurrentKickoffTenuringHeadroom=")) {
+		UDATA value = 0;
+		if(!scan_udata_helper(javaVM, scan_start, &value, "concurrentKickoffTenuringHeadroom=")) {
+			goto _error;
+		}
+		if(value > 100) {
+			j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTIONS_INTEGER_OUT_OF_RANGE, "concurrentKickoffTenuringHeadroom=", (UDATA)0, (UDATA)100);
+			goto _error;
+		}
+		extensions->concurrentKickoffTenuringHeadroom = ((float)value) / 100.0f;
+		goto _exit;
+	}
+
+
 #if defined(OMR_GC_CONCURRENT_SCAVENGER)
 	/* Parsing of concurrentScavengeBackground/Slack must happen before concurrentScavenge, since the later option is a substring of the former(s).
 	 * However, there is no effective limitation on relative order of these options in a command line. */
@@ -254,6 +279,17 @@ j9gc_initialize_parse_gc_colon(J9JavaVM *javaVM, char **scan_start)
 		}
 		goto _exit;
 	}
+
+	if(try_scan(scan_start, "concurrentScavengeAllocDeviationBoost=")) {
+		UDATA value;
+		if(!scan_udata_helper(javaVM, scan_start, &value, "concurrentScavengeAllocDeviationBoost=")) {
+			goto _error;
+		}
+
+		extensions->concurrentScavengerAllocDeviationBoost = value / (float)10.0;
+		goto _exit;
+	}
+
 	if(try_scan(scan_start, "concurrentScavengeBackground=")) {
 		if(!scan_udata_helper(javaVM, scan_start, &extensions->concurrentScavengerBackgroundThreads, "concurrentScavengeBackground=")) {
 			goto _error;
@@ -1051,7 +1087,19 @@ j9gc_initialize_parse_gc_colon(J9JavaVM *javaVM, char **scan_start)
 		j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTION_FVTEST_UNKNOWN_TYPE, *scan_start);
 		goto _error;
 	}
-	
+#if defined(J9VM_GC_VLHGC)
+#if defined(OMR_GC_VLHGC_CONCURRENT_COPY_FORWARD)
+	if (try_scan(scan_start, "concurrentCopyForward")) {
+		extensions->_isConcurrentCopyForward = true;
+		goto _exit;
+	}
+	if (try_scan(scan_start, "noConcurrentCopyForward")) {
+		extensions->_isConcurrentCopyForward = false;
+		goto _exit;
+	}
+#endif /* defined(OMR_GC_VLHGC_CONCURRENT_COPY_FORWARD) */
+#endif /* defined(J9VM_GC_VLHGC) */
+
 #if defined(J9VM_GC_MODRON_SCAVENGER)
 	if (try_scan(scan_start, "scanCacheSize=")) {
 		/* Read in restricted scan cache size */
@@ -1095,7 +1143,7 @@ j9gc_initialize_parse_gc_colon(J9JavaVM *javaVM, char **scan_start)
 			j9nls_printf(PORTLIB, J9NLS_ERROR, J9NLS_GC_OPTIONS_VALUE_MUST_BE_ABOVE, "sweepchunksize=", (UDATA)0);
 			goto _error;
 		}
-		extensions->parSweepChunkSize *= 1024; /* the value is specifed in kB on the command-line */
+		extensions->parSweepChunkSize *= 1024; /* the value is specified in kB on the command-line */
 
 		goto _exit;
 	}
@@ -1348,7 +1396,7 @@ gcParseXgcArguments(J9JavaVM *vm, char *optArg)
 			continue;
 		}
 
-		/* see if they are requesting an initial suballocator heap sise */
+		/* see if they are requesting an initial suballocator heap size */
 		if (try_scan(&scan_start, "suballocatorInitialSize=")) {
 			if(!scan_udata_memory_size_helper(vm, &scan_start, &extensions->suballocatorInitialSize, "suballocatorInitialSize=")) {
 				returnValue = JNI_EINVAL;
@@ -1362,7 +1410,7 @@ gcParseXgcArguments(J9JavaVM *vm, char *optArg)
 			continue;
 		}
 		
-		/* see if they are requesting a commit suballocator heap sise */
+		/* see if they are requesting a commit suballocator heap size */
 		if (try_scan(&scan_start, "suballocatorCommitSize=")) {
 			if(!scan_udata_memory_size_helper(vm, &scan_start, &extensions->suballocatorCommitSize, "suballocatorCommitSize=")) {
 				returnValue = JNI_EINVAL;

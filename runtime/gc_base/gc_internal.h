@@ -97,6 +97,8 @@ extern J9_CFUNC void j9gc_objaccess_indexableStoreAddress(J9VMThread *vmThread, 
 extern J9_CFUNC void j9gc_objaccess_mixedObjectStoreAddress(J9VMThread *vmThread, j9object_t destObject, UDATA offset, void *value, UDATA isVolatile);
 extern J9_CFUNC void j9gc_objaccess_cloneObject(J9VMThread *vmThread, j9object_t srcObject, j9object_t destObject);
 extern J9_CFUNC void j9gc_objaccess_copyObjectFields(J9VMThread *vmThread, J9Class *valueClass, J9Object *srcObject, UDATA srcOffset, J9Object *destObject, UDATA destOffset);
+extern J9_CFUNC void j9gc_objaccess_copyObjectFieldsToArrayElement(J9VMThread *vmThread, J9Class *arrayClazz, j9object_t srcObject, J9IndexableObject *arrayRef, I_32 index);
+extern J9_CFUNC void j9gc_objaccess_copyObjectFieldsFromArrayElement(J9VMThread *vmThread, J9Class *arrayClazz, j9object_t destObject, J9IndexableObject *arrayRef, I_32 index);
 extern J9_CFUNC j9object_t j9gc_objaccess_asConstantPoolObject(J9VMThread *vmThread, j9object_t toConvert, UDATA allocationFlags);
 extern J9_CFUNC jvmtiIterationControl j9mm_iterate_heaps(J9JavaVM *vm, J9PortLibrary *portLibrary, UDATA flags, jvmtiIterationControl(*func)(J9JavaVM *vm, struct J9MM_IterateHeapDescriptor *heapDesc, void *userData), void *userData);
 extern J9_CFUNC int gcStartupHeapManagement(J9JavaVM * vm);
@@ -237,6 +239,7 @@ extern J9_CFUNC void j9gc_set_memoryController(J9VMThread *vmThread, J9Object* o
 extern J9_CFUNC const char* omrgc_get_version(OMR_VM *omrVM);
 extern J9_CFUNC void j9gc_startGCIfTimeExpired(OMR_VMThread* vmThread);
 extern J9_CFUNC void j9gc_allocation_threshold_changed(J9VMThread* currentThread);
+extern J9_CFUNC void j9gc_set_allocation_sampling_interval(J9VMThread* vmThread, UDATA samplingInterval);
 extern J9_CFUNC void j9gc_set_allocation_threshold(J9VMThread* vmThread, UDATA low, UDATA high);
 extern J9_CFUNC void j9gc_objaccess_recentlyAllocatedObject(J9VMThread *vmThread, J9Object *dstObject);
 extern J9_CFUNC void j9gc_objaccess_postStoreClassToClassLoader(J9VMThread *vmThread, J9ClassLoader* destClassLoader, J9Class* srcClass);

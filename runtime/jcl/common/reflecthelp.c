@@ -303,7 +303,7 @@ getMethodParametersAsArray(JNIEnv *env, jobject jlrExecutable)
 	if (NULL != executableID) {
 		PORT_ACCESS_FROM_VMC(vmThread);
 		J9Method *ramMethod = executableID->method;
-		J9ROMMethod * romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(ramMethod);
+		J9ROMMethod * romMethod = getOriginalROMMethod(ramMethod);
 		U_8 numberOfParameters = computeArgCount(romMethod);
 		J9MethodParametersData * parametersData = getMethodParametersFromROMMethod(romMethod);
 		U_8 index = 0;
@@ -1697,7 +1697,7 @@ retry:
 		walkFieldHierarchyDo(clazz, &state);
 
 		if (0 != data.restartRequired) {
-			/* Class redefinition resulted in an inconsitent state.
+			/* Class redefinition resulted in an inconsistent state.
 			 * Restart the operation
 			 */
 			if (NULL != result) {

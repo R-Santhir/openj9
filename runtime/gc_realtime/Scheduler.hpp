@@ -36,7 +36,6 @@
 #include "GCExtensionsBase.hpp"
 #include "Metronome.hpp"
 #include "ParallelDispatcher.hpp"
-#include "MetronomeDelegate.hpp"
 #include "YieldCollaborator.hpp"
 
 class MM_OSInterface;
@@ -113,7 +112,7 @@ public:
 	uintptr_t _gcPhaseSet;
 	/* requests (typically by a mutator) to complete GC synchronously */
 	bool _completeCurrentGCSynchronously;
-	/* copy of the request made by Master Thread at the begining of very next GC increment */
+	/* copy of the request made by Master Thread at the beginning of very next GC increment */
 	bool _completeCurrentGCSynchronouslyMasterThreadCopy;
 	GCReason _completeCurrentGCSynchronouslyReason;
 	uintptr_t _completeCurrentGCSynchronouslyReasonParameter;
@@ -182,7 +181,7 @@ public:
 	void showParameters(MM_EnvironmentBase *env);
 
 	/**
-	 * Set scheduling paramters on argument extensions object to
+	 * Set scheduling parameters on argument extensions object to
 	 * simulate Stop-The-World GC.  We simulate STW by running time-based,
 	 * with MMU, etc. parameters chosen so that the GC will not yield to the
 	 * mutator until an entire GC cycle has completed.

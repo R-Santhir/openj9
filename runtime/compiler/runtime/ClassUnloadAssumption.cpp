@@ -112,7 +112,7 @@ TR_PersistentClassInfo::removeUnloadedSubClasses()
          //printf("***removing subClass %p\n",scl->getClassInfo()->getClassId());
          // fflush(stdout);
 
-         //carefull
+         //careful
          _subClasses.removeAfter(prevScl,scl);
          jitPersistentFree(scl);
          }
@@ -279,6 +279,14 @@ bool OMR::RuntimeAssumption::enqueueInListOfAssumptionsForJittedBody(OMR::Runtim
    return true;
    }
 
+OMR::RuntimeAssumption **TR_RuntimeAssumptionTable::getBucketPtr(TR_RuntimeAssumptionKind kind, uintptrj_t hashIndex)
+   {
+   TR_RatHT *hashTable = findAssumptionHashTable(kind);
+   OMR::RuntimeAssumption **head = hashTable->_htSpineArray + (hashIndex % hashTable->_spineArraySize);
+   while (head && *head && (*head)->isMarkedForDetach())
+      head = &((*head)->_next);
+   return head;
+   }
 
 void TR_RuntimeAssumptionTable::purgeAssumptionListHead(OMR::RuntimeAssumption *&assumptionList, TR_FrontEnd *fe)
    {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2018 IBM Corp. and others
+ * Copyright (c) 2001, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -24,6 +24,8 @@
 #define SHCFLAGS_H
 
 /* @ddr_namespace: map_to_type=ShCFlags */
+
+#include "j9comp.h" /* for J9CONST64 */
 
 /* These are error codes */
 #define J9SHR_RESOURCE_STORE_EXISTS  1
@@ -62,7 +64,7 @@
 
 #define J9SHR_RUNTIMEFLAG_ENABLE_TIMESTAMP_CHECKS  1
 #define J9SHR_RUNTIMEFLAG_ENABLE_LOCAL_CACHEING  2
-/*The bit 4 is free for use.*/
+#define J9SHR_RUNTIMEFLAG_ENABLE_URL_TIMESTAMP_CHECK  4
 #define J9SHR_RUNTIMEFLAG_ENABLE_REDUCE_STORE_CONTENTION  8
 /*The bit 16 is free for use.*/
 #define J9SHR_RUNTIMEFLAG_ENABLE_CACHE_NON_BOOT_CLASSES  32

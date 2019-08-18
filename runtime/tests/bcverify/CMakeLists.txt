@@ -37,8 +37,8 @@ add_library(bcuwhite SHARED
 	${j9vm_BINARY_DIR}/bcverify/ut_j9bcverify.c
 )
 
-# We need to add an explict dependency on the actual tracegen step since CMake
-# doesnt properly track generated file dependencies across directories
+# We need to add an explicit dependency on the actual tracegen step since CMake
+# doesn't properly track generated file dependencies across directories
 add_dependencies(bcuwhite trc_j9bcverify)
 
 target_link_libraries(bcuwhite
@@ -61,6 +61,12 @@ target_include_directories(bcuwhite
 		${j9vm_SOURCE_DIR}/shared_common/include
 		# We need to add the binary dir for bcverify to get the tracegen headers
 		${j9vm_BINARY_DIR}/bcverify
+)
+
+omr_add_exports(bcuwhite
+	Java_com_ibm_j9_test_bcverify_TestNatives_bcvCheckName
+	Java_com_ibm_j9_test_bcverify_TestNatives_bcvCheckClassName
+	Java_com_ibm_j9_test_bcverify_TestNatives_bcvCheckMethodName
 )
 
 install(

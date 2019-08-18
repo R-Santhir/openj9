@@ -129,7 +129,7 @@ MM_ClassLoaderRememberedSet::rememberInstance(MM_EnvironmentBase* env, J9Object*
 	Assert_MM_true(NULL != object);
 	UDATA regionIndex = _regionManager->physicalTableDescriptorIndexForAddress(object);
 
-	J9Class *clazz = J9GC_J9OBJECT_CLAZZ(object);
+	J9Class *clazz = J9GC_J9OBJECT_CLAZZ(object, env);
 	Assert_MM_mustBeClass(clazz);
 
 	if (J9_ARE_ANY_BITS_SET(J9CLASS_EXTENDED_FLAGS(clazz), J9ClassIsAnonymous)) {
@@ -235,7 +235,7 @@ MM_ClassLoaderRememberedSet::isBitSet(MM_EnvironmentBase* env, volatile UDATA* b
 bool
 MM_ClassLoaderRememberedSet::isRemembered(MM_EnvironmentBase *env, J9ClassLoader *classLoader)
 {
-	/* This call is for non-anonymous classloaders only. Anonymous classloader should be hadled on classes level */
+	/* This call is for non-anonymous classloaders only. Anonymous classloader should be handled on classes level */
 	Assert_MM_true(!J9_ARE_ANY_BITS_SET(classLoader->flags, J9CLASSLOADER_ANON_CLASS_LOADER));
 
 	return isRememberedInternal(env, classLoader->gcRememberedSet);
@@ -283,7 +283,7 @@ MM_ClassLoaderRememberedSet::isInstanceRemembered(MM_EnvironmentBase *env, J9Obj
 	bool isRemembered = false;
 	Assert_MM_true(NULL != object);
 
-	J9Class *clazz = J9GC_J9OBJECT_CLAZZ(object);
+	J9Class *clazz = J9GC_J9OBJECT_CLAZZ(object, env);
 	Assert_MM_mustBeClass(clazz);
 	
 	UDATA regionIndex = _regionManager->physicalTableDescriptorIndexForAddress(object);

@@ -161,7 +161,7 @@ disposeEnvironment(J9JVMTIEnv * j9env, UDATA freeData)
 
 	/* Mark this env as disposed - this prevents any further events being reported */
 
-	if ((j9env->flags & J9JVMTIENV_FLAG_DISPOSED) == 0) {
+	if (J9_ARE_NO_BITS_SET(j9env->flags, J9JVMTIENV_FLAG_DISPOSED)) {
 		J9HookInterface ** vmHook = j9env->vmHook.hookInterface;
 		J9HookInterface ** gcHook = j9env->gcHook.hookInterface;
 		J9HookInterface ** gcOmrHook = j9env->gcOmrHook.hookInterface;
@@ -171,12 +171,18 @@ disposeEnvironment(J9JVMTIEnv * j9env, UDATA freeData)
 
 		j9env->flags |= J9JVMTIENV_FLAG_DISPOSED;
 
+#if JAVA_SPEC_VERSION >= 11
+		if (j9env->capabilities.can_generate_sampled_object_alloc_events) {
+			J9JVMTI_DATA_FROM_VM(vm)->flags &= ~J9JVMTI_FLAG_SAMPLED_OBJECT_ALLOC_ENABLED;
+		}
+#endif /* JAVA_SPEC_VERSION >= 11 */
+
 		/* Remove all breakpoints */
 
 		if (j9env->breakpoints != NULL) {
 			J9VMThread * currentThread = vm->internalVMFunctions->currentVMThread(vm);
 			pool_state poolState;
-			J9JVMTIAgentBreakpoint * agentBreakpoint;
+			J9JVMTIAgentBreakpoint * agentBreakpoint = NULL;
 
 			agentBreakpoint = pool_startDo(j9env->breakpoints, &poolState);
 			while (agentBreakpoint != NULL) {
@@ -471,7 +477,7 @@ javaOffloadSwitchOff(J9JVMTIEnv * j9env, J9VMThread * currentThread, UDATA event
 	vm = currentThread->javaVM;
 
 	/* There are two cases for zAAP switching:
-	 * 1) The agent libary (most likely created by customer) calls GetEnv() at any time when required 
+	 * 1) The agent library (most likely created by customer) calls GetEnv() at any time when required 
 	 *    but doesn't need to call GetEnv() in Agent_OnLoad. Thus, it may be possible for j9env->library 
 	 *    to be NULL if JVMTI is used directly by the VM.
 	 * 2) The flag in J9NativeLibrary->doSwitching requires it to do zAAP switching.

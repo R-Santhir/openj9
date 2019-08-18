@@ -1164,8 +1164,8 @@ redefineClassesCommon(jvmtiEnv* env,
 			if (!extensionsEnabled) {
 				/* Fast HCR path - where the J9Class is redefined in place. */
 
-				/* Add method equivalences for the methods that were re-defined (reverse of before!). */
-				rc = fixMethodEquivalences(currentThread, classPairs, jitEventDataPtr, TRUE, &methodEquivalences, extensionsUsed);
+				/* Add method equivalences for the methods that were re-defined (reverse of before!). Propagate any equivalent resolved callsites. */
+				rc = fixMethodEquivalencesAndCallSites(currentThread, classPairs, jitEventDataPtr, TRUE, &methodEquivalences, extensionsUsed);
 				if (rc != JVMTI_ERROR_NONE) {
 					goto failed;
 				}
@@ -1230,8 +1230,8 @@ redefineClassesCommon(jvmtiEnv* env,
 				/* Unresolve all classes */
 				unresolveAllClasses(currentThread, classPairs, methodPairs, extensionsUsed);
  
-				/* Update method equivalences */
-				rc = fixMethodEquivalences(currentThread, classPairs, jitEventDataPtr, FALSE, &methodEquivalences, extensionsUsed);
+				/* Update method equivalences. Propagate any equivalent resolved callsites. */
+				rc = fixMethodEquivalencesAndCallSites(currentThread, classPairs, jitEventDataPtr, FALSE, &methodEquivalences, extensionsUsed);
 				if (rc != JVMTI_ERROR_NONE) {
 					goto failed;
 				}
@@ -1718,7 +1718,7 @@ done:
 
 
 /** 
- * \brief	Returnt the raw Constant Pool bytes for the specified class
+ * \brief	Return the raw Constant Pool bytes for the specified class
  * \ingroup	jvmtiClass 
  * 
  * 
@@ -1858,7 +1858,7 @@ done:
  *	ISSUES:
  *		The UTF8 and NameAndSignature constants are not stored on the constant pool and
  *		therefore do not have an "index" but rather use SRP references. This call will 
- *		create CP entries and update refering CP items accordingly
+ *		create CP entries and update referring CP items accordingly
  *
  *		The Long and Double type is defined by the spec to take _TWO_ constant pool entries
  *		instead of one. This creates a problem since our bytecode's cp indices have been
@@ -2102,7 +2102,7 @@ jvmtiGetConstantPool_translateCP(J9PortLibrary *privatePortLibrary, jvmtiGcp_tra
 									     J9UTF8_DATA(J9ROMNAMEANDSIGNATURE_SIGNATURE(nas))));
 
 					/* Add the referenced Class item to the HT, we explicitly do it here in case the refered class
-					 * has not yet been added. Defering it to be done via the CFR_CONSTANT_Class case would 
+					 * has not yet been added. Deferring it to be done via the CFR_CONSTANT_Class case would 
 					 * prevent us from being able to save the index in htEntry->type.ref.classIndex (ie another
 					 * pass would be needed once the CFR_CONSTANT_Class case adds it) */
 					rc = jvmtiGetConstantPool_addClassOrString(translation, ref->classRefCPIndex, (U_8)CFR_CONSTANT_Class,
@@ -2301,7 +2301,7 @@ jvmtiGetConstantPool_writeConstants(jvmtiGcp_translation *translation, unsigned 
 				jvmtiGetConstantPoolWrite_printf(("        HT CPT %2d <MethodHandle> method/fieldIndex %d  refType %d\n",
 								  htEntry->cpType, htEntry->type.methodHandle.methodOrFieldRefIndex, htEntry->type.methodHandle.handleType));
 				GCP_WRITE_U8 (constantPoolBufIndex, cpItemType);
-				GCP_WRITE_U16(constantPoolBufIndex, htEntry->type.methodHandle.handleType);
+				GCP_WRITE_U8 (constantPoolBufIndex, htEntry->type.methodHandle.handleType);
 				GCP_WRITE_U16(constantPoolBufIndex, htEntry->type.methodHandle.methodOrFieldRefIndex);
 
 				break;
@@ -2370,7 +2370,7 @@ jvmtiGetConstantPool_writeConstants(jvmtiGcp_translation *translation, unsigned 
 				GCP_WRITE_U32(constantPoolBufIndex, htEntry->type.longDouble.slot1);
 				GCP_WRITE_U32(constantPoolBufIndex, htEntry->type.longDouble.slot2);
 #endif				
-				/* Skip additional CP entry. See JVM spec v2 section 4.4.5 for the briliant rationale */
+				/* Skip additional CP entry. See JVM spec v2 section 4.4.5 for the brilliant rationale */
 				sunCpIndex++;
 
 				break;
@@ -2623,7 +2623,7 @@ jvmtiGetConstantPool_addMethodHandle(jvmtiGcp_translation *translation, UDATA cp
 		return JVMTI_ERROR_OUT_OF_MEMORY;
 	}
 
-	translation->totalSize += 5;
+	translation->totalSize += 4;
 	translation->cp[*sunCpIndex] = htEntry;
 	(*sunCpIndex)++;
 

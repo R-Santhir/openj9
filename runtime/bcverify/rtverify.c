@@ -304,12 +304,18 @@ matchStack(J9BytecodeVerificationData * verifyData, J9BranchTargetStack *liveSta
 		goto _errorLocation;
 	}
 
-
-	/* Jazz103: 120689 */
-	/* Target stack frame flag needs to be subset of ours. See JVM sepc 4.10.1.4 */
-	if (liveStack->uninitializedThis && !targetStack->uninitializedThis) {
-		rc = BCV_FAIL;
-		goto _finished;
+	/* The check on the uninitializedThis flag is only applied to the class files
+	 * with stackmaps (class version >= 51) which was introduced since Java 7.
+	 * For the old class files without stackmaps (class version < 51), such check
+	 * on the generated stackmaps is ignored so as to match the RI's behavior.
+	 * (See Jazz103: 120689 for details)
+	 */
+	if (!verifyData->createdStackMap) {
+		/* Target stack frame flag needs to be subset of ours. See JVM sepc 4.10.1.4 */
+		if (liveStack->uninitializedThis && !targetStack->uninitializedThis) {
+			rc = BCV_FAIL;
+			goto _finished;
+		}
 	}
 
 	while (livePtr != liveTop) {
@@ -392,7 +398,7 @@ _errorLocation:
 
 
 /* 
-	Walk the bytceodes linearly and verify that the recorded stack maps match.
+	Walk the bytecodes linearly and verify that the recorded stack maps match.
 
 	returns BCV_SUCCESS on success
 	returns BCV_ERR_INTERNAL_ERROR on verification error
@@ -494,7 +500,7 @@ verifyBytecodes (J9BytecodeVerificationData * verifyData)
 	liveStack->stackBaseIndex = liveStack->stackTopIndex;
 
 	/* Jazz 105041: Initialize the 1st data slot on 'stack' with 'top' (placeholdler)
-	 * to avoid storing gargbage data type in the error message buffer
+	 * to avoid storing garbage data type in the error message buffer
 	 * when stack underflow occurs.
 	 */
 	liveStack->stackElements[liveStack->stackBaseIndex] = BCV_BASE_TYPE_TOP;
@@ -548,7 +554,7 @@ _inconsistentStack2:
 				}
 				/* Jazz 82615: Set liveStack->pc to the next pc value rather than the current pc value (start)
 				 * in the case of the matched stack frame in the current frame (liveStack)
-				 * of the detaile error message
+				 * of the detailed error message
 			 	 */
 				liveStack->pc = pc;
 				goto _mapError;
@@ -1707,7 +1713,7 @@ _illegalPrimitiveReturn:
 
 							/* the lazy evaluation would guarantee reasonCode reflects the first failure.
 							 * In all three functions, returned boolean value would indicate an error occurred and the reasonCode is set to BCV_ERR_INSUFFICIENT_MEMORY in OOM cases.
-							 * Hence, if any of the 3 conditions should fail, if it is not on OOM as readonCode would indicate, it must be a verification error.
+							 * Hence, if any of the 3 conditions should fail, if it is not on OOM as reasonCode would indicate, it must be a verification error.
 							 */
 							if ((FALSE == isClassCompatibleByName(verifyData, classIndex, J9UTF8_DATA(utf8string), J9UTF8_LENGTH(utf8string), &reasonCode))
 							|| (FALSE == isClassCompatible(verifyData, type, classIndex, &reasonCode))

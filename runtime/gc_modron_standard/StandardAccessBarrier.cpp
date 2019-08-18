@@ -241,7 +241,7 @@ MM_StandardAccessBarrier::postObjectStore(J9VMThread *vmThread, J9Class *destCla
 {
 	j9object_t destObject = J9VM_J9CLASS_TO_HEAPCLASS(destClass);
 
-	/* destObject is guaranteed to be in old space, so the common code path will rememember objects appropriately here */
+	/* destObject is guaranteed to be in old space, so the common code path will remember objects appropriately here */
 	postObjectStoreImpl(vmThread, destObject, value);
 }
 
@@ -731,7 +731,7 @@ MM_StandardAccessBarrier::asConstantPoolObject(J9VMThread *vmThread, J9Object* t
 			if (!env->saveObjects(toConvert)) {
 				Assert_MM_unreachable();
 			}
-			J9Class *j9class = J9GC_J9OBJECT_CLAZZ(toConvert);
+			J9Class *j9class = J9GC_J9OBJECT_CLAZZ_THREAD(toConvert, vmThread);
 			cpObject = J9AllocateObject(vmThread, j9class, allocationFlags);
 			env->restoreObjects(&toConvert);
 			if (cpObject != NULL) {

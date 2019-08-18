@@ -20,9 +20,6 @@
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-exception-2.0 OR LicenseRef-GPL-2.0 WITH Assembly-exception
  *******************************************************************************/
 
-#if defined(J9VM_OUT_OF_PROCESS)
-#include "j9dbgext.h"
-#endif
 
 #include "j9.h"
 #include "j9cp.h"
@@ -37,32 +34,10 @@
 
 #define COUNT_MASK(value, mask) ((value) & ((mask) << 1) - 1)
 
-#if defined(J9VM_OUT_OF_PROCESS)
-
-static UDATA readLocation = DBGEXT_READFROMMEMORY;
-
-static void
-setReadLocation(UDATA readLoc)
-{
-	readLocation = readLoc;
-}
-
-static UDATA
-getReadLocation()
-{
-	return readLocation;
-}
-
-#define READ_U8(ptr) (DBGEXT_READFROMCOREFILE == getReadLocation())? dbgReadByte((U_8 *)(ptr)) : *(U_8 *)ptr
-#define READ_U16(ptr) (DBGEXT_READFROMCOREFILE == getReadLocation())? dbgReadU16((U_16 *)(ptr)) : *(U_16 *)ptr
-#define READ_I32(ptr) (DBGEXT_READFROMCOREFILE == getReadLocation())? (I_32)dbgReadU32((U_32 *)(ptr)) : *(I_32 *)ptr
-#define READ_SRP(ptr, type) (DBGEXT_READFROMCOREFILE == getReadLocation())? (type)dbgReadSRP((J9SRP *)(ptr)) : SRP_GET(*((J9SRP *)ptr), type)
-#else
 #define READ_U8(ptr) *(U_8 *)ptr
 #define READ_U16(ptr) *(U_16 *)ptr
 #define READ_I32(ptr) *(I_32 *)ptr
 #define READ_SRP(ptr, type)  SRP_GET(*((J9SRP *)ptr), type)
-#endif
 
 static U_32* getSRPPtr (U_32 *ptr, U_32 flags, U_32 option);
 static UDATA reloadClass (J9VMThread *vmThread, J9Class *originalClass, U_8 *classFileBytes, UDATA classFileSize, J9ROMClass **result);
@@ -296,7 +271,7 @@ getNextLineNumberFromTable(U_8 **currentLineNumber, J9LineNumber *lineNumber)
 		ilineNumber = (ulineNumber ^ m) - m; /* sign extend from 9bit */
 		lineNumber->lineNumber += ilineNumber;
 		currentLineNumberPtr++;
-	} else if (0xC0 == (*currentLineNumberPtr & 0xE0)) { /* Comparing the 3 most significative bits to 110 */
+	} else if (0xC0 == (*currentLineNumberPtr & 0xE0)) { /* Comparing the 3 most significant bits to 110 */
 		U_32 const m = 1U << (14 - 1);
 		U_32 ulineNumber;
 		I_32 ilineNumber;
@@ -312,7 +287,7 @@ getNextLineNumberFromTable(U_8 **currentLineNumber, J9LineNumber *lineNumber)
 		ilineNumber = (ulineNumber ^ m) - m; /* sign extend from 14bit */
 		lineNumber->lineNumber += ilineNumber;
 		currentLineNumberPtr += 2;
-	} else if (0xE0 == (*currentLineNumberPtr & 0xF0)) { /* Comparing the 4 most significative bits to 1110 */
+	} else if (0xE0 == (*currentLineNumberPtr & 0xF0)) { /* Comparing the 4 most significant bits to 1110 */
 		I_32 lineNumberOffset;
 		U_8 firstByte = *currentLineNumberPtr;
 		/* 5 bytes encoded : 1110000Y xxxxxxxx xxxxxxxx YYYYYYYY YYYYYYYY */
@@ -488,7 +463,7 @@ getVariableTableForMethodDebugInfo(J9MethodDebugInfo *methodInfo) {
 			}
 		} else {
 			/* 
-			 * debug infomation is out of line, this slot is an SRP to the
+			 * debug information is out of line, this slot is an SRP to the
 			 * J9VariableInfo table
 			 */
 			return (SRP_GET(methodInfo->srpToVarInfo, U_8 *));
@@ -496,34 +471,6 @@ getVariableTableForMethodDebugInfo(J9MethodDebugInfo *methodInfo) {
 	}
 	return NULL;
 }
-
-#if defined(J9VM_OUT_OF_PROCESS)
-/**
- * This function is only used by the debug extension code.
- * When this function is called, variable info might have been copied to local memory or not.
- * If it is not copied, then readLocation is set to DBGEXT_READFROMCOREFILE,
- * if it is copied, then readLocation is set to DBGEXT_READFROMMEMORY
- */
-J9VariableInfoValues *
-debugVariableInfoStartDo(U_8 * variableInfo, U_32 variableInfoCount, J9VariableInfoWalkState* state, UDATA readLocation)
-{
-	state->variablesLeft = variableInfoCount;
-
-	if (state->variablesLeft == 0) {
-		return NULL;
-	}
-
-	setReadLocation(readLocation);
-
-	state->variableTablePtr = variableInfo;
-	state->values.slotNumber = 0;
-	state->values.startVisibility = 0;
-	state->values.visibilityLength = 0;
-
-
-	return variableInfoNextDo(state);
-}
-#endif
 
 J9VariableInfoValues * 
 variableInfoStartDo(J9MethodDebugInfo * methodInfo, J9VariableInfoWalkState* state)
@@ -533,10 +480,6 @@ variableInfoStartDo(J9MethodDebugInfo * methodInfo, J9VariableInfoWalkState* sta
 		return NULL;
 	}
 	
-#if defined(J9VM_OUT_OF_PROCESS)
-	setReadLocation(DBGEXT_READFROMMEMORY);
-#endif
-
 	state->variableTablePtr = getVariableTableForMethodDebugInfo(methodInfo);
 	state->values.slotNumber = 0;
 	state->values.startVisibility = 0;
@@ -581,7 +524,7 @@ variableInfoNextDo(J9VariableInfoWalkState *state)
 		firstByte = READ_U8(state->variableTablePtr);
 		state->values.visibilityLength += ((firstByte ^ m8) - m8); /* sign extend from 8bit */;
 		state->variableTablePtr += sizeof(U_8);
-	} else if (0xC0 == (firstByte & 0xE0)) { /* Comparing the 3 most significative bits to 110 */
+	} else if (0xC0 == (firstByte & 0xE0)) { /* Comparing the 3 most significant bits to 110 */
 		/* 110xYYYY YYYYYZZZ ZZZZZZZZ */
 		U_32 const m9 = 1U << (9 - 1);
 		U_32 const m11 = 1U << (11 - 1);
@@ -599,7 +542,7 @@ variableInfoNextDo(J9VariableInfoWalkState *state)
 		startVisibilityUnsigned = (result >> 11) & 0x1FF;
 		state->values.startVisibility += ((startVisibilityUnsigned ^ m9) - m9); /* sign extend from 9bit */;
 		state->values.visibilityLength += (((result & 0x7FF) ^ m11) - m11); /* sign extend from 11bit */;
-	} else if (0xE0 == (firstByte & 0xF0)) { /* Comparing the 4 most significative bits to 1110 */
+	} else if (0xE0 == (firstByte & 0xF0)) { /* Comparing the 4 most significant bits to 1110 */
 		/* 1110xxZZ ZZZZZZZZ ZZZZZZZZ YYYYYYYY YYYYYYYY */
 		U_32 const m16 = 1U << (16 - 1);
 		U_32 const m18 = 1U << (18 - 1);
@@ -619,7 +562,7 @@ variableInfoNextDo(J9VariableInfoWalkState *state)
 		startVisibilityUnsigned = twoBytes;
 		state->variableTablePtr += sizeof(U_16);
 		state->values.startVisibility += ((startVisibilityUnsigned ^ m16) - m16); /* sign extend from 16bit */;
-	} else if (0xF0 == (firstByte)) { /* Comparing the 8 most significative bits to 0xF0 */
+	} else if (0xF0 == (firstByte)) { /* Comparing the 8 most significant bits to 0xF0 */
 		/* 11110000	FULL DATA in case it overflow in some classes */
 		I_32 integerValue;
 		state->variableTablePtr += sizeof(U_8);

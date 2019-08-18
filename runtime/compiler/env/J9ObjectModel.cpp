@@ -59,11 +59,20 @@ J9::ObjectModel::initialize()
 
    uintptr_t value;
 
+   // Compressed refs
+   uintptr_t result = mmf->j9gc_modron_getConfigurationValueForKey(vm,
+                                                                   j9gc_modron_configuration_compressObjectReferences,
+                                                                   &value);
+   if (result == 1 && value == 1)
+      _compressObjectReferences = true;
+   else
+      _compressObjectReferences = false;
+
    // Discontiguous arraylets
    //
-   uintptr_t result = mmf->j9gc_modron_getConfigurationValueForKey(vm,
-                                                                   j9gc_modron_configuration_discontiguousArraylets,
-                                                                   &value);
+   result = mmf->j9gc_modron_getConfigurationValueForKey(vm,
+                                                         j9gc_modron_configuration_discontiguousArraylets,
+                                                         &value);
    if (result == 1 && value == 1)
       {
       _usesDiscontiguousArraylets = true;
@@ -77,7 +86,6 @@ J9::ObjectModel::initialize()
       _arrayLetLeafLogSize = 0;
       }
 
-   _shouldReplaceGuardedLoadWithSoftwareReadBarrier = mmf->j9gc_software_read_barrier_enabled(vm);
    _readBarrierType  = (MM_GCReadBarrierType) mmf->j9gc_modron_getReadBarrierType(vm);
    _writeBarrierType = (MM_GCWriteBarrierType)mmf->j9gc_modron_getWriteBarrierType(vm);
    if (_writeBarrierType == gc_modron_wrtbar_satb_and_oldcheck)
@@ -435,21 +443,21 @@ J9::ObjectModel::objectAlignmentInBytes()
 uintptrj_t
 J9::ObjectModel::offsetOfContiguousArraySizeField()
    {
-   return TMP_OFFSETOF_J9INDEXABLEOBJECTCONTIGUOUS_SIZE;
+   return compressObjectReferences() ? offsetof(J9IndexableObjectContiguousCompressed, size) : offsetof(J9IndexableObjectContiguousFull, size);
    }
 
 
 uintptrj_t
 J9::ObjectModel::offsetOfDiscontiguousArraySizeField()
    {
-   return TMP_OFFSETOF_J9INDEXABLEOBJECTDISCONTIGUOUS_SIZE;
+   return compressObjectReferences() ? offsetof(J9IndexableObjectDiscontiguousCompressed, size) : offsetof(J9IndexableObjectDiscontiguousFull, size);
    }
 
 
 uintptrj_t
 J9::ObjectModel::objectHeaderSizeInBytes()
    {
-   return sizeof(J9Object);
+   return compressObjectReferences() ? sizeof(J9ObjectCompressed) : sizeof(J9ObjectFull);
    }
 
 

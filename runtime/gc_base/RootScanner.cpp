@@ -1,6 +1,5 @@
-
 /*******************************************************************************
- * Copyright (c) 1991, 2018 IBM Corp. and others
+ * Copyright (c) 1991, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -81,19 +80,21 @@ MM_RootScanner::doClassLoader(J9ClassLoader *classLoader)
 void
 MM_RootScanner::scanModularityObjects(J9ClassLoader * classLoader)
 {
-	J9HashTableState moduleWalkState;
-	J9Module **modulePtr = (J9Module**)hashTableStartDo(classLoader->moduleHashTable, &moduleWalkState);
-	while (NULL != modulePtr) {
-		J9Module * const module = *modulePtr;
+	if (NULL != classLoader->moduleHashTable) {
+		J9HashTableState moduleWalkState;
+		J9Module **modulePtr = (J9Module**)hashTableStartDo(classLoader->moduleHashTable, &moduleWalkState);
+		while (NULL != modulePtr) {
+			J9Module * const module = *modulePtr;
 
-		doSlot(&module->moduleObject);
-		if (NULL != module->moduleName) {
-			doSlot(&module->moduleName);
+			doSlot(&module->moduleObject);
+			if (NULL != module->moduleName) {
+				doSlot(&module->moduleName);
+			}
+			if (NULL != module->version) {
+				doSlot(&module->version);
+			}
+			modulePtr = (J9Module**)hashTableNextDo(&moduleWalkState);
 		}
-		if (NULL != module->version) {
-			doSlot(&module->version);
-		}
-		modulePtr = (J9Module**)hashTableNextDo(&moduleWalkState);
 	}
 }
 
@@ -484,7 +485,7 @@ MM_RootScanner::scanThreads(MM_EnvironmentBase *env)
 
 /**
  * This function scans exactly one thread for potential roots.  It is designed as
- *    an overrideable subroutine of the primary functions scanThreads and scanSingleThread.
+ *    an overridable subroutine of the primary functions scanThreads and scanSingleThread.
  * @param walkThead the thread to be scanned
  * @param localData opaque data to be passed to the stack walker callback function.
  *   The root scanner fixes that callback function to the stackSlotIterator function
@@ -732,15 +733,11 @@ MM_RootScanner::scanMonitorLookupCaches(MM_EnvironmentBase *env)
 	GC_VMThreadListIterator vmThreadListIterator(static_cast<J9JavaVM*>(_omrVM->_language_vm));
 	while (J9VMThread *walkThread = vmThreadListIterator.nextVMThread()) {
 		if (_singleThread || J9MODRON_HANDLE_NEXT_WORK_UNIT(env)) {
-#if defined(J9VM_THR_LOCK_NURSERY)
 			j9objectmonitor_t *objectMonitorLookupCache = walkThread->objectMonitorLookupCache;
 			UDATA cacheIndex = 0;
 			for (; cacheIndex < J9VMTHREAD_OBJECT_MONITOR_CACHE_SIZE; cacheIndex++) {
 				doMonitorLookupCacheSlot(&objectMonitorLookupCache[cacheIndex]);
 			}
-#else
-			doMonitorLookupCacheSlot(&vmThread->cachedMonitor);
-#endif /* J9VM_THR_LOCK_NURSERY */
 		}
 	}
 	reportScanningEnded(RootScannerEntity_MonitorLookupCaches);

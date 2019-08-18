@@ -41,7 +41,8 @@
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
 #include "z/codegen/J9S390PrivateLinkage.hpp"
-#include "z/codegen/J9S390SystemLinkage.hpp"
+#include "z/codegen/J9SystemLinkageLinux.hpp"
+#include "z/codegen/J9SystemLinkagezOS.hpp"
 #include "z/codegen/J9S390CHelperLinkage.hpp"
 #include "z/codegen/S390GenerateInstructions.hpp"
 #include "z/codegen/S390Recompilation.hpp"
@@ -149,8 +150,8 @@ J9::Z::CodeGenerator::CodeGenerator() :
    // RI support
    if (comp->getOption(TR_HWProfilerDisableRIOverPrivateLinkage)
        && comp->getPersistentInfo()->isRuntimeInstrumentationEnabled()
-       && cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_zEC12)
-       && TR::Compiler->target.cpu.getS390SupportsRI())
+       && TR::Compiler->target.cpu.getSupportsArch(TR::CPU::zEC12)
+       && TR::Compiler->target.cpu.getSupportsRuntimeInstrumentationFacility())
       {
       cg->setSupportsRuntimeInstrumentation();
       cg->setEnableRIOverPrivateLinkage(false);  // Disable RI over private linkage, since RION/OFF will be controlled over J2I / I2J.
@@ -169,7 +170,7 @@ J9::Z::CodeGenerator::CodeGenerator() :
 
    cg->getS390Linkage()->initS390RealRegisterLinkage();
 
-   const bool accessStaticsIndirectly = !cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10) ||
+   const bool accessStaticsIndirectly = !TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10) ||
          comp->getOption(TR_DisableDirectStaticAccessOnZ) ||
          (comp->compileRelocatableCode() && !comp->getOption(TR_UseSymbolValidationManager));
 
@@ -235,6 +236,19 @@ J9::Z::CodeGenerator::doInlineAllocate(TR::Node *node)
    if (objectSize < 0) return false;
 
    return true;
+   }
+
+bool
+J9::Z::CodeGenerator::constLoadNeedsLiteralFromPool(TR::Node *node)
+   {
+   if (node->isClassUnloadingConst() || node->getType().isIntegral() || node->getType().isAddress())
+      {
+      return false;
+      }
+   else
+      {
+      return true;  // Floats/Doubles require literal pool
+      }
    }
 
 TR::Recompilation *
@@ -1675,7 +1689,7 @@ J9::Z::CodeGenerator::examineNode(
             // 2) for perf to avoid a clobber evaluate (temp to temp move) of the already initialized reg -- instead begin using the store hint and leave the temp alone
             reg->setIsInitialized(false);
             }
-         else if (bestNode && bestNode->getOpCode().isStore() && node->getReferenceCount() >= 1) // use >= 1 so useNewStoreHint can always be used for ZAP widening on intializations
+         else if (bestNode && bestNode->getOpCode().isStore() && node->getReferenceCount() >= 1) // use >= 1 so useNewStoreHint can always be used for ZAP widening on initializations
             {
             if (self()->traceBCDCodeGen())
                traceMsg(self()->comp(),"\t\t\treg storageRef #%d with a store bestNode so do not update bestNode with node - %s (%p) refCount=%d\n",
@@ -2019,7 +2033,7 @@ J9::Z::CodeGenerator::genSignCodeSetting(TR::Node *node, TR_PseudoRegister *targ
       case TR::ZonedDecimal:
       case TR::ZonedDecimalSignLeadingEmbedded:
          {
-         if (getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10) && isPacked && digitsToClear >= 3)
+         if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10) && isPacked && digitsToClear >= 3)
             {
             int32_t bytesToSet = (digitsToClear+1)/2;
             int32_t leftMostByte = 0;
@@ -2962,7 +2976,7 @@ J9::Z::CodeGenerator::canCopyWithOneOrTwoInstrs(char *lit, size_t size)
       }
 
    // z9 does not support these complex move instructions
-   if (!getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10) && size > 2)
+   if (!TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10) && size > 2)
       {
       return false;
       }
@@ -3061,7 +3075,7 @@ J9::Z::CodeGenerator::useMoveImmediateCommon(TR::Node *node,
          break;
       case 2:  // MVI/MVI or MVHHI
          {
-         if (getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10))
+         if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10))
             {
             genMVHHI(destMR, node, (lit[0]<<8)|lit[1], cg);
             }
@@ -3511,7 +3525,7 @@ J9::Z::CodeGenerator::canGeneratePDBinaryIntrinsic(TR::ILOpCodes opCode, TR::Nod
    }
 
 void
-J9::Z::CodeGenerator::incRefCountForOpaquePseudoRegister(TR::Node * node, TR::CodeGenerator * cg, TR::Compilation * comp)
+J9::Z::CodeGenerator::incRefCountForOpaquePseudoRegister(TR::Node * node)
    {
    if (node->getOpaquePseudoRegister())
       {
@@ -3519,9 +3533,9 @@ J9::Z::CodeGenerator::incRefCountForOpaquePseudoRegister(TR::Node * node, TR::Co
       TR_StorageReference *ref = reg->getStorageReference();
       if (ref && ref->isNodeBased() && ref->getNodeReferenceCount() > 0)
          {
-         if (cg->traceBCDCodeGen())
-            comp->getDebug()->trace("\tnode %s (%p) with storageRef #%d (%s): increment nodeRefCount %d->%d when artificially incrementing ref count\n",
-               node->getOpCode().getName(),node,ref->getReferenceNumber(),comp->getDebug()->getName(ref->getSymbol()),ref->getNodeReferenceCount(),ref->getNodeReferenceCount()+1);
+         if (self()->traceBCDCodeGen())
+            self()->comp()->getDebug()->trace("\tnode %s (%p) with storageRef #%d (%s): increment nodeRefCount %d->%d when artificially incrementing ref count\n",
+               node->getOpCode().getName(),node,ref->getReferenceNumber(),self()->comp()->getDebug()->getName(ref->getSymbol()),ref->getNodeReferenceCount(),ref->getNodeReferenceCount()+1);
          ref->incrementNodeReferenceCount();
          }
       }
@@ -3534,10 +3548,7 @@ TR::Instruction* J9::Z::CodeGenerator::generateVMCallHelperSnippet(TR::Instructi
    // Associate all generated instructions with the first node
    TR::Node* node = comp->getStartTree()->getNode();
 
-   // Generate the first label by using the placement new operator such that we are guaranteed to call the correct
-   // overload of the constructor which can accept a NULL preceding instruction. If cursor is NULL the generated
-   // label instruction will be prepended to the start of the instruction stream.
-   cursor = new (self()->trHeapMemory()) TR::S390LabelInstruction(TR::InstOpCode::LABEL, node, vmCallHelperSnippetLabel, cursor, self());
+   cursor = generateS390LabelInstruction(self(), TR::InstOpCode::LABEL, node, vmCallHelperSnippetLabel, cursor);
 
    TR::Instruction* vmCallHelperSnippetLabelInstruction = cursor;
 
@@ -3672,7 +3683,7 @@ J9::Z::CodeGenerator::suppressInliningOfRecognizedMethod(TR::RecognizedMethod me
    if (self()->isMethodInAtomicLongGroup(method))
       return true;
 
-   if (!self()->comp()->compileRelocatableCode() && !self()->comp()->getOption(TR_DisableDFP) && TR::Compiler->target.cpu.getS390SupportsDFP())
+   if (!self()->comp()->compileRelocatableCode() && !self()->comp()->getOption(TR_DisableDFP) && TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility())
       {
       if (method == TR::java_math_BigDecimal_DFPIntConstructor ||
           method == TR::java_math_BigDecimal_DFPLongConstructor ||
@@ -3790,7 +3801,7 @@ extern TR::Register *toLowerIntrinsic(TR::Node * node, TR::CodeGenerator * cg, b
 
 extern TR::Register* inlineVectorizedStringIndexOf(TR::Node* node, TR::CodeGenerator* cg, bool isCompressed);
 
-extern TR::Register *intrinsicIndexOf(TR::Node * node, TR::CodeGenerator * cg, bool isCompressed);
+extern TR::Register *inlineIntrinsicIndexOf(TR::Node* node, TR::CodeGenerator* cg, bool isLatin1);
 
 extern TR::Register *inlineDoubleMax(TR::Node *node, TR::CodeGenerator *cg);
 extern TR::Register *inlineDoubleMin(TR::Node *node, TR::CodeGenerator *cg);
@@ -3914,7 +3925,7 @@ J9::Z::CodeGenerator::inlineDirectCall(
       case TR::java_util_concurrent_atomic_AtomicLong_getAndIncrement:
       case TR::java_util_concurrent_atomic_AtomicLong_decrementAndGet:
       case TR::java_util_concurrent_atomic_AtomicLong_getAndDecrement:
-         if (cg->checkFieldAlignmentForAtomicLong() && cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z196))
+         if (cg->checkFieldAlignmentForAtomicLong() && TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z196))
             {
             // TODO: I'm not sure we need the z196 restriction here given that the function already checks for z196 and
             // has a compare and swap fallback path
@@ -3929,7 +3940,7 @@ J9::Z::CodeGenerator::inlineDirectCall(
       case TR::java_util_concurrent_atomic_AtomicLongArray_getAndIncrement:
       case TR::java_util_concurrent_atomic_AtomicLongArray_decrementAndGet:
       case TR::java_util_concurrent_atomic_AtomicLongArray_getAndDecrement:
-         if (cg->checkFieldAlignmentForAtomicLong() && cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z196))
+         if (cg->checkFieldAlignmentForAtomicLong() && TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z196))
             {
             // TODO: I'm not sure we need the z196 restriction here given that the function already checks for z196 and
             // has a compare and swap fallback path
@@ -3993,7 +4004,7 @@ J9::Z::CodeGenerator::inlineDirectCall(
 
       case TR::com_ibm_dataaccess_ByteArrayUtils_trailingZerosQuadWordAtATime_:
          // TODO (Nigel): Is this deprecated? If so can we remove this?
-         if (cg->getS390ProcessorInfo()->supportsArch(TR_S390ProcessorInfo::TR_z10) && !comp->getOption(TR_DisableIntrinsics) && !comp->getOption(TR_DisableDAATrailingZero) && !TR::Compiler->om.canGenerateArraylets())
+         if (TR::Compiler->target.cpu.getSupportsArch(TR::CPU::z10) && !comp->getOption(TR_DisableIntrinsics) && !comp->getOption(TR_DisableDAATrailingZero) && !TR::Compiler->om.canGenerateArraylets())
             return resultReg = inlineTrailingZerosQuadWordAtATime(node, cg);
          break;
 
@@ -4059,10 +4070,10 @@ J9::Z::CodeGenerator::inlineDirectCall(
       switch (methodSymbol->getRecognizedMethod())
          {
          case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfLatin1:
-            resultReg = intrinsicIndexOf(node, cg, true);
+            resultReg = inlineIntrinsicIndexOf(node, cg, true);
             return true;
          case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfUTF16:
-            resultReg = intrinsicIndexOf(node, cg, false);
+            resultReg = inlineIntrinsicIndexOf(node, cg, false);
             return true;
          case TR::java_lang_StringLatin1_indexOf:
          case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfStringLatin1:
@@ -4108,7 +4119,7 @@ J9::Z::CodeGenerator::inlineDirectCall(
         }
 
    if (!comp->compileRelocatableCode() && !comp->getOption(TR_DisableDFP) &&
-       TR::Compiler->target.cpu.getS390SupportsDFP())
+       TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility())
       {
       TR_ASSERT( methodSymbol, "require a methodSymbol for DFP on Z\n");
       if (methodSymbol)

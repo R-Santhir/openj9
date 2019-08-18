@@ -1527,7 +1527,7 @@ mergeIPicSlotCall:
       jnz         short IPicSlotMethodInterpreted
 
       ; We have a compiled method. Claim the trampoline reservation for this
-      ; target method if one doesnt exist for it yet reclaim the trampoline
+      ; target method if one doesn't exist for it yet reclaim the trampoline
       ; space if it already does.
       ;
 mergeUpdateIPicSlotCallWithCompiledMethod:
@@ -1997,7 +1997,7 @@ mergeVPicSlotCall:
       jnz         short VPicSlotMethodIsNative
 
       ; We have a compiled method. Claim the trampoline reservation for this
-      ; target method if one doesnt exist for it yet reclaim the trampoline
+      ; target method if one doesn't exist for it yet reclaim the trampoline
       ; space if it already does.
       ;
 mergeUpdateVPicSlotCallWithCompiledMethod:
@@ -2058,7 +2058,7 @@ VPicSlotMethodIsNative:
       ; code needs to be taken.
       ;
       ; TODO: figure out why trampolines are not created. I do not see why they
-      ; shouldnt be...
+      ; shouldn't be...
       ;
       mov         rcx, qword  [rax+J9TR_MethodPCStartOffset]                  ; compiled native entry point
       mov         edi, dword  [rcx-4]                                         ; fetch preprologue info word

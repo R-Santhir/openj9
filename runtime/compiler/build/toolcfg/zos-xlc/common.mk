@@ -76,37 +76,45 @@ CX_DEFINES+=\
     _ISOC99_SOURCE \
     J9VM_TIERED_CODE_CACHE \
     MAXMOVE \
+    COMPRESS_AOT_DATA \
     SUPPORTS_THREAD_LOCAL
 
 CX_FLAGS+=\
     -qlanglvl=extended0x \
     -qhaltonmsg=CCN6102 \
     -Wc,rostring \
-    -Wc,enum\(4\) \
+    -Wc,"enum(4)" \
     -Wc,xplink \
     -Wc,NOANSIALIAS \
     -Wa,asa,goff,xplink \
     -Wc,DLL,EXPORTALL \
     -Wa,DLL \
-    -Wc,FLOAT\(IEEE,FOLD,AFP\) \
-    -Wc,ARCH\($(ARCHLEVEL)\) \
-    -Wc,TUNE\($(TUNELEVEL)\) \
-    -Wc,TARGET\($(TGTLEVEL)\)
+    -Wc,"FLOAT(IEEE,FOLD,AFP)" \
+    -Wc,"ARCH($(ARCHLEVEL))" \
+    -Wc,"TUNE($(TUNELEVEL))" \
+    -Wc,"TARGET($(TGTLEVEL))"
 
 # Now we get to do this awesome thing because of EBCDIC
+PRODUCT_INCLUDES:=\
+    $(J9SRC)/zos_zlib/hzc/include \
+    /usr/lpp/hzc/include \
+    $(PRODUCT_INCLUDES)
+
 CX_FLAGS+=\
     -qnosearch \
     $(patsubst %,-I%,$(PRODUCT_INCLUDES)) \
     -DIBM_ATOE \
-    -Wc,convlit\(ISO8859-1\) \
+    -Wc,"convlit(ISO8859-1)" \
     -qsearch=$(J9SRC)/a2e/headers \
+    -qsearch=$(J9SRC)/zos_zlib/hzc/include \
+    -qsearch=/usr/lpp/hzc/include \
     -qsearch=/usr/include \
     -qsearch=$(A2E_INCLUDE_PATH)
 
 CXX_FLAGS+=\
     -+ \
-    -Wc,SUPPRESS\(CCN6281,CCN6090\) \
-    -Wc,TMPLPARSE\(NO\) \
+    -Wc,"SUPPRESS(CCN6281,CCN6090)" \
+    -Wc,"TMPLPARSE(NO)" \
     -Wc,EXH
 
 CX_DEFINES_DEBUG+=DEBUG
@@ -114,7 +122,7 @@ CX_FLAGS_DEBUG+=-g
 
 CX_DEFAULTOPT=-O3
 CX_OPTFLAG?=$(CX_DEFAULTOPT)
-CX_FLAGS_PROD+=$(CX_OPTFLAG) -Wc,INLINE\(auto,noreport,600,5000\)
+CX_FLAGS_PROD+=$(CX_OPTFLAG) -Wc,"INLINE(auto,noreport,600,5000)"
 
 ifeq ($(HOST_BITS),64)
     CX_FLAGS+=-Wc,lp64
@@ -217,12 +225,17 @@ AR_CMD?=$(AR)
 SOLINK_CMD?=$(CXX)
 
 SOLINK_FLAGS+=-g -Wl,xplink,dll,map,list,compat=$(TGTLEVEL)
-SOLINK_LIBPATH+=$(J9SRC) $(J9SRC)/lib
-SOLINK_SLINK+=$(PRODUCT_SLINK)
+SOLINK_LIBPATH+=$(J9SRC) \
+                $(J9SRC)/lib \
+                $(J9SRC)/zos_zlib/hzc/lib \
+                /usr/lpp/hzc/lib
+SOLINK_SLINK+=$(PRODUCT_SLINK) \
+              zz
 SOLINK_EXTRA_ARGS+=\
     $(J9SRC)/lib/libj9a2e.x \
     $(J9SRC)/lib/libj9thr$(J9_VERSION).x \
-    $(J9SRC)/lib/libj9hookable$(J9_VERSION).x
+    $(J9SRC)/lib/libj9hookable$(J9_VERSION).x \
+
 
 ifeq ($(HOST_BITS),64)
     SOLINK_FLAGS+=-Wl,lp64

@@ -211,6 +211,7 @@ typedef struct J9JVMTIData {
  */ 
 #define J9JVMTI_FLAG_REDEFINE_CLASS_EXTENSIONS_ENABLED 1   /** Class Redefinition Extensions are enabled */
 #define J9JVMTI_FLAG_REDEFINE_CLASS_EXTENSIONS_USED    2   /** Class Redefinition Extensions have been actually used. Set (and remains set) the first time a redefined class with extensions has been used */
+#define J9JVMTI_FLAG_SAMPLED_OBJECT_ALLOC_ENABLED      4   /** Sampling Object Allocation is enabled */
 
 #define J9JVMTI_COMPILE_EVENT_THREAD_STATE_NEW 0
 #define J9JVMTI_COMPILE_EVENT_THREAD_STATE_ALIVE 1
@@ -294,7 +295,7 @@ typedef struct jvmtiGcp_translationEntry {
  
 typedef struct jvmtiGcp_translation {
 	J9HashTable			*ht;	/*!< A HashTable of reindexed constant pool items contained in jvmtiGcp_translationEntry entries */
-	jvmtiGcp_translationEntry	**cp;	/*!< An array of J9HashTable nodes indexed by the translated SUN constant pool indeces */
+	jvmtiGcp_translationEntry	**cp;	/*!< An array of J9HashTable nodes indexed by the translated SUN constant pool indices */
 	J9ROMConstantPoolItem 		*romConstantPool;	/*!< J9RomClass constant pool for the class under translation */
 	U_32				cpSize;		/*!< Number of translated constant pool items */
 	U_32				totalSize;	/*!< Total number of bytes required for writing the translated constant pool */

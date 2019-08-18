@@ -75,18 +75,14 @@ eq_J9Monitor_CNTFLCClearMask  equ 0FFFFFFFFFFFFFF05h
 ; lockword address => _rcx
 ; lockword value   => _rax
 %macro ObtainLockWordHelper 1 ; args: ObjAddr
-    %ifdef ASM_J9VM_THR_LOCK_NURSERY
-        %ifdef ASM_OMR_GC_COMPRESSED_POINTERS
-            mov  eax, [%1 + J9TR_J9Object_class]        ; receiver class
-        %else
-            mov _rax, [%1 + J9TR_J9Object_class]         ; receiver class
-        %endif
-        and _rax, eq_ObjectClassMask
-        mov _rax, [_rax + J9TR_J9Class_lockOffset]        ; offset of lock word in receiver class
-        lea _rcx, [%1 + _rax]                             ; load the address of object lock word
+    %ifdef ASM_OMR_GC_COMPRESSED_POINTERS
+        mov  eax, [%1 + J9TR_J9Object_class]        ; receiver class
     %else
-        lea _rcx, [%1 + eq_J9Monitor_LockWord]           ; load the address of object lock word
+        mov _rax, [%1 + J9TR_J9Object_class]         ; receiver class
     %endif
+    and _rax, eq_ObjectClassMask
+    mov _rax, [_rax + J9TR_J9Class_lockOffset]        ; offset of lock word in receiver class
+    lea _rcx, [%1 + _rax]                             ; load the address of object lock word
     %ifdef ASM_OMR_GC_COMPRESSED_POINTERS
         mov  eax, [_rcx]
     %else
@@ -167,7 +163,7 @@ eq_J9Monitor_CNTFLCClearMask  equ 0FFFFFFFFFFFFFF05h
   .fallback:
 %endmacro
 
-; This code is called when we need to exit reserved montior with couple of possible
+; This code is called when we need to exit reserved monitor with couple of possible
 ; scenarios:
 ;   - more than one level of recursion
 ;   - FLC or INF are set

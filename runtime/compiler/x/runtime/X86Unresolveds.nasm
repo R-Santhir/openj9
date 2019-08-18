@@ -107,7 +107,7 @@
 ;
 ; NOTES:
 ;
-; [1] A POP is not strictly necessary to shapen the stack. The RA could be left on the
+; [1] A POP is not strictly necessary to shape the stack. The RA could be left on the
 ; stack and the new stack shape updated in getJitStaticMethodResolvePushes(). It
 ; was left this way because we have to dork with the RA anyways to get back from
 ; this function which will already cause a return mispredict. Leaving it as is
@@ -132,7 +132,7 @@ interpreterUnresolvedStaticGlue:
       btr         eax, 0
       ; Load the resolved RAM method into EDI so that the caller doesn't have to re-run patched code
       xchg        edi, eax
-      ; Skip code patching if the interpreter low-tag the RAM mathod
+      ; Skip code patching if the interpreter low-tag the RAM method
       jc          .skippatching
 
       ; Patch the call that brought us here into a load of the resolved RAM method into EDI.
@@ -286,7 +286,7 @@ patchBarrierWithNop:
       ; get the instruction descriptor and find the length of the store instruction
       ;
       mov         edx, dword  [esp + 144]                   ; get instruction descriptor address [esp + 116 + 24 + 4]
-      mov         bl, byte  [edx]                           ; get instruction length from instruciton descriptor
+      mov         bl, byte  [edx]                           ; get instruction length from instruction descriptor
       and         ebx, 0f0h                                 ; mask size of instruction
       shr         ebx, 4                                    ; shift size to last nibble of byte
       lea         ebx, [ebx - eq_MemFenceCallLength32] ; get the delta between the RA in the mainline code and
@@ -342,7 +342,7 @@ doLOCKORESP:
 
 
       ; Loading a long in 32 bit is done with a lock cmpxchng by default.
-      ; We need to swtitch the op bits of the instructions that performs loads for the lock cmpxchng setup
+      ; We need to switch the op bits of the instructions that performs loads for the lock cmpxchng setup
       ; to stores. We also need to patch over the lock cmpxchg with nops.
       ;
 patchLowerLong:
@@ -375,13 +375,13 @@ patchCmpxchgForLongStore:
 patchMainlineInstructionFromCache:
 
       mov         ecx, dword  [esp + 12]                            ; Load low dword of patch instruction in snippet BEFORE volatile resolution
-      mov         ebx, dword  [esp + 16]                            ; Load high dword of patch instruction in snippet BEFORE volatile resoluion
+      mov         ebx, dword  [esp + 16]                            ; Load high dword of patch instruction in snippet BEFORE volatile resolution
 
 
 patchMainlineInstruction:
 
 
-      mov         esi, dword  [esp]                                 ; Restor RA in mainline code.
+      mov         esi, dword  [esp]                                 ; Restore RA in mainline code.
       mov         edx, dword  [esp + 4]                             ; Restore the call instruction (edx:eax) that should have brought
       mov         eax, dword  [esp + 8]                             ; us to this snippet + the following 3 bytes.
 
@@ -1010,7 +1010,7 @@ segment .text
 ; the interpreter which reads the parameters from the stack. The backspilling has
 ; already occured at this point.
 ;
-; [2] A POP is not strictly necessary to shapen the stack. The RA could be left on the
+; [2] A POP is not strictly necessary to shape the stack. The RA could be left on the
 ; stack and the new stack shape updated in getJitStaticMethodResolvePushes(). It
 ; was left this way because we have to dork with the RA anyways to get back from
 ; this function which will already cause a return mispredict. Leaving it as is
@@ -1038,7 +1038,7 @@ interpreterUnresolvedStaticGlue:
       btr         rax, 0
       ; Load the resolved RAM method into RDI so that the caller doesn't have to re-run patched code
       mov         rdi, rax
-      ; Skip code patching if the interpreter low-tag the RAM mathod 
+      ; Skip code patching if the interpreter low-tag the RAM method 
       jc          .skippatching
 
       ; Patch the call that brought us here into a load of the resolved RAM method into RDI.
@@ -1319,7 +1319,7 @@ patchOverMfence:
 
 patchWith3ByteNOP:
 
-      mov         ecx, dword  [rax]                   ; load existing double word containg mfence
+      mov         ecx, dword  [rax]                   ; load existing double word containing mfence
       and         ecx, 0ff000000h                     ; insert trailing byte of 3 word nop
       or          ecx, 000001f0fh                     ; load the the first 2 bytes of the 3 word nop
       mov         dword  [rax], ecx                   ; write the nop
@@ -1374,7 +1374,7 @@ findOffset:
       and         rax, rcx
 
 patchWith5ByteNOP:
-      ;cmp word ptr[rax], eq_LORBinaryWord ; make sure we are pathcing over a lock or [esp] ;TEMP
+      ;cmp word ptr[rax], eq_LORBinaryWord ; make sure we are patching over a lock or [esp] ;TEMP
       ;je restoreRegs
 
       mov         ecx,    dword  [rax + 4]            ; load the existing dword with the last byte of the lock and the following 3 bytes

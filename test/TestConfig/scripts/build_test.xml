@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 
 <!--
-  Copyright (c) 2016, 2018 IBM Corp. and others
+  Copyright (c) 2016, 2019 IBM Corp. and others
 
   This program and the accompanying materials are made available under
   the terms of the Eclipse Public License 2.0 which accompanies this
@@ -31,17 +31,8 @@
 	<property name="ascii.workspace.dir" value="${TEST_ROOT}" />
 	<property name="ascii.test.dir" value="${BUILD_ROOT}" />
 	<property name="JDK_VERSION" value=""/>
-	<property name="JAVA_BIN" value="${JAVA_BIN}" />
-	<echo> JAVA_BIN is ${JAVA_BIN} </echo>
-	<if>
-		<equals arg1="${JDK_VERSION}" arg2="8"/>
-		<then>
-			<property name="JAVAC" value="${JAVA_BIN}/../../bin/javac" />
-		</then>
-		<else>
-			<property name="JAVAC" value="${JAVA_BIN}/javac" />
-		</else>
-	</if>
+	<property name="TEST_JDK_HOME" value="${TEST_JDK_HOME}" />
+	<property name="JAVAC" value="${TEST_JDK_HOME}/bin/javac" />
 
 	<var name="build.list" value= "" />
 	<if>
@@ -66,6 +57,17 @@
 		</else>
 	</if>
 	<echo> build.list is ${build.list} </echo>
+
+	<macrodef name="checkGitRepoSha">
+		<attribute name="repoDir" default="." />
+		<sequential>
+			<exec executable="bash" failonerror="false">
+				<arg line="${TEST_ROOT}/TestConfig/scripts/getSHA.sh" />
+				<arg line="--repo_dir @{repoDir}" />
+				<arg line="--output_file ${TEST_ROOT}/TestConfig/SHA.txt" />
+			</exec>
+		</sequential>
+	</macrodef>
 
 	<target name="build" depends="stage_test_material" description="using ${JDK_VERSION} to compile the source ">
 		<subant target="">
@@ -94,39 +96,5 @@
 		<chmod dir="${ascii.test.dir}/TestConfig" perm="755"/>
 
 		<chmod file="${ascii.test.dir}/*.mk" perm="755"/>
-	</target>
-
-
-	<target name="check_sdk">
-		<available file="${JAVA_BIN}" property="sdk.present" />
-		<if>
-			<istrue value="${sdk.present}" />
-			<then>
-				<antcall target="build" />
-			</then>
-			<else>
-				<if>
-					<isfalse value="${sdk.present}" />
-					<then>
-						<echo>${JDK_VERSION} ${JAVA_BIN} is missing</echo>
-						<mkdir dir="${TMP_DIR}/${JDK_VERSION}"/>
-						<property name="tmp.java.dir" value="${TMP_DIR}/${JDK_VERSION}" />
-						<delete dir="${tmp.java.dir}"/>
-						<basename property="jar.filename" file="${SDK_JAR}"/>
-						<copy file="${SDK_JAR}" todir="${tmp.java.dir}"/>
-						<unzip src="${tmp.java.dir}/${jar.filename}" dest="${tmp.java.dir}" />
-						<exec executable="chmod">
-							<arg value="-R" />
-							<arg value="755" />
-							<arg value="${tmp.java.dir}" />
-						</exec>
-						<var name="JAVA_BIN" unset="true"/>
-						<property name="JAVA_BIN" value="${tmp.java.dir}/sdk/bin" />
-						<echo>set JAVA_BIN=${JAVA_BIN}</echo>
-					</then>
-				</if>
-				<antcall target="build" />
-			</else>
-		</if>
 	</target>
 </project>

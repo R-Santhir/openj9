@@ -331,7 +331,7 @@ public abstract class VarHandle extends VarHandleInternal
 	 * @return Optional with a nominal descriptor of VarHandle instance
 	 */
 	public Optional<VarHandleDesc> describeConstable() {
-		/* this method should be overriden by types that are supported */
+		/* this method should be overridden by types that are supported */
 		return Optional.empty();
 	}
 
@@ -1218,7 +1218,7 @@ public abstract class VarHandle extends VarHandleInternal
 		/**
 		 * Helper to retrieve declaring class descriptor from superclass bootstrap arguments.
 		 * 
-		 * @return ClassDesc declaring class desccriptor
+		 * @return ClassDesc declaring class descriptor
 		 * @throws InternalError if VarHandleDesc was created improperly or instance is not a field
 		 */
 		private ClassDesc getFieldDeclaringClassDesc() {
@@ -1234,7 +1234,7 @@ public abstract class VarHandle extends VarHandleInternal
 		/**
 		 * Helper to retrieve field type descriptor from superclass bootstrap arguments.
 		 * 
-		 * @return ClassDesc field type desccriptor
+		 * @return ClassDesc field type descriptor
 		 * @throws InternalError if VarHandleDesc was created improperly or instance is not a field
 		 */
 		private ClassDesc getFieldTypeClassDesc() {

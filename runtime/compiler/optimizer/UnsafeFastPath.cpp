@@ -101,6 +101,52 @@ static bool isTransformableUnsafeAtomic(TR::RecognizedMethod rm)
    return false;
    }
 
+static bool isKnownUnsafeCaller(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::java_lang_invoke_ArrayVarHandle_ArrayVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_StaticFieldVarHandle_StaticFieldVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_InstanceFieldVarHandle_InstanceFieldVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_ByteArrayViewVarHandle_ByteArrayViewVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_StaticFieldGetterHandle_invokeExact:
+      case TR::java_lang_invoke_StaticFieldSetterHandle_invokeExact:
+      case TR::java_lang_invoke_FieldGetterHandle_invokeExact:
+      case TR::java_lang_invoke_FieldSetterHandle_invokeExact:
+         return true;
+      default:
+         return false;
+      }
+   return false;
+   }
+
+static bool isUnsafeCallerAccessingStaticField(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::java_lang_invoke_StaticFieldVarHandle_StaticFieldVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_StaticFieldGetterHandle_invokeExact:
+      case TR::java_lang_invoke_StaticFieldSetterHandle_invokeExact:
+         return true;
+      default:
+         return false;
+      }
+   return false;
+   }
+
+static bool isUnsafeCallerAccessingArrayElement(TR::RecognizedMethod rm)
+   {
+   switch (rm)
+      {
+      case TR::java_lang_invoke_ArrayVarHandle_ArrayVarHandleOperations_OpMethod:
+      case TR::java_lang_invoke_ByteArrayViewVarHandle_ByteArrayViewVarHandleOperations_OpMethod:
+         return true;
+      default:
+         return false;
+      }
+   return false;
+   }
+
 static bool isVarHandleOperationMethodOnArray(TR::RecognizedMethod rm)
    {
    switch (rm)
@@ -136,7 +182,7 @@ static bool isVarHandleOperationMethodOnNonStaticField(TR::RecognizedMethod rm)
  *    Tree containing the call
  *
  * \parm callerMethod
- *    VarHandle concreate operation method
+ *    VarHandle concrete operation method
  *
  * \parm calleeMethod
  *    The unsafe method
@@ -633,27 +679,13 @@ int32_t TR_UnsafeFastPath::perform()
          bool isStatic = false;
          TR::RecognizedMethod callerMethod = methodSymbol->getRecognizedMethod();
          TR::RecognizedMethod calleeMethod = symbol->getRecognizedMethod();
-         if (TR_J9MethodBase::isVarHandleOperationMethod(callerMethod) &&
+         if (isKnownUnsafeCaller(callerMethod) &&
              TR_J9MethodBase::isUnsafeGetPutWithObjectArg(calleeMethod))
             {
-            switch (callerMethod)
-               {
-               case TR::java_lang_invoke_StaticFieldVarHandle_StaticFieldVarHandleOperations_OpMethod:
-                  isStatic = true;
-                  break;
-               default:
-                  break;
-               }
-
-            switch (callerMethod)
-               {
-               case TR::java_lang_invoke_ArrayVarHandle_ArrayVarHandleOperations_OpMethod:
-               case TR::java_lang_invoke_ByteArrayViewVarHandle_ByteArrayViewVarHandleOperations_OpMethod:
-                  isArrayOperation = true;
-                  break;
-               default:
-                  break;
-               }
+            if (isUnsafeCallerAccessingStaticField(callerMethod))
+                isStatic = true;
+            if (isUnsafeCallerAccessingArrayElement(callerMethod))
+                isArrayOperation = true;
 
             if (isArrayOperation)
                type = TR_J9MethodBase::unsafeDataTypeForArray(calleeMethod);
@@ -685,6 +717,12 @@ int32_t TR_UnsafeFastPath::perform()
 
          if (type != TR::NoType && performTransformation(comp(), "%s Found unsafe/JITHelpers calls, turning node [" POINTER_PRINTF_FORMAT "] into a load/store\n", optDetailString(), node))
             {
+
+            if (TR_J9MethodBase::isUnsafeGetPutBoolean(calleeMethod))
+               {
+               TR::TransformUtil::truncateBooleanForUnsafeGetPut(comp(), tt);
+               }
+
             TR::SymbolReference * unsafeSymRef = comp()->getSymRefTab()->findOrCreateUnsafeSymbolRef(type, true, isStatic, isVolatile);
 
             // some helpers are special - we know they are accessing an array and we know the kind of that array
@@ -759,8 +797,8 @@ int32_t TR_UnsafeFastPath::perform()
 
                addrCalc->setIsInternalPointer(true);
 
-               // Genarete a spine check, need a symref
-               // We don't need a BNDCHK because these are unsafe calls from interal code
+               // Generate a spine check, need a symref
+               // We don't need a BNDCHK because these are unsafe calls from internal code
                TR::SymbolReference * bndCHKSymRef = comp()->getSymRefTab()->findOrCreateArrayBoundsCheckSymbolRef(methodSymbol);
                TR::Node * spineCHK = TR::Node::create(node, TR::SpineCHK, 3);
                spineCHK->setAndIncChild(1, object);

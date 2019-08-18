@@ -1195,7 +1195,7 @@ ROMClassWriter::writeMethods(Cursor *cursor, Cursor *lineNumberCursor, Cursor *v
 			 *            + AccMethodObjectConstructor
 			 *           + AccMethodHasMethodParameters
 			 *
-			 *         + UNUSED
+			 *         + AccMethodAllowFinalFieldWrites
 			 *        + AccMethodHasGenericSignature
 			 *       + AccMethodHasExtendedModifiers
 			 *      + AccMethodHasMethodHandleInvokes
@@ -1205,6 +1205,14 @@ ROMClassWriter::writeMethods(Cursor *cursor, Cursor *lineNumberCursor, Cursor *v
 			 *  + AccMethodHasParameterAnnotations
 			 * + AccMethodHasDefaultAnnotation
 			 */
+
+			/* In class files prior to version 53, any method in the declaring class of a final field
+			 * may write to it. For 53 and later, only initializers (<init> for instance fields, <clinit>
+			 * for static fields) are allowed to write to final fields.
+			 */
+			if ((_classFileOracle->getMajorVersion() < 53) || ('<' == *_classFileOracle->getUTF8Data(iterator.getNameIndex()))) {
+				modifiers |= J9AccMethodAllowFinalFieldWrites;
+			}
 
 			if (iterator.hasFrameIteratorSkipAnnotation()) {
 				modifiers |= J9AccMethodFrameIteratorSkip;
@@ -1370,7 +1378,7 @@ ROMClassWriter::writeMethods(Cursor *cursor, Cursor *lineNumberCursor, Cursor *v
 			if (markAndCountOnly) {
 				/* Following is adding PAD to stackmap size. First round is always markAndCountOnly.
 				 * This logic is very difficult to catch. Cause of the padded stackmapsize, we dont use padding in nextROMMethod() in mthutil.
-				 * Also I find this markAndCountOnly unneccesary and confusing for the following reasons
+				 * Also I find this markAndCountOnly unnecessary and confusing for the following reasons
 				 * 1. It is used partially : See above, we dont use it for the first 6 bytes and we write them down.
 				 * It should be used properly, either always or never.
 				 * 2. Also when it is counting, it is a counting cursor and it actually do not write (see Cursor.hpp).

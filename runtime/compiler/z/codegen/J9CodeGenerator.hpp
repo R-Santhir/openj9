@@ -113,6 +113,9 @@ class OMR_EXTENSIBLE CodeGenerator : public J9::CodeGenerator
    bool supportsPackedShiftRight(int32_t resultPrecision, TR::Node *shiftSource, int32_t shiftAmount);
    bool canGeneratePDBinaryIntrinsic(TR::ILOpCodes opCode, TR::Node * op1PrecNode, TR::Node * op2PrecNode, TR::Node * resultPrecNode);
 
+   bool constLoadNeedsLiteralFromPool(TR::Node *node);
+   
+   bool supportsTrapsInTMRegion(){ return TR::Compiler->target.isZOS();}
 
    using J9::CodeGenerator::addAllocatedRegister;
    void addAllocatedRegister(TR_PseudoRegister * temp);
@@ -124,7 +127,6 @@ class OMR_EXTENSIBLE CodeGenerator : public J9::CodeGenerator
 
    TR_OpaquePseudoRegister * evaluateOPRNode(TR::Node* node);
    TR_PseudoRegister * evaluateBCDNode(TR::Node * node);
-
 
    // --------------------------------------------------------------------------
    // Storage references
@@ -259,7 +261,7 @@ class OMR_EXTENSIBLE CodeGenerator : public J9::CodeGenerator
    bool inlineCryptoMethod(TR::Node *node, TR::Register *&resultReg);
 #endif
 
-   void incRefCountForOpaquePseudoRegister(TR::Node * node, TR::CodeGenerator * cg, TR::Compilation * comp);
+   void incRefCountForOpaquePseudoRegister(TR::Node * node);
 
    /** \brief
     *     Generates a VM call helper sequence along with the necessary metadata in the instruction stream which when

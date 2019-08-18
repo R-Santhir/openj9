@@ -109,7 +109,7 @@ ZZ Snippet Base Register
 SETVAL(sbase,r11)
 SETVAL(eq_JitCompilerAddr,0)
 ZZ previous field only 4 bytes big, but compiler aligns
-ZZ to double word boundry on 64 bit
+ZZ to double word boundary on 64 bit
 SETVAL(eq_BodyInfo_MethodInfo,PTR_SIZE)
 SETVAL(eq_VMMethodInfo_j9Method,0)
 
@@ -224,7 +224,7 @@ ZZ   DC magic <hdr> 4 bytes
 ZZ     < possible load of args>
 ZZ   ST r14,x(r5)  <- jit entry point, will have been rewritten
 ZZ to be J <sampling code>
-ZZ Note that it's assumed the preprologe has saved r14 at 4(r5)
+ZZ Note that it's assumed the preprologue has saved r14 at 4(r5)
 ZZ ( that's 8(r5) on 64 bit systems)
 ZZ before entering this routine.
 ZZ ========================================================  ZZ
@@ -866,7 +866,7 @@ ZZ calculate r3 = (rEP-r3)/2
     CLEANSE(rEP)
 ifdef([MCC_SUPPORTED],[dnl
 ZZ Call MCC service for code patching of the resolved method.
-ZZ Paramters:
+ZZ Parameters:
 ZZ       j9method, callSite, newPC, extraArg
 ZZ  We have to load the arguments onto the stack to pass to
 ZZ  jitCallCFunction:
@@ -987,7 +987,7 @@ ifdef([OMR_GC_COMPRESSED_POINTERS],[dnl
     AHI_GPR   r3,-2*PTR_SIZE    ZZ Otherwise, we move to previous slot
     J LSearchInterfaceSlotToPatch
 
-ZZ If we find a slot that mathces the same class pointer,
+ZZ If we find a slot that matches the same class pointer,
 ZZ we would patch the method entry point
 LABEL(LPatchInterfaceSlot)
     ST_GPR    rEP,PTR_SIZE(r3)
@@ -995,10 +995,10 @@ LABEL(LPatchInterfaceSlot)
 
     END_FUNC(_checkAndPatchBrasl,PCHBRSL,9)
 
-ZZ Induce Recompilation asm rountine is just a wrapper to call the C
+ZZ Induce Recompilation asm routine is just a wrapper to call the C
 ZZ function induceRecompilation(VMThread,StartPC), which will patch
 ZZ the startPC in a thread-safe manner.
-ZZ This asm rountine sets up the appropriate parameters and uses the
+ZZ This asm routine sets up the appropriate parameters and uses the
 ZZ jitCallCFunction to invoke the induceRecompilation C routine.
 ZZ
 ZZ _induceRecompilation is called by a ForceRecompilationSnippet

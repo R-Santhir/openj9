@@ -31,7 +31,6 @@
 #include "j9jclnls.h"
 #include "j9bcvnls.h"
 #include "bcnames.h"
-#include "lockNurseryUtil.h"
 #include "rommeth.h"
 #include "stackwalk.h"
 #include "ut_j9vm.h"
@@ -180,9 +179,9 @@ private:
 	 * Shareable thunk compilation is based on the ThunkTuple counting.
 	 * Shareable thunks then modify the MH.invocationCount on each invocation.  We
 	 * only want invocations from jitted code to drive CustomThunk compilation so the
-	 * interpreter needs to pre-emptively negate the modification to the invocationCount.
+	 * interpreter needs to preemptively negate the modification to the invocationCount.
 	 *
-	 * @param methodHandle[in] The MethodHandle to modify the coun on
+	 * @param methodHandle[in] The MethodHandle to modify the count on
 	 */
 	VMINLINE void
 	modifyMethodHandleCountForI2J(REGISTER_ARGS_LIST, j9object_t methodHandle)
@@ -1056,7 +1055,17 @@ obj:;
 	VMINLINE j9object_t
 	allocateIndexableObject(REGISTER_ARGS_LIST, J9Class *arrayClass, U_32 size, bool initializeSlots = true, bool memoryBarrier = true, bool sizeCheck = true)
 	{
-		j9object_t instance = _objectAllocate.inlineAllocateIndexableObject(_currentThread, arrayClass, size, initializeSlots, memoryBarrier, sizeCheck);
+		j9object_t instance = NULL;
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+		if (J9_IS_J9CLASS_FLATTENED(arrayClass)) {
+			instance = _objectAllocate.inlineAllocateIndexableValueTypeObject(_currentThread, arrayClass, (U_32)size, initializeSlots, memoryBarrier, sizeCheck);
+		} else
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+		{
+			instance = _objectAllocate.inlineAllocateIndexableObject(_currentThread, arrayClass, (U_32)size, initializeSlots, memoryBarrier, sizeCheck);
+		}
+
 		if (NULL == instance) {
 			updateVMStruct(REGISTER_ARGS);
 			instance = _vm->memoryManagerFunctions->J9AllocateIndexableObject(_currentThread, arrayClass, size, J9_GC_ALLOCATE_OBJECT_NON_INSTRUMENTABLE);
@@ -2384,7 +2393,7 @@ done:;
 				ffi_raw_call(cif, FFI_FN(function), returnStorage, values_raw);
 #else /* FFI_NATIVE_RAW_API */
 				ffi_call(cif, FFI_FN(function), returnStorage, values);
-#endif /* FFI_NATOVE_RAW_API */
+#endif /* FFI_NATIVE_RAW_API */
 				ret = ffiSuccess;
 			}
 		}
@@ -2413,6 +2422,8 @@ ffi_exit:
 		_currentThread->currentException = NULL;
 		/* Only report the event if the tag is set - this prevents reporting multiple throws of the same exception when returning from internal call-in */
 		if (_currentThread->privateFlags & J9_PRIVATE_FLAGS_REPORT_EXCEPTION_THROW) {
+			/* Clear the flag once the entered the reporting branch */
+			_currentThread->privateFlags &= ~(UDATA)J9_PRIVATE_FLAGS_REPORT_EXCEPTION_THROW;
 			if (J9_EVENT_IS_HOOKED(_vm->hookInterface, J9HOOK_VM_EXCEPTION_THROW)) {
 				ALWAYS_TRIGGER_J9HOOK_VM_EXCEPTION_THROW(_vm->hookInterface, _currentThread, exception);
 				if (immediateAsyncPending()) {
@@ -3094,7 +3105,16 @@ done:
 		}
 		if (flags & J9AccClassArray) {
 			U_32 size = J9INDEXABLEOBJECT_SIZE(_currentThread, original);
-			copy = _objectAllocate.inlineAllocateIndexableObject(_currentThread, objectClass, size, false, false, false);
+
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+			if (J9_IS_J9CLASS_FLATTENED(objectClass)) {
+				copy = _objectAllocate.inlineAllocateIndexableValueTypeObject(_currentThread, objectClass, size, false, false, false);
+			} else
+#endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+			{
+				copy = _objectAllocate.inlineAllocateIndexableObject(_currentThread, objectClass, size, false, false, false);
+			}
+
 			if (NULL == copy) {
 				pushObjectInSpecialFrame(REGISTER_ARGS, original);
 				updateVMStruct(REGISTER_ARGS);
@@ -3744,7 +3764,7 @@ done:
 		} else {
 			J9Class *arrayClazz = J9VM_J9CLASS_FROM_HEAPCLASS(_currentThread, classObject);
 			if (J9CLASS_IS_ARRAY(arrayClazz)) {
-				returnSingleFromINL(REGISTER_ARGS, VM_UnsafeAPI::arrayBaseOffset((J9ArrayClass*)arrayClazz), 2);
+				returnSingleFromINL(REGISTER_ARGS, VM_UnsafeAPI::arrayBaseOffset(_currentThread, (J9ArrayClass*)arrayClazz), 2);
 			} else {
 				buildInternalNativeStackFrame(REGISTER_ARGS);
 				updateVMStruct(REGISTER_ARGS);
@@ -4155,7 +4175,7 @@ internalError:
 		} else {
 			updateVMStruct(REGISTER_ARGS);
 			J9ClassLoader* result = internalAllocateClassLoader(_vm, classLoaderObject);
-			VMStructHasBeenUpdated(REGISTER_ARGS); // likely unncessary - no code runs in internalAllocateClassLoader
+			VMStructHasBeenUpdated(REGISTER_ARGS); // likely unnecessary - no code runs in internalAllocateClassLoader
 			if (NULL == result) {
 				rc = GOTO_THROW_CURRENT_EXCEPTION;
 				goto done;
@@ -5782,7 +5802,34 @@ done:
 				_currentThread->tempSlot = (UDATA)index;
 				rc = THROW_AIOB;
 			} else {
-				j9object_t value = _objectAccessBarrier.inlineIndexableObjectReadObject(_currentThread, arrayref, index);
+				j9object_t value = NULL;
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+				J9Class *arrayrefClass = J9OBJECT_CLAZZ(_currentThread, arrayref);
+				if (J9_IS_J9CLASS_FLATTENED(arrayrefClass)) {
+					j9object_t newObjectRef = _objectAllocate.inlineAllocateObject(_currentThread, ((J9ArrayClass*)arrayrefClass)->leafComponentType, false, false);
+
+					if (NULL == newObjectRef) {
+						buildGenericSpecialStackFrame(REGISTER_ARGS, 0);
+						pushObjectInSpecialFrame(REGISTER_ARGS, arrayref);
+						updateVMStruct(REGISTER_ARGS);
+						newObjectRef = _vm->memoryManagerFunctions->J9AllocateObject(_currentThread, ((J9ArrayClass*)arrayrefClass)->leafComponentType, J9_GC_ALLOCATE_OBJECT_NON_INSTRUMENTABLE);
+						VMStructHasBeenUpdated(REGISTER_ARGS);
+						arrayref = popObjectInSpecialFrame(REGISTER_ARGS);
+						restoreGenericSpecialStackFrame(REGISTER_ARGS);
+						if (J9_UNEXPECTED(NULL == newObjectRef)) {
+							rc = THROW_HEAP_OOM;
+							return rc;
+						}
+						arrayrefClass = VM_VMHelpers::currentClass(arrayrefClass);
+					}
+
+					_objectAccessBarrier.copyObjectFieldsFromArrayElement(_currentThread, arrayrefClass, newObjectRef, (J9IndexableObject *) arrayref, index);
+					value = newObjectRef;
+				} else
+#endif /* if defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+				{
+					value = _objectAccessBarrier.inlineIndexableObjectReadObject(_currentThread, arrayref, index);
+				}
 				_pc += 1;
 				_sp += 1;
 				*(j9object_t*)_sp = value;
@@ -5814,7 +5861,15 @@ done:
 				if (false == objectArrayStoreAllowed(arrayref, value)) {
 					rc = THROW_ARRAY_STORE;
 				} else {
-					_objectAccessBarrier.inlineIndexableObjectStoreObject(_currentThread, arrayref, index, value);
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+					J9Class *arrayrefClass = J9OBJECT_CLAZZ(_currentThread, arrayref);
+					if (J9_IS_J9CLASS_FLATTENED(arrayrefClass)) {
+						_objectAccessBarrier.copyObjectFieldsToArrayElement(_currentThread, arrayrefClass, value, (J9IndexableObject *) arrayref, index);
+					} else 
+#endif /* if defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
+					{
+						_objectAccessBarrier.inlineIndexableObjectStoreObject(_currentThread, arrayref, index, value);
+					}
 					_pc += 1;
 					_sp += 3;
 				}
@@ -6316,15 +6371,15 @@ resolve:
 			/* Put resolved for a non-final field means fully resolved */
 			if (J9_UNEXPECTED(resolvedBit != bits)) {
 				/* If not put resolved for a final field, resolve is necessary */
-				if (testBits != bits) {
+				if (J9_UNEXPECTED(testBits != bits)) {
 					goto resolve;
 				}
 				/* Final field - ensure the running method is allowed to store */
-				if (J9_UNEXPECTED(VM_VMHelpers::ramClassChecksFinalStores(ramConstantPool->ramClass)
-					          && !VM_VMHelpers::romMethodIsInitializer(J9_ROM_METHOD_FROM_RAM_METHOD(_literals), true)
-				)) {
-					/* Store not allowed - run the resolve code to throw the exception */
-					goto resolve;
+				if (J9_UNEXPECTED(!J9ROMMETHOD_ALLOW_FINAL_FIELD_WRITES(J9_ROM_METHOD_FROM_RAM_METHOD(_literals), J9AccStatic))) {
+					if (J9_UNEXPECTED(VM_VMHelpers::ramClassChecksFinalStores(ramConstantPool->ramClass))) {
+						/* Store not allowed - run the resolve code to throw the exception */
+						goto resolve;
+					}
 				}
 			}
 		}
@@ -6418,7 +6473,8 @@ retry:
 #endif
 
 				{
-					UDATA const newValueOffset = valueOffset + J9_OBJECT_HEADER_SIZE;
+					UDATA const objectHeaderSize = J9VMTHREAD_OBJECT_HEADER_SIZE(_currentThread);
+					UDATA const newValueOffset = valueOffset + objectHeaderSize;
 					bool isVolatile = (0 != (flags & J9AccVolatile));
 
 					if (flags & J9FieldSizeDouble) {
@@ -6428,7 +6484,7 @@ retry:
 						_sp += (slotsToPop - 1);
 #if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
 						if (flags & J9FieldFlagFlattened) {
-							J9FlattenedClassCache *cache = J9OBJECT_CLAZZ(_currentThread, objectref)->flattenedClassCache + valueOffset;
+							J9FlattenedClassCacheEntry *cache = J9_VM_FCC_ENTRY_FROM_CLASS(J9OBJECT_CLAZZ(_currentThread, objectref), valueOffset);
 							J9Class *flattenedFieldClass = cache->clazz;
 							j9object_t newObjectRef = _objectAllocate.inlineAllocateObject(_currentThread, flattenedFieldClass, false, false);
 
@@ -6450,9 +6506,9 @@ retry:
 							_objectAccessBarrier.copyObjectFields(_currentThread,
 												flattenedFieldClass,
 												objectref,
-												cache->offset + J9_OBJECT_HEADER_SIZE,
+												cache->offset + objectHeaderSize,
 												newObjectRef,
-												J9_OBJECT_HEADER_SIZE);
+												objectHeaderSize);
 
 							_sp += (slotsToPop - 1);
 							*(j9object_t*)_sp = newObjectRef;
@@ -6525,15 +6581,15 @@ resolve:
 			/* Put resolved for a non-final field means fully resolved */
 			if (J9_UNEXPECTED(resolvedBit != bits)) {
 				/* If not put resolved for a final field, resolve is necessary */
-				if (testBits != bits) {
+				if (J9_UNEXPECTED(testBits != bits)) {
 					goto resolve;
 				}
 				/* Final field - ensure the running method is allowed to store */
-				if (J9_UNEXPECTED(VM_VMHelpers::ramClassChecksFinalStores(ramConstantPool->ramClass)
-					          && !VM_VMHelpers::romMethodIsInitializer(J9_ROM_METHOD_FROM_RAM_METHOD(_literals), true)
-				)) {
-					/* Store not allowed - run the resolve code to throw the exception */
-					goto resolve;
+				if (J9_UNEXPECTED(!J9ROMMETHOD_ALLOW_FINAL_FIELD_WRITES(J9_ROM_METHOD_FROM_RAM_METHOD(_literals), 0))) {
+					if (J9_UNEXPECTED(VM_VMHelpers::ramClassChecksFinalStores(ramConstantPool->ramClass))) {
+						/* Store not allowed - run the resolve code to throw the exception */
+						goto resolve;
+					}
 				}
 			}
 		}
@@ -6554,8 +6610,9 @@ resolve:
 		}
 #endif
 		{
+			UDATA const objectHeaderSize = J9VMTHREAD_OBJECT_HEADER_SIZE(_currentThread);
 			bool isVolatile = (0 != (flags & J9AccVolatile));
-			UDATA const newValueOffset = valueOffset + J9_OBJECT_HEADER_SIZE;
+			UDATA const newValueOffset = valueOffset + objectHeaderSize;
 
 			if (flags & J9FieldSizeDouble) {
 				j9object_t objectref = *(j9object_t*)(_sp + 2);
@@ -6573,14 +6630,14 @@ resolve:
 				}
 #if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
 				if (flags & J9FieldFlagFlattened) {
-					J9FlattenedClassCache *cache = J9OBJECT_CLAZZ(_currentThread, objectref)->flattenedClassCache + valueOffset;
+					J9FlattenedClassCacheEntry *cache = J9_VM_FCC_ENTRY_FROM_CLASS(J9OBJECT_CLAZZ(_currentThread, objectref), valueOffset);
 
 					_objectAccessBarrier.copyObjectFields(_currentThread,
 										cache->clazz,
 										*(j9object_t*)_sp,
-										J9_OBJECT_HEADER_SIZE,
+										objectHeaderSize,
 										objectref,
-										cache->offset + J9_OBJECT_HEADER_SIZE);
+										cache->offset + objectHeaderSize);
 
 				} else
 #endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
@@ -7188,7 +7245,7 @@ done:
 	 *
 	 * @param[in] lhs the lhs object of acmp bytecodes
 	 * @param[in] rhs the rhs object of acmp bytecodes
-	 * return true if they are substituable and false otherwise
+	 * return true if they are substitutable and false otherwise
 	 */
 	VMINLINE bool
 	acmp(j9object_t lhs, j9object_t rhs)
@@ -7468,7 +7525,16 @@ retry:
 		if (J9_EXPECTED(NULL != resolvedClass)) {
 			J9Class *arrayClass = resolvedClass->arrayClass;
 			if (J9_EXPECTED(NULL != arrayClass)) {
-				j9object_t instance = _objectAllocate.inlineAllocateIndexableObject(_currentThread, arrayClass, (U_32)size);
+				j9object_t instance = NULL;
+#if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+				if (J9_IS_J9CLASS_FLATTENED(arrayClass)) {
+					instance = _objectAllocate.inlineAllocateIndexableValueTypeObject(_currentThread, arrayClass, (U_32)size);
+				} else
+#endif /* J9VM_OPT_VALHALLA_VALUE_TYPES */
+				{
+					instance = _objectAllocate.inlineAllocateIndexableObject(_currentThread, arrayClass, (U_32)size);
+				}
+
 				if (NULL == instance) {
 					updateVMStruct(REGISTER_ARGS);
 					instance = _vm->memoryManagerFunctions->J9AllocateIndexableObject(_currentThread, arrayClass, (U_32)size, J9_GC_ALLOCATE_OBJECT_INSTRUMENTABLE);
@@ -8378,21 +8444,22 @@ retry:
 			_objectAccessBarrier.cloneObject(_currentThread, originalObjectRef, copyObjectRef, objectRefClass);
 		}
 		{
+			UDATA const objectHeaderSize = J9VMTHREAD_OBJECT_HEADER_SIZE(_currentThread);
 			bool const isVolatile = (0 != (flags & J9AccVolatile));
-			UDATA const newValueOffset = valueOffset + J9_OBJECT_HEADER_SIZE;
+			UDATA const newValueOffset = valueOffset + objectHeaderSize;
 
 			if (J9_ARE_ALL_BITS_SET(flags, J9FieldSizeDouble)) {
 				_objectAccessBarrier.inlineMixedObjectStoreU64(_currentThread, copyObjectRef, newValueOffset, *(U_64*)_sp, isVolatile);
 				_sp += 2;
 			} else if (J9_ARE_ALL_BITS_SET(flags, J9FieldFlagObject)) {
 				if (J9_ARE_ALL_BITS_SET(flags, J9FieldFlagFlattened)) {
-					J9FlattenedClassCache *cache = objectRefClass->flattenedClassCache + valueOffset;
+					J9FlattenedClassCacheEntry *cache = J9_VM_FCC_ENTRY_FROM_CLASS(objectRefClass, valueOffset);
 					_objectAccessBarrier.copyObjectFields(_currentThread,
 										cache->clazz,
 										*(j9object_t*)_sp,
-										J9_OBJECT_HEADER_SIZE,
+										objectHeaderSize,
 										copyObjectRef,
-										cache->offset + J9_OBJECT_HEADER_SIZE);
+										cache->offset + objectHeaderSize);
 				} else {
 					_objectAccessBarrier.inlineMixedObjectStoreObject(_currentThread, copyObjectRef, newValueOffset, *(j9object_t*)_sp, isVolatile);
 				}

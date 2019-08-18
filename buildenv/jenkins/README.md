@@ -51,25 +51,33 @@ This folder contains Jenkins pipeline scripts that are used in the OpenJ9 Jenkin
     - Windows on x86-64
         - Spec: x86-64_windows
         - shortname: win
+    - Windows on x86-64 largeheap/non-compressed references
+        - Spec: x86-64_windows_xl
+        - shortname: winlargeheap or winxl
     - Windows on x86 (32bit, supported on JDK8 only)
-        Spec: x86-32_windows
-        Shortname: win32
+        - Spec: x86-32_windows
+        - Shortname: win32
     - OSX on x86-64
         - Spec: x86-64_mac
         - Shortname: osx
     - OSX on x86-64 largeheap/non-compressed references
         - Spec: x86-64_mac_xl
         - Shortname: osxlargeheap or osxxl
+    - ALL
+        - Launches a subset of 'all' platforms
+        - ppc64le_linux, s390x_linux, x86-64_linux, x86-64_linux_xl, ppc64_aix, x86-64_windows, x86-32_windows, x86-64_mac
 
 - OpenJ9 committers can request builds by commenting in a pull request
-    - Format: `Jenkins <build type> <level>.<group> <platform>[,<platform>,...,<platform>] jdk<version>[,jdk<version>,...,jdk<version>]`
+    - Format: `Jenkins <build type> <level>.<group>[+<test_flag>] <platform>[,<platform>,...,<platform>] jdk<version>[,jdk<version>,...,jdk<version>]`
     - `<build type>` is compile | test
     - `<level>` is sanity | extended (required only for "test" `<build type>`)
     - `<group>` is functional | system
+    - `<test_flag>` Optional: any TEST_FLAG is supported. See notes below.
     - `<platform>` is one of the platform shorthands above
     - `<version>` is the number of the supported release, e.g. 8 | 11 | next
 - Note: You can use keyword `all` for platform but not for test level/type or JDK versions.
-- Note: For backward compatability `<level>.<test type>` equal to `sanity` or `extended` is acceptable and will map to `sanity.functional` and `extended.functional` respectively.
+- Note: For backward compatibility `<level>.<test type>` equal to `sanity` or `extended` is acceptable and will map to `sanity.functional` and `extended.functional` respectively.
+- Note: TEST_FLAG is an optional argument to the test target. It is recommended to only launch 1 test target with 1 TEST_FLAG per comment/build. At the time of writing, the two supported test flags are `+jitaas` and `+aot`. Ex. `Jenkins test sanity.functional+jitaas xlinux jdk8`.
 
 ###### Examples
 - Request a Compile-only build on all platforms and multiple versions by commenting in a PR
@@ -106,6 +114,10 @@ You can request a Pull Request build from the Eclipse OpenJ9 repository - [openj
     - `Jenkins test sanity zlinux jdk8 depends eclipse/omr#123`
 
 ###### Note: When specifying a dependent change in an OpenJDK extensions repo, you can only build the SDK version that matches the repo where the dependent change lives. Eg. You cannot build JDK8 with a PR in openj9-openjdk-jdk11.
+
+##### Testing Changes to Pipeline code
+
+- If you have changes to Jenkins Pipeline code (including the defaults.yml variable file), you can test most code paths via a PR build. Your PR build will load the Pipeline code from your PR (merge ref). Also note if you have dependent changes you have to launch your PR build through the OpenJ9 repo in order for the Pipeline changes to be loaded in your build.
 
 ##### Other Pull Requests builds
 
@@ -179,7 +191,7 @@ Pipelines for all platforms and versions are available [**here**](https://ci.ecl
         - Compile and run sanity tests against new OMR content
         - Triggers:
             - Build-JDK`<version>`-`<platform>` and Test-Sanity-JDK`<version>`-`<platform>` across all platforms and versions
-            - `Promote-OpenJ9-OMR-master-to-openj9` once all testing is passed
+            - `Promote_OMR` once all testing is passed
     - Trigger: Triggered by `Mirror-OMR-to-OpenJ9-OMR`
 
 
@@ -224,11 +236,11 @@ Infrastructure pipelines are available [**here**](https://ci.eclipse.org/openj9/
     - Trigger:
         - Build periodically, 15 minutes
 
-- Promote-OpenJ9-OMR-master-to-openj9
-    - [![Build Status](https://ci.eclipse.org/openj9/buildStatus/icon?job=Promote-OpenJ9-OMR-master-to-openj9)](https://ci.eclipse.org/openj9/job/Promote-OpenJ9-OMR-master-to-openj9)
+- Promote_OMR
+    - [![Build Status](https://ci.eclipse.org/openj9/buildStatus/icon?job=Promote_OMR)](https://ci.eclipse.org/openj9/job/Promote_OMR)
     - Description:
         - Promotes eclipse/openj9-omr branch master to branch openj9
-        - Lays a tag down on the promoted SHA in the format `omr_merge_YYYYMMDD_HHMMSS` with annotations including the current OpenJ9 and OpenJDK SHAs
+        - Lays a tag down on the promoted SHA in the format `promote_merge_YYYYMMDD_HHMMSS` with annotations including the current OpenJ9 and OpenJDK SHAs
     - Trigger:
         - Last step of `Pipeline-OMR-Acceptance`
 

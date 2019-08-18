@@ -57,7 +57,6 @@ import jdk.internal.reflect.CallerSensitive;
 import java.lang.invoke.VarHandle.AccessMode;
 import java.lang.reflect.Array;
 /*[IF Sidecar19-SE-OpenJ9]*/
-import java.lang.Module;
 /*[IF Java12]*/
 import jdk.internal.access.SharedSecrets;
 import jdk.internal.access.JavaLangAccess;
@@ -737,10 +736,13 @@ public class MethodHandles {
 					 */
 					/*[ENDIF]*/
 					handle = new DirectHandle(clazz, methodName, type, MethodHandle.KIND_VIRTUAL, clazz, true);
-					int handleModifiers = handle.getModifiers();
-					/* Static check is performed by native code */
-					if (!Modifier.isPrivate(handleModifiers) && !Modifier.isFinal(handleModifiers)) {
-						handle = new VirtualHandle((DirectHandle) handle);
+					/* If the class is final, then there are no subclasses and the DirectHandle is sufficient */
+					if (!Modifier.isFinal(clazz.getModifiers())) {
+						int handleModifiers = handle.getModifiers();
+						/* Static check is performed by native code */
+						if (!Modifier.isPrivate(handleModifiers) && !Modifier.isFinal(handleModifiers)) {
+							handle = new VirtualHandle((DirectHandle) handle);
+						}
 					}
 				}
 				handle = convertToVarargsIfRequired(handle);
@@ -1223,7 +1225,7 @@ public class MethodHandles {
 		
 		/**
 		 * Make a MethodHandle to the Reflect method.  If the method is non-static, the receiver argument
-		 * is treated as the intial argument in the MethodType.  
+		 * is treated as the initial argument in the MethodType.  
 		 * <p>
 		 * If m is a virtual method, normal virtual dispatch is used on each invocation.
 		 * <p>
@@ -1327,7 +1329,7 @@ public class MethodHandles {
 
 		/**
 		 * Return a MethodHandle for the reflect constructor. The MethodType has a return type
-		 * of the declared class, and the arguments of the constructor.  The MehtodHnadle
+		 * of the declared class, and the arguments of the constructor.  The MethodHandle
 		 * creates a new object as through by newInstance.  
 		 * <p>
 		 * If the <code>accessible</code> flag is not set, then access checking
@@ -2007,7 +2009,8 @@ public class MethodHandles {
 	 * 
 	 * If a SecurityManager is present, this method requires <code>ReflectPermission("suppressAccessChecks")</code>.
 	 * 
-	 * @param expected the expected type of the underlying member
+	 * @param <T> the type of the underlying member
+	 * @param expected the expected Class of the underlying member
 	 * @param target the direct MethodHandle to be cracked
 	 * @return the underlying member of the <code>target</code> MethodHandle
 	 * @throws SecurityException if the caller does not have the required permission (<code>ReflectPermission("suppressAccessChecks")</code>)
@@ -2415,7 +2418,7 @@ public class MethodHandles {
 	 * and the third will be the item to write into the array
 	 * 
 	 * @param arrayType - the type of the array
-	 * @return a MehtodHandle able to write into the array
+	 * @return a MethodHandle able to write into the array
 	 * @throws IllegalArgumentException - if arrayType is not actually an array
 	 */
 	public static MethodHandle arrayElementSetter(Class<?> arrayType) throws IllegalArgumentException {
@@ -2562,7 +2565,7 @@ public class MethodHandles {
 	 * If <i>handle</i> has a void return, <i>filter</i> must not take any parameters.
 	 * 
 	 * @param handle - the MethodHandle that will have its return value adapted
-	 * @param filter - the MethodHandle that will do the return adaption.
+	 * @param filter - the MethodHandle that will do the return adaptation.
 	 * @return a MethodHandle that will run the filter handle on the result of handle.
 	 * @throws NullPointerException - if handle or filter is null
 	 * @throws IllegalArgumentException - if the return type of <i>handle</i> differs from the type of the only argument to <i>filter</i>
@@ -3185,6 +3188,7 @@ public class MethodHandles {
 			/*[MSG "K039c", "Invalid parameters"]*/
 			throw new IllegalArgumentException(com.ibm.oti.util.Msg.getString("K039c")); //$NON-NLS-1$
 		}
+
 		
 		MethodType permuteType = originalType.insertParameterTypes(location, valueTypes);
 		/* Build equivalent permute array */

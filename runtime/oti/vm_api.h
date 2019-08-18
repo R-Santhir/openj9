@@ -1550,8 +1550,8 @@ IDATA
 VMInitStages(J9JavaVM *vm, IDATA stage, void* reserved);
 
 /**
- * Initializes class path entries. Path of each class path entry is set using the 'classPath' provided as paramenter.
- * Each path in 'classPath' is seaprated by 'classPathSeparator'.
+ * Initializes class path entries. Path of each class path entry is set using the 'classPath' provided as parameter.
+ * Each path in 'classPath' is separated by 'classPathSeparator'.
  * If 'initClassPathEntry' is TRUE, then each class path entry in initialized by calling 'initializeClassPathEntry()' function.
  *
  * @param[in] vm pointer to the J9JavaVM
@@ -1769,13 +1769,13 @@ J9HashTable *
 hashClassLocationTableNew(J9JavaVM *javaVM, U_32 initialSize);
 
 /**
- * @brief Locates and returns a structure containing load locatioin for the given class 
+ * @brief Locates and returns a structure containing load location for the given class 
  * Caller must acquire classLoaderModuleAndLocationMutex before making the call
  *
  * @param currentThread current thread pointer
  * @param clazz J9Class for which load location is to be searched
  *
- * @return pointer to J9ClassLocatioin for the given class, or NULL if not found
+ * @return pointer to J9ClassLocation for the given class, or NULL if not found
  */
 J9ClassLocation *
 findClassLocationForClass(J9VMThread *currentThread, J9Class *clazz);
@@ -2008,7 +2008,6 @@ J9ObjectMonitor *
 monitorTableAt(J9VMThread* vmStruct, j9object_t object);
 
 
-#ifdef J9VM_THR_LOCK_NURSERY
 /**
 * @brief used to cache an J9ObjectMonitor in the vmthread structure so that
 *        we don't have to go to the monitor table to get it
@@ -2020,7 +2019,6 @@ monitorTableAt(J9VMThread* vmStruct, j9object_t object);
 void
 cacheObjectMonitorForLookup(J9JavaVM* vm, J9VMThread* vmStruct, J9ObjectMonitor* objectMonitor);
 
-#endif
 
 /* ---------------- PackageIDHashTable.c ---------------- */
 
@@ -2236,7 +2234,7 @@ fullTraversalFieldOffsetsNextDo(J9ROMFullTraversalFieldOffsetWalkState *state);
 /**
  * @brief Search for ramClass in flattened class cache
  *
- * @param flattenedClassCache[in]	A table of flattend instance field types
+ * @param flattenedClassCache[in]	A table of flattened instance field types
  * @param className[in]				Name of class to search
  * @param classNameLength[in]		Length of class name to search
  *
@@ -2248,7 +2246,7 @@ findJ9ClassInFlattenedClassCache(J9FlattenedClassCache *flattenedClassCache, U_8
 /**
  * @brief Search for index of field in flattened class cache
  *
- * @param flattenedClassCache[in]	A table of flattend instance field types
+ * @param flattenedClassCache[in]	A table of flattened instance field types
  * @param nameAndSignature[in]		The name and signature of field to look for
  *
  * @return index if found 0 otherwise
@@ -2950,7 +2948,7 @@ freeStackWalkCaches(J9VMThread * currentThread, J9StackWalkState * walkState);
 #endif /* J9VM_!INTERP_STACKWALK_TRACING */
 
 
-#if (defined(J9VM_INTERP_STACKWALK_TRACING)  && !defined(J9VM_OUT_OF_PROCESS))
+#if defined(J9VM_INTERP_STACKWALK_TRACING)
 /**
 * @brief
 * @param walkState
@@ -2959,7 +2957,7 @@ freeStackWalkCaches(J9VMThread * currentThread, J9StackWalkState * walkState);
 */
 void
 swMarkSlotAsObject(J9StackWalkState * walkState, j9object_t * objectSlot);
-#endif /* J9VM_INTERP_STACKWALK_TRACING && !OUT_OF_PROCESS */
+#endif /* J9VM_INTERP_STACKWALK_TRACING */
 
 
 #if (defined(J9VM_INTERP_STACKWALK_TRACING))
@@ -3035,7 +3033,7 @@ walkStackFrames(J9VMThread *currentThread, J9StackWalkState *walkState);
 
 
 /**
-* @brief Print and assert when an invalid reutrn address is detected in a JIT frame.
+* @brief Print and assert when an invalid return address is detected in a JIT frame.
 * @param *walkState
 * @return void
 */
@@ -3132,7 +3130,7 @@ loadAndVerifyNestHost(J9VMThread *vmThread, J9Class *clazz, UDATA options);
  * @param vmThread vmthread token
  * @param nestMember the j9lass requesting the nesthost
  * @param nestHost the actual nest host, this may be NULL
- * @param errorCode the error code represting the exception to throw
+ * @param errorCode the error code representing the exception to throw
  * 	J9_VISIBILITY_NEST_HOST_LOADING_FAILURE_ERROR
  * 	J9_VISIBILITY_NEST_HOST_DIFFERENT_PACKAGE_ERROR
  * 	J9_VISIBILITY_NEST_MEMBER_NOT_CLAIMED_ERROR
@@ -3304,7 +3302,7 @@ releaseExclusiveVMAccessFromExternalThread(J9JavaVM * vm);
 /**
 * @brief initiates an exclusive access request for metronome
 * @param vm
-* @param block input parameter specifing whether caller should block if another request is ongoing
+* @param block input parameter specifying whether caller should block if another request is ongoing
 * @param responsesRequired the number of mutator threads that must voluntarily quiesce themselves
 * @param gcPriority returned the new gc collector priority
 * @return effectively a boolean the request is successful or not 
@@ -3315,7 +3313,7 @@ requestExclusiveVMAccessMetronome(J9JavaVM *vm, UDATA block, UDATA *responsesReq
 /**
 * @brief initiates an exclusive access request for metronome
 * @param vm
-* @param block input parameter specifing whether caller should block if another request is ongoing
+* @param block input parameter specifying whether caller should block if another request is ongoing
 * @param vmResponsesRequired the number of mutator threads holding VM access that must voluntarily quiesce themselves
 * @param jniResponsesRequired the number of mutator threads holding JNI critical access that must voluntarily quiesce themselves
 * @param gcPriority returned the new gc collector priority
@@ -4002,7 +4000,7 @@ buildMethodTypeFrame(J9VMThread * currentThread, j9object_t methodType);
 /**
 * @brief Set the SP to the unwindSP (as if we had stack walked) of the current frame.
 * Keep literals consistent with that.
-* @param curretThread
+* @param currentThread
 * @return UDATA TRUE or FALSE - is this a bytecoded frame (i.e. can't push on top of it)?
 */
 UDATA  
@@ -4010,7 +4008,7 @@ dropPendingSendPushes(J9VMThread *currentThread);
 
 /**
 * @brief Prepare the current stack for throwing an exception (clear all pending, build necessary frames)
-* @param curretThread
+* @param currentThread
 * @return void
 */
 void  

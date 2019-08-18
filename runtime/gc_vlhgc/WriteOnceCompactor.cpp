@@ -686,7 +686,7 @@ MM_WriteOnceCompactor::rebuildNextMarkMapFromPackets(MM_EnvironmentVLHGC *env, M
 						MM_HeapRegionDescriptorVLHGC *region  = (MM_HeapRegionDescriptorVLHGC *)_regionManager->tableDescriptorForAddress(pointer);
 						Assert_MM_true(region->containsObjects());
 						Assert_MM_true(_cycleState._markMap->isBitSet(pointer));
-						Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(pointer));
+						Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(pointer, env));
 						if (region->_compactData._shouldCompact) {
 							_nextMarkMap->atomicSetBit(pointer);
 							Assert_MM_false(region->_nextMarkMapCleared);
@@ -721,7 +721,7 @@ MM_WriteOnceCompactor::evacuatePage(MM_EnvironmentVLHGC *env, void *page, J9MM_F
 			newLocation = getForwardingPtr(objectPtr);
 		}
 		while (NULL != objectPtr) {
-			Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(objectPtr));
+			Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(objectPtr, env));
 			/* objectPtr is a head so see if there is a tail in this mark map word and skip it (if not, remember that we need to skip the first bit in the next word) */
 			if (NULL == markedObjectIterator.nextObject()) {
 				skipTail = true;
@@ -797,7 +797,7 @@ MM_WriteOnceCompactor::movedPageSize(MM_EnvironmentVLHGC *env, void *page)
 			newLocation = getForwardingPtr(objectPtr);
 		}
 		while (NULL != objectPtr) {
-			Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(objectPtr));
+			Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(objectPtr, env));
 			/* skip tail */
 			if (NULL == markedObjectIterator.nextObject()) {
 				skipTail = true;
@@ -832,7 +832,7 @@ MM_WriteOnceCompactor::fixupNonMovingPage(MM_EnvironmentVLHGC *env, void *page)
 		}
 		J9Object *objectPtr = NULL;
 		while (NULL != (objectPtr = markedObjectIterator.nextObject())) {
-			Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(objectPtr));
+			Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(objectPtr, env));
 			/* skip tail */
 			if (NULL == markedObjectIterator.nextObject()) {
 				skipTail = true;
@@ -987,7 +987,7 @@ MM_WriteOnceCompactor::tailMarkObjectsInRegion(MM_EnvironmentVLHGC *env, MM_Heap
 	UDATA estimatedPageSize = 0;
 	IDATA previousPageIndex = -1;
 	while (NULL != (walk = iterator.nextObject())) {
-		Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(walk));
+		Assert_MM_mustBeClass(J9GC_J9OBJECT_CLAZZ(walk, env));
 		IDATA walkPageIndex = pageIndex(walk);
 		if (NULL != tailToMark) {
 			Assert_MM_true(tailToMark < walk);
@@ -1265,42 +1265,43 @@ MM_WriteOnceCompactor::fixupClassLoaderObject(MM_EnvironmentVLHGC* env, J9Object
 		/*
 		 * Fixup modules
 		 */
-		Assert_MM_true(NULL != classLoader->moduleHashTable);
-		J9HashTableState walkState;
-		J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
+		if (NULL != classLoader->moduleHashTable) {
+			J9HashTableState walkState;
+			J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
 
-		volatile j9object_t * slotPtr = NULL;
-		J9Object* originalObject = NULL;
+			volatile j9object_t * slotPtr = NULL;
+			J9Object* originalObject = NULL;
 
-		while (NULL != modulePtr) {
-			J9Module * const module = *modulePtr;
+			while (NULL != modulePtr) {
+				J9Module * const module = *modulePtr;
 
-			slotPtr = &module->moduleObject;
+				slotPtr = &module->moduleObject;
 
-			originalObject = *slotPtr;
-			J9Object* forwardedObject = getForwardWrapper(env, originalObject, cache);
-			*slotPtr = forwardedObject;
-			_interRegionRememberedSet->rememberReferenceForCompact(env, classLoaderObject, forwardedObject);
-
-			slotPtr = &module->moduleName;
-
-			originalObject = *slotPtr;
-			if (NULL != originalObject) {
+				originalObject = *slotPtr;
 				J9Object* forwardedObject = getForwardWrapper(env, originalObject, cache);
 				*slotPtr = forwardedObject;
 				_interRegionRememberedSet->rememberReferenceForCompact(env, classLoaderObject, forwardedObject);
+
+				slotPtr = &module->moduleName;
+
+				originalObject = *slotPtr;
+				if (NULL != originalObject) {
+					J9Object* forwardedObject = getForwardWrapper(env, originalObject, cache);
+					*slotPtr = forwardedObject;
+					_interRegionRememberedSet->rememberReferenceForCompact(env, classLoaderObject, forwardedObject);
+				}
+
+				slotPtr = &module->version;
+
+				originalObject = *slotPtr;
+				if (NULL != originalObject) {
+					J9Object* forwardedObject = getForwardWrapper(env, originalObject, cache);
+					*slotPtr = forwardedObject;
+					_interRegionRememberedSet->rememberReferenceForCompact(env, classLoaderObject, forwardedObject);
+				}
+
+				modulePtr = (J9Module**)hashTableNextDo(&walkState);
 			}
-
-			slotPtr = &module->version;
-
-			originalObject = *slotPtr;
-			if (NULL != originalObject) {
-				J9Object* forwardedObject = getForwardWrapper(env, originalObject, cache);
-				*slotPtr = forwardedObject;
-				_interRegionRememberedSet->rememberReferenceForCompact(env, classLoaderObject, forwardedObject);
-			}
-
-			modulePtr = (J9Module**)hashTableNextDo(&walkState);
 		}
 
 		/* We can't fixup remembered set for defined and referenced classes here since we 
@@ -1379,9 +1380,10 @@ MM_WriteOnceCompactor::fixupPointerArrayObject(MM_EnvironmentVLHGC* env, J9Objec
 void
 MM_WriteOnceCompactor::fixupObject(MM_EnvironmentVLHGC* env, J9Object *objectPtr, J9MM_FixupCache *cache)
 {
-	J9Class* clazz = J9GC_J9OBJECT_CLAZZ(objectPtr);
+	J9Class* clazz = J9GC_J9OBJECT_CLAZZ(objectPtr, env);
 	Assert_MM_mustBeClass(clazz);
 	switch(_extensions->objectModel.getScanType(clazz)) {
+	case GC_ObjectModel::SCAN_MIXED_OBJECT_LINKED:
 	case GC_ObjectModel::SCAN_ATOMIC_MARKABLE_REFERENCE_OBJECT:
 	case GC_ObjectModel::SCAN_MIXED_OBJECT:
 	case GC_ObjectModel::SCAN_REFERENCE_MIXED_OBJECT:
@@ -1820,6 +1822,7 @@ MM_WriteOnceCompactor::verifyHeap(MM_EnvironmentVLHGC *env, bool beforeCompactio
 
 		while (J9Object* objectPtr = markedObjectIterator.nextObject()) {
 			switch(_extensions->objectModel.getScanType(objectPtr)) {
+			case GC_ObjectModel::SCAN_MIXED_OBJECT_LINKED:
 			case GC_ObjectModel::SCAN_ATOMIC_MARKABLE_REFERENCE_OBJECT:
 			case GC_ObjectModel::SCAN_MIXED_OBJECT:
 			case GC_ObjectModel::SCAN_OWNABLESYNCHRONIZER_OBJECT:

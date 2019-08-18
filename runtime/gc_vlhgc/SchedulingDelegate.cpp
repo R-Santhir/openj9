@@ -127,7 +127,7 @@ void
 MM_SchedulingDelegate::globalMarkPhaseCompleted(MM_EnvironmentVLHGC *env)
 {
 	/* Taking a snapshot of _liveSetBytesAfterPartialCollect from the last PGC.
-	 * This is slighly incorrect. We should take liveSetBytes at the beginning of next PGC
+	 * This is slightly incorrect. We should take liveSetBytes at the beginning of next PGC
 	 * (just before sweep is done)
 	 */
 	_liveSetBytesBeforeGlobalSweep = _liveSetBytesAfterPartialCollect;
@@ -745,7 +745,7 @@ MM_SchedulingDelegate::calculateKickoffHeadroom(MM_EnvironmentVLHGC *env, UDATA 
 UDATA
 MM_SchedulingDelegate::initializeKickoffHeadroom(MM_EnvironmentVLHGC *env)
 {
-	/* totoal free memory = total heap size - eden size */
+	/* total free memory = total heap size - eden size */
 	UDATA totalFreeMemory = _regionManager->getTotalHeapSize() - getCurrentEdenSizeInBytes(env);
 	return calculateKickoffHeadroom(env, totalFreeMemory);
 }

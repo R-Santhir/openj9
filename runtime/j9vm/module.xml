@@ -30,7 +30,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<dependency name="$(UMA_PATH_TO_ROOT)oti/helpers.m4"/>
 		</dependencies>
 		<commands>
-			<command type="all" line="m4 -I$(UMA_PATH_TO_ROOT)oti -I$(UMA_PATH_TO_ROOT)redirector generated.h.m4 > generated.h"/>
+			<command type="all" line="m4 -I$(UMA_PATH_TO_ROOT)oti -I$(UMA_PATH_TO_ROOT)redirector generated.h.m4 > generated.h $(call CONVERT_ASCII_TO_NATIVE, generated.h)"/>
 			<command type="clean" line="$(RM) generated.h"/>
 		</commands>
 	</artifact>
@@ -57,9 +57,6 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 			<group name="j9vmnatives"/>
 			<group name="jdk11">
 				<include-if condition="spec.java11"/>
-			</group>
-			<group name="jdk12">
-				<include-if condition="spec.java12"/>
 			</group>
 		</exports>
 		<includes>

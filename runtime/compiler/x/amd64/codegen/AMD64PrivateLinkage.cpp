@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include "codegen/Linkage_inlines.hpp"
 #include "codegen/Machine.hpp"
+#include "compile/Method.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
 #include "env/CHTable.hpp"
@@ -815,7 +816,7 @@ int32_t TR::AMD64PrivateLinkage::argAreaSize(TR::Node *callNode)
    // TODO: We only need this function because unresolved calls don't have a
    // TR::ResolvedMethodSymbol, and only TR::ResolvedMethodSymbol has
    // getParameterList().  If getParameterList() ever moves to TR::MethodSymbol,
-   // then this function becomes unneccessary.
+   // then this function becomes unnecessary.
    //
    TR::Node *child;
    int32_t  i;
@@ -941,7 +942,7 @@ int32_t TR::AMD64PrivateLinkage::buildPrivateLinkageArgs(TR::Node               
    // we're going to align the stack depend on the alignment property
    // adjust = something
    // allocateSize = parmAreaSize + adjust;
-   // then subtract stackpointer with alocateSize
+   // then subtract stackpointer with allocateSize
    uint32_t alignedParmAreaSize = parmAreaSize;
 
    if (!getProperties().getReservesOutgoingArgsInPrologue() && !callNode->getSymbol()->castToMethodSymbol()->isHelper())
@@ -1315,7 +1316,7 @@ void TR::AMD64PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelSymbol *
    lastPicSlot.setHelperMethodSymbolRef(callHelperSymRef);
    TR::Instruction *slotPatchInstruction = NULL;
 
-   TR_Method *method = site.getMethodSymbol()->getMethod();
+   TR::Method *method = site.getMethodSymbol()->getMethod();
    TR_OpaqueClassBlock *declaringClass = NULL;
    uintptrj_t itableIndex;
    if (  useLastITableCache

@@ -174,7 +174,7 @@ namespace  {
             // Make a copy of just the J9JITExceptionTable Struct (excluding the variable length section)
             memcpy((uint8_t *)stubMetadata, (uint8_t *)metaData, numBytes);
             
-            // Set the various pointers to NULL since this J9JITExeptionTable has no variable length section
+            // Set the various pointers to NULL since this J9JITExceptionTable has no variable length section
             // However, the bodyInfo needs to exist.
             stubMetadata->inlinedCalls = NULL;
             stubMetadata->gcStackAtlas = NULL;
@@ -289,7 +289,7 @@ void jitReleaseCodeCollectMetaData(J9JITConfig *jitConfig, J9VMThread *vmThread,
          }
       else
          {
-         // Mark the runtime assumptions so thay can be deleted at the end of the GC cycle.
+         // Mark the runtime assumptions so they can be deleted at the end of the GC cycle.
          // The 3rd parameter to markAssumptionsAndDetach determines whether we mark preprologue assumptions.
          // We should only do that if we are in class unloading and will be reclaiming the entire method body,
          // which means faintCacheBlock is NULL.
@@ -416,11 +416,11 @@ void jitRemoveAllMetaDataForClassLoader(J9VMThread * vmThread, J9ClassLoader * c
 void jitReclaimMarkedAssumptions(bool isEager)
    {
    static char *forceAggressiveRATCleaning = feGetEnv("TR_forceAggressiveRATCleaning");
-   if (isEager || forceAggressiveRATCleaning)
+   if (isEager && forceAggressiveRATCleaning)
       {
       reclaimMarkedAssumptionsFromRAT(-1);
       }
-   else
+   else if (!isEager)
       {
       reclaimMarkedAssumptionsFromRAT(100);
       }

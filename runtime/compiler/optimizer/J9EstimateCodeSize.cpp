@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,6 +22,8 @@
 
 #include <algorithm>
 #include "codegen/CodeGenerator.hpp"
+#include "compile/InlineBlock.hpp"
+#include "compile/Method.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
@@ -105,7 +107,7 @@ class NeedsPeekingHeuristic
             //as soon as one of those becomes a receiver this very same assertion
             //should fire
             TR_ASSERT(comp->fej9()->isInstanceOf(argClass, clazz, true, true, true) == TR_yes || i != 0 || !calltarget->_myCallSite->_isIndirectCall, "Incompatible receiver should have been handled by findCallSiteTarget");
-            
+
             // even the arg type propagated from the caller might be not more specific
             // than the type got from callee signature, we should still try to
             // do peeking. if we don't do peeking here, we will lose the chance to propagate
@@ -332,7 +334,6 @@ static Block * getBlock(TR::Compilation *comp, Block * * blocks,
       blocks[i] = new (comp->trStackMemory()) Block (startTree, endTree,
             comp->trMemory());
 
-      blocks[i]->setJ9EstimateCodeSizeMethod(feMethod);
       blocks[i]->setBlockBCIndex(i);
       blocks[i]->setNumber(cfg.getNextNodeNumber());
 
@@ -422,10 +423,10 @@ static bool cameFromArchetypeSpecimen(TR_ResolvedMethod *method)
    else
       return cameFromArchetypeSpecimen(method->owningMethod());
    }
-   
-bool 
+
+bool
 TR_J9EstimateCodeSize::adjustEstimateForStringCompression(TR_ResolvedMethod* method, int32_t& value, float factor)
-   {   
+   {
    const uint16_t classNameLength = method->classNameLength();
 
    if ((classNameLength == 16 && !strncmp(method->classNameChars(), "java/lang/String", classNameLength)) ||
@@ -435,17 +436,17 @@ TR_J9EstimateCodeSize::adjustEstimateForStringCompression(TR_ResolvedMethod* met
       // A statistical analysis of the number of places certain methods got inlined yielded results which suggest that the
       // following recognized methods incurr several percent worth of increase in compile-time at no benefit to throughput.
       // As such we can save additional compile-time by not making adjustments to these methods.
-      
+
       if (method->getRecognizedMethod() != TR::java_lang_String_regionMatches &&
           method->getRecognizedMethod() != TR::java_lang_String_regionMatches_bool &&
           method->getRecognizedMethod() != TR::java_lang_String_equals)
          {
          value *= factor;
-      
+
          return true;
          }
       }
-      
+
    return false;
    }
 
@@ -464,120 +465,6 @@ TR_J9EstimateCodeSize::estimateCodeSize(TR_CallTarget *calltarget, TR_CallStack 
       }
 
    return false;
-   }
-
-
-static TR::Node* getCallNode (TR::ResolvedMethodSymbol* methodSymbol, uint32_t bci)
-   {
-   for (TR::TreeTop* tt = methodSymbol->getFirstTreeTop(); tt; tt=tt->getNextTreeTop())
-      {
-      if (tt->getNode()->getNumChildren()>0 &&
-          tt->getNode()->getFirstChild()->getOpCode().isCall() &&
-          tt->getNode()->getFirstChild()->getByteCodeIndex() == bci)
-         {
-         return tt->getNode()->getFirstChild();
-         }
-      }
-
-   return NULL;
-   }
-
-
-static bool hasArgInfoForChild (TR::Node* child)
-   {
-
-   return child->getOpCode().hasSymbolReference() &&
-          child->getSymbolReference()->getSymbol()->isParm() &&
-          child->getSymbolReference()->getSymbol()->getParmSymbol()->getFixedType();
-   }
-
-
-static void propagateReceiverInfoIfAvailable (TR::ResolvedMethodSymbol* methodSymbol, TR_CallSite* callsite,
-                                              TR_PrexArgInfo * argInfo, TR_InlinerTracer *tracer)
-   {
-
-   //this implies we have some argInfo available
-   TR_ASSERT(argInfo, "otherwise we shouldn't even peek");
-   TR::Node* callNode = getCallNode(methodSymbol, callsite->_bcInfo.getByteCodeIndex());
-   heuristicTrace(tracer, "ECS CSI -- trying to propagate receiver's info for callsite %p at %p", callsite, callNode);
-   if (!callNode)
-      return;
-
-   //do not handle interface calls for now
-   //as there is no obvious way to figure out the number of parameters
-   if (callsite->_interfaceMethod)
-      return;
-
-   TR::Node* child = callNode->getChild(callNode->getFirstArgumentIndex());
-   uint32_t numOfArgs = callsite->_initialCalleeMethod->numberOfParameters();
-
-   if (callNode->getNumChildren()-callNode->getFirstArgumentIndex() != numOfArgs)
-      {
-      return;
-      }
-
-   if (hasArgInfoForChild(child))
-      {
-      heuristicTrace(tracer, "ECS CSI -- the receiver for callsite %p is also one of the caller's args");
-      TR_PrexArgInfo *myPrexArgInfo = new (tracer->trHeapMemory()) TR_PrexArgInfo(numOfArgs, tracer->trMemory());
-      TR_OpaqueClassBlock* argClass = (TR_OpaqueClassBlock*) child->getSymbolReference()->getSymbol()->getParmSymbol()->getFixedType();
-      myPrexArgInfo->set(0, new (tracer->trHeapMemory()) TR_PrexArgument(TR_PrexArgument::ClassIsFixed, argClass));
-      callsite->_ecsPrexArgInfo = myPrexArgInfo;
-      }
-
-   }
-
-
-static void propagateArgs (TR::ResolvedMethodSymbol* methodSymbol, TR_CallSite* callsite,
-                           TR_PrexArgInfo * argInfo, TR_InlinerTracer *tracer)
-   {
-
-   TR_ASSERT(argInfo, "otherwise we shouldn't even peek");
-   TR::Node* callNode = getCallNode(methodSymbol, callsite->_bcInfo.getByteCodeIndex());
-   heuristicTrace(tracer, "ECS CSI -- trying to propagate receiver's info for callsite %p at %p", callsite, callNode);
-   if (!callNode)
-      return;
-
-
-
-   if (tracer->heuristicLevel())
-      {
-      heuristicTrace(tracer, "ECS CSI -- ArgInfo before args propagation");
-      for (int i = 0; i < callsite->numTargets(); i++)
-         tracer->dumpPrexArgInfo(callsite->getTarget(i)->_ecsPrexArgInfo);
-      }
-
-
-   for (int i = callNode->getFirstArgumentIndex(); i < callNode->getNumChildren(); i++)
-      {
-      TR::Node* child = callNode->getChild(i);
-      if (hasArgInfoForChild(child)) //do we have any type info in caller for this parameter?
-         {
-         heuristicTrace(tracer, "ECS CSI -- arg %d at callsite %p matches caller's arg %d", i, callsite, child->getSymbolReference()->getSymbol()->getParmSymbol()->getOrdinal());
-
-         for (int j = 0; j < callsite->numTargets(); j++)
-            {
-            TR_ASSERT(callsite->getTarget(j)->_ecsPrexArgInfo, "shouldn't be null! always initialize it in calltarget");
-
-            //ILGen did something funky with this call, skip arg propagation
-            if (callsite->getTarget(j)->_ecsPrexArgInfo->getNumArgs() != callNode->getNumChildren()-callNode->getFirstArgumentIndex())
-               {
-               continue;
-               }
-
-            TR_OpaqueClassBlock* argClass = (TR_OpaqueClassBlock*) child->getSymbolReference()->getSymbol()->getParmSymbol()->getFixedType();
-            callsite->getTarget(j)->_ecsPrexArgInfo->set(i-callNode->getFirstArgumentIndex(), new (tracer->trHeapMemory()) TR_PrexArgument(TR_PrexArgument::ClassIsFixed, argClass));
-            }
-         }
-      }
-
-   if (tracer->heuristicLevel())
-      {
-      heuristicTrace(tracer, "ECS CSI -- ArgInfo after args propagation");
-      for (int i = 0; i < callsite->numTargets(); i++)
-         tracer->dumpPrexArgInfo(callsite->getTarget(i)->_ecsPrexArgInfo);
-      }
-
    }
 
 bool
@@ -826,7 +713,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                      }
                   else
                      {
-                     TR_Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
+                     TR::Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
                      heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(meth));
                      }
                   }
@@ -848,7 +735,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
             resolvedMethod = calltarget->_calleeMethod->getResolvedSpecialMethod(comp(), (bc == J9BCinvokespecialsplit)?cpIndex |= J9_SPECIAL_SPLIT_TABLE_INDEX_FLAG:cpIndex, &isUnresolvedInCP);
             bool isIndirectCall = false;
             bool isInterface = false;
-            TR_Method *interfaceMethod = 0;
+            TR::Method *interfaceMethod = 0;
             TR::TreeTop *callNodeTreeTop = 0;
             TR::Node *parent = 0;
             TR::Node *callNode = 0;
@@ -865,7 +752,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                       {
                       if (bc == J9BCinvokespecialsplit)
                          cpIndex |= J9_SPECIAL_SPLIT_TABLE_INDEX_FLAG;
-                      TR_Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
+                      TR::Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
                       heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(meth));
                       }
                    }
@@ -884,7 +771,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
             resolvedMethod = calltarget->_calleeMethod->getResolvedStaticMethod(comp(), (bc == J9BCinvokestaticsplit)?cpIndex |= J9_STATIC_SPLIT_TABLE_INDEX_FLAG:cpIndex, &isUnresolvedInCP);
             bool isIndirectCall = false;
             bool isInterface = false;
-            TR_Method *interfaceMethod = 0;
+            TR::Method *interfaceMethod = 0;
             TR::TreeTop *callNodeTreeTop = 0;
             TR::Node *parent = 0;
             TR::Node *callNode = 0;
@@ -901,7 +788,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                       {
                       if (bc == J9BCinvokestaticsplit)
                          cpIndex |= J9_STATIC_SPLIT_TABLE_INDEX_FLAG;
-                      TR_Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
+                      TR::Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
                       heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(meth));
                       }
                    }
@@ -1019,9 +906,9 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
 
       bcSizes[i] = size;
       }
-      
+
    auto sizeBeforeAdjustment = size;
-      
+
    if (adjustEstimateForStringCompression(calltarget->_calleeMethod, size, STRING_COMPRESSION_ADJUSTMENT_FACTOR))
       {
       heuristicTrace(tracer(), "*** Depth %d: Adjusting size for %s because of string compression from %d to %d", _recursionDepth, callerName, sizeBeforeAdjustment, size);
@@ -1108,10 +995,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
       cfg.getEnd()->asBlock()->setIsEndBlock();
 
       TR::Block * currentBlock = cfg.getStart()->asBlock();
-      currentBlock->setJ9EstimateCodeSizeMethod(calltarget->_calleeMethod);
       currentBlock->setBlockBCIndex(0);
-      cfg.getStart()->asBlock()->setJ9EstimateCodeSizeMethod(calltarget->_calleeMethod);
-      cfg.getStart()->asBlock()->setBlockBCIndex(0);
 
       int32_t endNodeIndex = bci.maxByteCodeIndex() - 1;
       if (endNodeIndex < 0)
@@ -1159,14 +1043,11 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
             if (addFallThruEdge)
                {
                debugTrace(tracer(),"adding a fallthrough edge between block %p %d and %p %d", currentBlock, currentBlock->getNumber(), newBlock, newBlock->getNumber());
-
                debugTrace(tracer(),"joining nodes between blocks %p %d and %p %d", currentBlock, currentBlock->getNumber(), newBlock, newBlock->getNumber());
                currentBlock->getExit()->join(newBlock->getEntry());
-
                cfg.addEdge(currentBlock, newBlock, stackAlloc);
-               addFallThruEdge = true;
-               }
-            else
+               } 
+            else 
                {
                addFallThruEdge = true;
                }
@@ -1186,12 +1067,6 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
             {
             partialTrace(tracer(), "Setting unsanitizeable flag on block %p[%d] blocks[%d]=%p",currentBlock, currentBlock->getNumber(), i, blocks[i]);
             currentBlock->setIsUnsanitizeable();
-            }
-
-         if (callSites[i])
-            {
-            for (int kk = 0; kk < callSites[i]->numTargets(); kk++)
-               callSites[i]->getTarget(kk)->_originatingBlock = currentBlock;
             }
 
          if (flags[i].testAny(isBranch))
@@ -1387,7 +1262,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                   resolvedMethod == NULL
                   || (!resolvedMethod->isFinal() && !resolvedMethod->isPrivate());
                bool isInterface = false;
-               TR_Method *interfaceMethod = 0;
+               TR::Method *interfaceMethod = 0;
                TR::TreeTop *callNodeTreeTop = 0;
                TR::Node *parent = 0;
                TR::Node *callNode = 0;
@@ -1402,7 +1277,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                          heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(resolvedMethod));
                       else
                          {
-                         TR_Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
+                         TR::Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
                          heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(meth));
                          }
                       }
@@ -1462,11 +1337,6 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                      {
                      pca.printIndexes(comp());
                      }
-                  if(pca.isArgAtIndexReceiverObject(resolvedMethod->numberOfExplicitParameters()))
-                     {
-                     //heuristicTrace(tracer(),"Arg at index %d is receiver object.  Propagating prexarginfo",resolvedMethod->numberOfExplicitParameters());
-                     //callsite->_ecsPrexArgInfo = calltarget->_ecsPrexArgInfo;
-                     }
 
                   TR_PrexArgInfo *argInfo = calltarget->_ecsPrexArgInfo;
 
@@ -1518,7 +1388,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                resolvedMethod = calltarget->_calleeMethod->getResolvedSpecialMethod(comp(), (bc == J9BCinvokespecialsplit)?cpIndex |= J9_SPECIAL_SPLIT_TABLE_INDEX_FLAG:cpIndex, &isUnresolvedInCP);
                bool isIndirectCall = false;
                bool isInterface = false;
-               TR_Method *interfaceMethod = 0;
+               TR::Method *interfaceMethod = 0;
                TR::TreeTop *callNodeTreeTop = 0;
                TR::Node *parent = 0;
                TR::Node *callNode = 0;
@@ -1533,7 +1403,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                          {
                          if (bc == J9BCinvokespecialsplit)
                             cpIndex |= J9_SPECIAL_SPLIT_TABLE_INDEX_FLAG;
-                         TR_Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
+                         TR::Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
                          heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(meth));
                          }
                       }
@@ -1584,7 +1454,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                resolvedMethod = calltarget->_calleeMethod->getResolvedStaticMethod(comp(), (bc == J9BCinvokestaticsplit)?cpIndex |= J9_STATIC_SPLIT_TABLE_INDEX_FLAG:cpIndex, &isUnresolvedInCP);
                bool isIndirectCall = false;
                bool isInterface = false;
-               TR_Method *interfaceMethod = 0;
+               TR::Method *interfaceMethod = 0;
                TR::TreeTop *callNodeTreeTop = 0;
                TR::Node *parent = 0;
                TR::Node *callNode = 0;
@@ -1601,7 +1471,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                          {
                          if (bc == J9BCinvokestaticsplit)
                             cpIndex |= J9_STATIC_SPLIT_TABLE_INDEX_FLAG;
-                         TR_Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
+                         TR::Method *meth = comp()->fej9()->createMethod(comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
                          heuristicTrace(tracer(), "Depth %d: Call at bc index %d is Cold.  Not searching for targets. Signature %s",_recursionDepth,i,tracer()->traceSignature(meth));
                          }
                       }
@@ -1657,7 +1527,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                      && !resolvedMethod->convertToMethod()->isFinalInObject();
                   }
 
-               TR_Method * interfaceMethod = NULL;
+               TR::Method * interfaceMethod = NULL;
                if (isInterface)
                   interfaceMethod = comp()->fej9()->createMethod( comp()->trMemory(), calltarget->_calleeMethod->containingClass(), cpIndex);
 
@@ -1906,7 +1776,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
                   // central place so everyone agrees on it.  It shouldn't just be
                   // for inliner.
                   //
-                  bool coldCallInfoIsReliable = !cameFromArchetypeSpecimen( currentBlock->getJ9EstimateCodeSizeMethod());
+                  bool coldCallInfoIsReliable = !cameFromArchetypeSpecimen(calltarget->_calleeMethod);
 
                   if (_inliner->getPolicy()->tryToInline(targetCallee, &callStack, true))
                      {
@@ -2102,26 +1972,26 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
          }
 
 	auto partialSizeBeforeAdjustment = calltarget->_partialSize;
-	
+
    if (adjustEstimateForStringCompression(calltarget->_calleeMethod, calltarget->_partialSize, STRING_COMPRESSION_ADJUSTMENT_FACTOR))
       {
       heuristicTrace(tracer(), "*** Depth %d: Adjusting partial size for %s because of string compression from %d to %d", _recursionDepth, callerName, partialSizeBeforeAdjustment, calltarget->_partialSize);
       }
-   
+
    auto fullSizeBeforeAdjustment = calltarget->_fullSize;
-   
+
    if (adjustEstimateForStringCompression(calltarget->_calleeMethod, calltarget->_fullSize, STRING_COMPRESSION_ADJUSTMENT_FACTOR))
       {
       heuristicTrace(tracer(), "*** Depth %d: Adjusting full size for %s because of string compression from %d to %d", _recursionDepth, callerName, fullSizeBeforeAdjustment, calltarget->_fullSize);
       }
-      
+
    auto realSizeBeforeAdjustment = _realSize;
-   
+
    if (adjustEstimateForStringCompression(calltarget->_calleeMethod, _realSize, STRING_COMPRESSION_ADJUSTMENT_FACTOR))
       {
       heuristicTrace(tracer(), "*** Depth %d: Adjusting real size for %s because of string compression from %d to %d", _recursionDepth, callerName, realSizeBeforeAdjustment, _realSize);
       }
-   
+
       reduceDAAWrapperCodeSize(calltarget);
 
       /****************** PHASE 5: Figure out if We're really going to do a partial Inline and add whatever we do to the realSize. *******************/
@@ -2356,7 +2226,7 @@ TR_J9EstimateCodeSize::labelGraph(TR::CFG *cfg,
       else if (currentBlock->containsCall()) //only need to enqueue it if its not unsanitizeable already
          callBlocks->enqueue(currentBlock);
 
-      // Part 3:  Enqueue all Predacessors
+      // Part 3:  Enqueue all Predecessors
 
       for (auto e = currentBlock->getPredecessors().begin(); e != currentBlock->getPredecessors().end(); ++e)
          {

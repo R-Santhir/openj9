@@ -61,7 +61,7 @@
  * There should be no allocations that use the global operator new, since
  * all allocations should go through the JitMemory allocation routines.
  * To catch cases that we miss, we define global operator new and delete here.
- * (xlC won't link staticly with the -noe flag when we override these.)
+ * (xlC won't link statically with the -noe flag when we override these.)
  */
 bool firstCompileStarted = false;
 
@@ -916,11 +916,14 @@ J9::Compilation::verifyCompressedRefsAnchors(bool anchorize)
 #if 0 ///#ifdef DEBUG
                TR_ASSERT(0, "No anchor found for load/store [%p]", n);
 #else
-               // place anchor after tt if its a check
-               // otherwise before
+               // For the child of null check or resolve check, the side effect doesn't rely on the
+               // value of the child, thus the anchor needs to be placed after tt. For other nodes,
+               // place the anchor before tt.
                //
                TR::TreeTop *next = tt->getNextTreeTop();
-               if (tt->getNode()->getOpCode().isCheck())
+               if ((tt->getNode()->getOpCode().isNullCheck()
+                   || tt->getNode()->getOpCode().isResolveCheck())
+                   && n == tt->getNode()->getFirstChild())
                   {
                   tt->join(newTT);
                   newTT->join(next);
@@ -1180,7 +1183,7 @@ J9::Compilation::addAsMonitorAuto(TR::SymbolReference* symRef, bool dontAddIfDLT
       else
          {
          // only add the symref into the list for initialization when not in DLT and not peeking.
-         // in DLT, we already use the corresp. slot to store the locked object from the interpreter
+         // in DLT, we already use the corresponding slot to store the locked object from the interpreter
          // so initializing the symRef later in the block can overwrite the first store.
          if (!self()->isDLT() && siteIndex == -1)
             self()->getMonitorAutoSymRefsInCompiledMethod()->push_front(symRef);

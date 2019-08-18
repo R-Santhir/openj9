@@ -298,7 +298,7 @@ TR_IProfiler::walkILTreeForEntries(uintptrj_t *pcEntries, uint32_t &numEntries, 
                      // that means the entry is locked by another thread. going to abort the
                      // storage of iprofiler information for this method
                      {
-                     // In some corener cases of invoke interface, we may come across the same entry
+                     // In some corner cases of invoke interface, we may come across the same entry
                      // twice under 2 different bytecodes. In that case, the other entry has been
                      // locked by this thread and is in the list of entries, so don't abort.
                      bool found = false;
@@ -640,7 +640,7 @@ static U_32 vftOffsetFromPC (J9Method *method, uintptrj_t pc)
    UDATA vTableSlot = ((J9RAMVirtualMethodRef *)literals)[cpIndex].methodIndexAndArgCount >> 8;
    TR_ASSERT(vTableSlot, "vTableSlot called for unresolved method");
 
-   return (U_32) (J9JIT_INTERP_VTABLE_OFFSET - vTableSlot);
+   return (U_32) (TR::Compiler->vm.getInterpreterVTableOffset() - vTableSlot);
    }
 
 
@@ -2481,7 +2481,7 @@ TR_IProfiler::createIProfilingValueInfo (TR_ByteCodeInfo &bcInfo, TR::Compilatio
                   list->incrementOrCreate(address, &addrOfTotalFrequency, i, weight, &comp->trMemory()->heapMemoryRegion());
                   }
                }
-            // add resudial to last total frequency
+            // add residual to last total frequency
             *addrOfTotalFrequency = (*addrOfTotalFrequency) + csInfo->_residueWeight;
             }
          else
@@ -3879,7 +3879,7 @@ void TR_IProfiler::processWorkingQueue()
 
 extern "C" void stopInterpreterProfiling(J9JITConfig *jitConfig);
 
-/* Lower value will more aggressivly skip samples as the number of unloaded classes increasses */
+/* Lower value will more aggressively skip samples as the number of unloaded classes increases */
 static const int IP_THROTTLE = 32;
 
 #if defined(NETWORK_ORDER_BYTECODE)
@@ -4328,7 +4328,7 @@ void CallSiteProfileInfo::setClazz(int index, uintptrj_t clazzPointer)
 
 
 // Supporting code for dumping IProfiler data to stderr to track possible 
-// performance issues due to insuficient or wrong IProfiler info
+// performance issues due to insufficient or wrong IProfiler info
 // Code is currently inactive. To actually use one must issue
 // iProfiler->dumpIPBCDataCallGraph(vmThread)
 // in some part of the code (typically at shutdown time) 
@@ -4350,7 +4350,7 @@ class TR_AggregationHT
          };
       class TR_AggregationHTNode
          {
-         TR_AggregationHTNode *_next; // for chaning
+         TR_AggregationHTNode *_next; // for chaining
          J9ROMMethod *_romMethod; // this is the key
          J9ROMClass  *_romClass;
          TR_CGChainedEntry *_IPData;
@@ -4582,7 +4582,7 @@ void TR_AggregationHT::sortByNameAndPrint(TR_J9VMBase *fe)
 // This method will be executing on a single thread and it will acquire VM access as needed
 // to prevent the GC from modifying the BC hashtable as we walk.
 // Application threads may add new data to the IProfiler hashtable, but this is not an impediment.
-// Temporary data structures will be allocated using persistent memory which will be dealocated
+// Temporary data structures will be allocated using persistent memory which will be deallocated
 // at the end.
 // Parameter: the vmThread it is executing on.
 void TR_IProfiler::dumpIPBCDataCallGraph(J9VMThread* vmThread)

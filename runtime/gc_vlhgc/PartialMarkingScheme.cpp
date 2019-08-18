@@ -1,4 +1,3 @@
-
 /*******************************************************************************
  * Copyright (c) 1991, 2019 IBM Corp. and others
  *
@@ -149,7 +148,7 @@ MM_ParallelPartialMarkTask::cleanup(MM_EnvironmentBase *envBase)
 	}
 	env->_lastOverflowedRsclWithReleasedBuffers = NULL;
 	
-	/* record the thread-specific paralellism stats in the trace buffer. This partially duplicates info in -Xtgc:parallel */ 
+	/* record the thread-specific parallelism stats in the trace buffer. This partially duplicates info in -Xtgc:parallel */ 
 	Trc_MM_ParallelPartialMarkTask_parallelStats(
 		env->getLanguageVMThread(),
 		(U_32)env->getSlaveID(),
@@ -437,7 +436,7 @@ MM_PartialMarkingScheme::markObjectClass(MM_EnvironmentVLHGC *env, J9Object *obj
 #if defined(J9VM_GC_DYNAMIC_CLASS_UNLOADING)
 	_extensions->classLoaderRememberedSet->rememberInstance(env, objectPtr);
 	if(isDynamicClassUnloadingEnabled()) {
-		j9object_t classObject = (j9object_t)J9GC_J9OBJECT_CLAZZ(objectPtr)->classObject;
+		j9object_t classObject = (j9object_t)J9GC_J9OBJECT_CLAZZ(objectPtr, env)->classObject;
 		Assert_MM_true(J9_INVALID_OBJECT != classObject);
 		markObjectNoCheck(env, classObject, false);
 	}
@@ -492,9 +491,9 @@ MM_PartialMarkingScheme::scanMixedObject(MM_EnvironmentVLHGC *env, J9Object *obj
 	updateScanStats(env, objectSize, reason);
 
 	endScanPtr = (fj9object_t*)(((U_8 *)objectPtr) + objectSize);
-	descriptionPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr)->instanceDescription;
+	descriptionPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr, env)->instanceDescription;
 #if defined(J9VM_GC_LEAF_BITS)
-	leafPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr)->instanceLeafDescription;
+	leafPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr, env)->instanceLeafDescription;
 #endif /* J9VM_GC_LEAF_BITS */
 
 	if (((UDATA)descriptionPtr) & 1) {
@@ -513,7 +512,7 @@ MM_PartialMarkingScheme::scanMixedObject(MM_EnvironmentVLHGC *env, J9Object *obj
 	while (scanPtr < endScanPtr) {
 		/* Determine if the slot should be processed */
 		if (descriptionBits & 1) {
-			/* As this function can be invoked during concurent mark the slot is
+			/* As this function can be invoked during concurrent mark the slot is
 			 * volatile so we must ensure that the compiler generates the correct
 			 * code if markObject() is inlined.
 			 */
@@ -566,7 +565,7 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 	bool referentMustBeMarked = isReferenceCleared || !isReferenceInCollectionSet;
 	bool referentMustBeCleared = false;
 	UDATA referenceObjectOptions = env->_cycleState->_referenceObjectOptions;
-	UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(objectPtr)) & J9AccClassReferenceMask;
+	UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(objectPtr, env)) & J9AccClassReferenceMask;
 	switch (referenceObjectType) {
 	case J9AccClassReferenceWeak:
 		referentMustBeCleared = (0 != (referenceObjectOptions & MM_CycleState::references_clear_weak));
@@ -611,9 +610,9 @@ MM_PartialMarkingScheme::scanReferenceMixedObject(MM_EnvironmentVLHGC *env, J9Ob
 
 	updateScanStats(env, objectSize, reason);
 
-	descriptionPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr)->instanceDescription;
+	descriptionPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr, env)->instanceDescription;
 #if defined(J9VM_GC_LEAF_BITS)
-	leafPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr)->instanceLeafDescription;
+	leafPtr = (UDATA *)J9GC_J9OBJECT_CLAZZ(objectPtr, env)->instanceLeafDescription;
 #endif /* J9VM_GC_LEAF_BITS */
 
 	if (((UDATA)descriptionPtr) & 1) {
@@ -800,23 +799,24 @@ MM_PartialMarkingScheme::scanClassLoaderObject(MM_EnvironmentVLHGC *env, J9Objec
 			rememberReferenceIfRequired(env, classLoaderObject, classObject);
 		}
 
-		Assert_MM_true(NULL != classLoader->moduleHashTable);
-		J9HashTableState walkState;
-		J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
-		while (NULL != modulePtr) {
-			J9Module * const module = *modulePtr;
-			Assert_MM_true(NULL != module->moduleObject);
-			markObject(env, module->moduleObject);
-			rememberReferenceIfRequired(env, classLoaderObject, module->moduleObject);
-			if (NULL != module->moduleName) {
-				markObject(env, module->moduleName);
-				rememberReferenceIfRequired(env, classLoaderObject, module->moduleName);
+		if (NULL != classLoader->moduleHashTable) {
+			J9HashTableState walkState;
+			J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
+			while (NULL != modulePtr) {
+				J9Module * const module = *modulePtr;
+				Assert_MM_true(NULL != module->moduleObject);
+				markObject(env, module->moduleObject);
+				rememberReferenceIfRequired(env, classLoaderObject, module->moduleObject);
+				if (NULL != module->moduleName) {
+					markObject(env, module->moduleName);
+					rememberReferenceIfRequired(env, classLoaderObject, module->moduleName);
+				}
+				if (NULL != module->version) {
+					markObject(env, module->version);
+					rememberReferenceIfRequired(env, classLoaderObject, module->version);
+				}
+				modulePtr = (J9Module**)hashTableNextDo(&walkState);
 			}
-			if (NULL != module->version) {
-				markObject(env, module->version);
-				rememberReferenceIfRequired(env, classLoaderObject, module->version);
-			}
-			modulePtr = (J9Module**)hashTableNextDo(&walkState);
 		}
 	}
 }
@@ -843,20 +843,21 @@ MM_PartialMarkingScheme::scanClassLoaderSlots(MM_EnvironmentVLHGC *env, J9ClassL
 				markObject(env, (J9Object *) clazz->classObject);
 			}
 
-			Assert_MM_true(NULL != classLoader->moduleHashTable);
-			J9HashTableState walkState;
-			J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
-			while (NULL != modulePtr) {
-				J9Module * const module = *modulePtr;
-				Assert_MM_true(NULL != module->moduleObject);
-				markObject(env, module->moduleObject);
-				if (NULL != module->moduleName) {
-					markObject(env, module->moduleName);
+			if (NULL != classLoader->moduleHashTable) {
+				J9HashTableState walkState;
+				J9Module **modulePtr = (J9Module **)hashTableStartDo(classLoader->moduleHashTable, &walkState);
+				while (NULL != modulePtr) {
+					J9Module * const module = *modulePtr;
+					Assert_MM_true(NULL != module->moduleObject);
+					markObject(env, module->moduleObject);
+					if (NULL != module->moduleName) {
+						markObject(env, module->moduleName);
+					}
+					if (NULL != module->version) {
+						markObject(env, module->version);
+					} 
+					modulePtr = (J9Module**)hashTableNextDo(&walkState);
 				}
-				if (NULL != module->version) {
-					markObject(env, module->version);
-				} 
-				modulePtr = (J9Module**)hashTableNextDo(&walkState);
 			}
 		}
 	}
@@ -867,9 +868,10 @@ MM_PartialMarkingScheme::scanObject(MM_EnvironmentVLHGC *env, J9Object *objectPt
 {
 	Assert_MM_true(PACKET_INVALID_OBJECT != (UDATA)objectPtr); /* Invalid objects can only exist on the GMP's work packets */
 
-	J9Class* clazz = J9GC_J9OBJECT_CLAZZ(objectPtr);
+	J9Class* clazz = J9GC_J9OBJECT_CLAZZ(objectPtr, env);
 	Assert_MM_mustBeClass(clazz);
 	switch(_extensions->objectModel.getScanType(clazz)) {
+		case GC_ObjectModel::SCAN_MIXED_OBJECT_LINKED:
 		case GC_ObjectModel::SCAN_ATOMIC_MARKABLE_REFERENCE_OBJECT:
 		case GC_ObjectModel::SCAN_MIXED_OBJECT:
 			scanMixedObject(env, objectPtr, reason);
@@ -1727,7 +1729,7 @@ MM_PartialMarkingScheme::processReferenceList(MM_EnvironmentVLHGC *env, J9Object
 		GC_SlotObject referentSlotObject(_extensions->getOmrVM(), &J9GC_J9VMJAVALANGREFERENCE_REFERENT(env, referenceObj));
 		J9Object *referent = referentSlotObject.readReferenceFromSlot();
 		if (NULL != referent) {
-			UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(referenceObj)) & J9AccClassReferenceMask;
+			UDATA referenceObjectType = J9CLASS_FLAGS(J9GC_J9OBJECT_CLAZZ(referenceObj, env)) & J9AccClassReferenceMask;
 			if (isMarked(referent)) {
 				if (J9AccClassReferenceSoft == referenceObjectType) {
 					U_32 age = J9GC_J9VMJAVALANGSOFTREFERENCE_AGE(env, referenceObj);

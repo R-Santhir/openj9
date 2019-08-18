@@ -42,6 +42,7 @@ extern "C" {
 #define EsExtraVersionString ""
 
 #define JAVA_SPEC_VERSION ${uma.spec.properties.JAVA_SPEC_VERSION.value}
+#define JAVA_SPEC_VERSION_STRING "${uma.spec.properties.JAVA_SPEC_VERSION.value}"
 
 /*  Note: The following defines record flags used to build VM.  */
 /*  Changing them here does not remove the feature and may cause linking problems. */
@@ -58,6 +59,8 @@ extern "C" {
 #undef ${flag.cname}
 </#if>
 </#list>
+
+#undef J9VM_OPT_VALHALLA_VALUE_TYPES
 
 #if JAVA_SPEC_VERSION >= 11
 #define J9VM_OPT_VALHALLA_NESTMATES

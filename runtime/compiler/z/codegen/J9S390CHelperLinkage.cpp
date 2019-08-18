@@ -48,7 +48,7 @@
 #include "z/codegen/S390HelperCallSnippet.hpp"
 #include "z/codegen/S390J9CallSnippet.hpp"
 #include "z/codegen/S390StackCheckFailureSnippet.hpp"
-#include "z/codegen/TRSystemLinkage.hpp"
+#include "z/codegen/SystemLinkage.hpp"
 #include "runtime/J9Profiler.hpp"
 #include "runtime/J9ValueProfiler.hpp"
 
@@ -87,7 +87,7 @@ TR::S390CHelperLinkage::S390CHelperLinkage(TR::CodeGenerator * codeGen,TR_S390Li
       }
 #endif
 
-   // Platform specifc linkage settings
+   // Platform specific linkage settings
    if (TR::Compiler->target.isLinux())
       {
       setRegisterFlag(TR::RealRegister::GPR6, Preserved);
@@ -251,7 +251,7 @@ class RealRegisterManager
 /**   \brief Build a JIT helper call.
  *    \details
  *    It generates sequence that prepares parameters for the JIT helper function and generate a helper call.
- *    \param callNode The node for which you are generating a heleper call
+ *    \param callNode The node for which you are generating a helper call
  *    \param deps The pre register dependency conditions that will be filled by this function to attach within ICF
  *    \param returnReg TR::Register* allocated by consumer of this API to hold the result of the helper call,
  *           If passed, this function uses it to store return value from helper instead of allocating new register
@@ -314,7 +314,7 @@ TR::Register * TR::S390CHelperLinkage::buildDirectDispatch(TR::Node * callNode, 
     * #if (fastPathHelper)
     *    STG R5, @(vmThread+offsetOf(J9SP))
     *       #define zOS
-    *       LG DSA, @(vmThraed,offsetOfSSP)
+    *       LG DSA, @(vmThread,offsetOfSSP)
     *       XC offsetOFSSP(vmThread, pointerSize), offsetOfSSP(vmThread)
     *          #define 32Bit
     *          LG CAA, @(DSA+CAAOffset)
@@ -385,7 +385,7 @@ TR::Register * TR::S390CHelperLinkage::buildDirectDispatch(TR::Node * callNode, 
       {
       // Fastpath helper do not expects GC call in-between so only attaching them for normal dual mode helpers
       // As GC map is attached to instruction after RA is done, it is guaranteed that all the non-preserved register by system linkage are either stored in preserved register
-      // Or spilled to stack. We only need to mark preserved register in GC map. Only possiblity of non-preserved register containing a live object is in argument to helper which should be a clobberable copy of actual object.
+      // Or spilled to stack. We only need to mark preserved register in GC map. Only possibility of non-preserved register containing a live object is in argument to helper which should be a clobberable copy of actual object.
       cursor->setNeedsGCMap(getPreservedRegisterMapForGC());
       }
 

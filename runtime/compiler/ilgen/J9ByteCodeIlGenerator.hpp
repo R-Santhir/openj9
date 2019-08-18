@@ -37,6 +37,7 @@
 #include "infra/Stack.hpp"
 #include "env/VMJ9.h"
 
+class TR_InlineBlocks;
 class TR_PersistentClassInfo;
 class TR_BitVector;
 namespace TR { class IlGeneratorMethodDetails; }
@@ -123,8 +124,7 @@ private:
    TR::Node *    genInvokeHandle(int32_t cpIndex);
    TR::Node *    genInvokeHandleGeneric(int32_t cpIndex);
 
-   void         genHandleTypeCheck();
-   void         genHandleTypeCheck(TR::Node *handle, TR::Node *expectedType) { push(handle); push(expectedType); genHandleTypeCheck(); }
+   TR::Node *    genHandleTypeCheck(TR::Node *handle, TR::Node *expectedType);
 
    TR::Node *    genInvokeHandle(TR::SymbolReference *invokeExactSymRef, TR::Node *invokedynamicReceiver = NULL);
    TR::Node *    genILGenMacroInvokeExact(TR::SymbolReference *invokeExactSymRef);
@@ -343,8 +343,6 @@ private:
       //return s1->getOwningMethod(_compilation)->staticsAreSame(s1->getCPIndex(), s2->getOwningMethod(_compilation), s2->getCPIndex(), sigSame);
       return TR::Compiler->cls.jitStaticsAreSame(_compilation, s1->getOwningMethod(_compilation), s1->getCPIndex(), s2->getOwningMethod(_compilation), s2->getCPIndex());
       }
-
-   bool isFinalFieldFromSuperClasses(J9Class *, int32_t);
 
    TR::Node * genNodeAndPopChildren(TR::ILOpCodes, int32_t, TR::SymbolReference *, int32_t = 0);
    TR::Node * genNodeAndPopChildren(TR::ILOpCodes, int32_t, TR::SymbolReference *, int32_t firstIndex, int32_t lastIndex);

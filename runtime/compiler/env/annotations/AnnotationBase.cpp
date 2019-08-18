@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corp. and others
+ * Copyright (c) 2000, 2019 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -22,6 +22,7 @@
 
 #define J9_EXTERNAL_TO_VM
 #include "vmaccess.h"
+#include "compile/Method.hpp"
 #include "env/annotations/AnnotationBase.hpp"
 #include "il/Symbol.hpp"
 #include "il/symbol/LabelSymbol.hpp"
@@ -317,7 +318,7 @@ TR_AnnotationBase::getAnnotationInfoEntry(TR::SymbolReference *symRef,const char
       annotationj9Type = ANNOTATION_TYPE_METHOD;
 
       J9Class *clazz = (J9Class *)sym->castToResolvedMethodSymbol()->getResolvedMethod()->containingClass();
-      TR_Method * vmSym = sym->castToMethodSymbol()->getMethod();
+      TR::Method * vmSym = sym->castToMethodSymbol()->getMethod();
       memberName = vmSym->nameChars();
       memberSignature = vmSym->signatureChars();
       int32_t nameLen = vmSym->nameLength();
@@ -385,7 +386,7 @@ TR_AnnotationBase::getAnnotationInfoEntry(TR::SymbolReference *symRef,const char
       const char *s = symRef->getSymbol()->castToParmSymbol()->getTypeSignature(len);
 
       TR::Symbol *sym =  _comp->getOwningMethodSymbol(symRef->getOwningMethodIndex());
-      TR_Method * vmSym =sym->castToMethodSymbol()->getMethod();
+      TR::Method * vmSym =sym->castToMethodSymbol()->getMethod();
       if(NULL == vmSym) return NULL;
 
       TR::ResolvedMethodSymbol *resolvedSym = sym->castToResolvedMethodSymbol();
@@ -397,7 +398,7 @@ TR_AnnotationBase::getAnnotationInfoEntry(TR::SymbolReference *symRef,const char
          if(p->getSlot() == slotId) break;
          parmNo++;
          }
-      if(!resolvedSym->isStatic()) --parmNo; // accomodate 'this'
+      if(!resolvedSym->isStatic()) --parmNo; // accommodate 'this'
 
       annotationj9Type |= parmNo << ANNOTATION_PARM_SHIFT;
       memberName = vmSym->nameChars();

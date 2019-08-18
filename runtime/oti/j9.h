@@ -81,9 +81,7 @@ typedef struct J9ClassLoaderWalkState {
 #include "j9generated.h"
 #include "j9cfg_builder.h"
 
-#if !defined(J9VM_OUT_OF_PROCESS)
 #include "j9accessbarrierhelpers.h"
-#endif
 
 /*------------------------------------------------------------------
  * AOT version defines
@@ -92,7 +90,7 @@ typedef struct J9ClassLoaderWalkState {
 #define AOT_MINOR_VERSION 0
 
 
-/* temporary hack to ensure that we get the right verison of translate MethodHandle */
+/* temporary hack to ensure that we get the right version of translate MethodHandle */
 #define TRANSLATE_METHODHANDLE_TAKES_FLAGS
 
 /* temporary define to allow JIT work to promote and be enabled at the same time as the vm side */
@@ -285,7 +283,7 @@ static const struct { \
 #define internalExitVMToJNI internalReleaseVMAccess
 #endif /* !J9VM_INTERP_ATOMIC_FREE_JNI */
 
-/* Move marcro MAXIMUM_HEAP_SIZE_RECOMMENDED_FOR_xxx from redirector.c in order to be referenced from IBM i series */
+/* Move macro MAXIMUM_HEAP_SIZE_RECOMMENDED_FOR_xxx from redirector.c in order to be referenced from IBM i series */
 #define MAXIMUM_HEAP_SIZE_RECOMMENDED_FOR_COMPRESSEDREFS	((U_64)57 * 1024 * 1024 * 1024)
 #define MAXIMUM_HEAP_SIZE_RECOMMENDED_FOR_3BIT_SHIFT_COMPRESSEDREFS	((U_64)25 * 1024 * 1024 * 1024)
 
@@ -335,12 +333,7 @@ static const struct { \
 #endif /* J9VM_OPT_VALHALLA_VALUE_TYPES */
 
 #if defined(OPENJ9_BUILD)
-/* Disable the sharedclasses by default feature due to performance regressions
- * found prior to the 0.12.0 release.  Enabling the cache for bootstrap classes
- * only interacts poorly with the JIT's logic to disable the iprofiler if a 
- * warm cache is detected.  See https://github.com/eclipse/openj9/issues/4222
- */
-#define J9_SHARED_CACHE_DEFAULT_BOOT_SHARING(vm) FALSE
+#define J9_SHARED_CACHE_DEFAULT_BOOT_SHARING(vm) TRUE
 #else /* defined(OPENJ9_BUILD) */
 #define J9_SHARED_CACHE_DEFAULT_BOOT_SHARING(vm) FALSE
 #endif /* defined(OPENJ9_BUILD) */

@@ -60,6 +60,9 @@ class TR_ExternalProfiler;
 class TR_JitPrivateConfig;
 class TR_DataCacheManager;
 class TR_EstimateCodeSize;
+#if defined(JITSERVER_SUPPORT)
+class TR_Listener;
+#endif /* defined(JITSERVER_SUPPORT) */
 struct TR_CallSite;
 struct TR_CallTarget;
 namespace J9 { class ObjectModel; }
@@ -137,6 +140,9 @@ typedef struct TR_JitPrivateConfig
    TR_IProfiler  *iProfiler;
    TR_HWProfiler *hwProfiler;
    TR_JProfilerThread  *jProfiler;
+#if defined(JITSERVER_SUPPORT)
+   TR_Listener   *listener;
+#endif /* defined(JITSERVER_SUPPORT) */
    TR_LMGuardedStorage *lmGuardedStorage;
    TR::CodeCacheManager *codeCacheManager; // reachable from JitPrivateConfig for kca's benefit
    TR_DataCacheManager *dcManager;  // reachable from JitPrivateConfig for kca's benefit
@@ -354,7 +360,7 @@ public:
       return getVolatileReferenceFieldAt(objectPointer, getInstanceFieldOffset(getObjectClass(objectPointer), fieldName, fieldSignature));
       }
 
-   virtual TR_Method * createMethod(TR_Memory *, TR_OpaqueClassBlock *, int32_t);
+   virtual TR::Method * createMethod(TR_Memory *, TR_OpaqueClassBlock *, int32_t);
    virtual TR_ResolvedMethod * createResolvedMethod(TR_Memory *, TR_OpaqueMethodBlock *, TR_ResolvedMethod * = 0, TR_OpaqueClassBlock * = 0);
    virtual TR_ResolvedMethod * createResolvedMethodWithSignature(TR_Memory *, TR_OpaqueMethodBlock *, TR_OpaqueClassBlock *, char *signature, int32_t signatureLength, TR_ResolvedMethod *);
    void * getStaticFieldAddress(TR_OpaqueClassBlock *, unsigned char *, uint32_t, unsigned char *, uint32_t);
@@ -405,6 +411,8 @@ public:
    uint32_t                   getNumInnerClasses(TR_OpaqueClassBlock *classPointer);
    uint32_t                   getNumMethods(TR_OpaqueClassBlock *classPointer);
 
+   uintptr_t                  getMethodIndexInClass(TR_OpaqueClassBlock *classPointer, TR_OpaqueMethodBlock *methodPointer);
+
    virtual uint8_t *          allocateCodeMemory( TR::Compilation *, uint32_t warmCodeSize, uint32_t coldCodeSize, uint8_t **coldCode, bool isMethodHeaderNeeded=true);
 
    virtual void               releaseCodeMemory(void *startPC, uint8_t bytesToSaveAtStart);
@@ -414,10 +422,6 @@ public:
 #if defined(TR_TARGET_X86)
    void *                     getAllocationPrefetchCodeSnippetAddress( TR::Compilation * comp);
    void *                     getAllocationNoZeroPrefetchCodeSnippetAddress( TR::Compilation * comp);
-#endif
-
-#if defined(TR_TARGET_S390)
-   virtual void generateBinaryEncodingPrologue(TR_BinaryEncodingData *beData, TR::CodeGenerator *cg);
 #endif
 
    virtual TR::TreeTop *lowerTree(TR::Compilation *, TR::Node *, TR::TreeTop *);
@@ -549,6 +553,7 @@ public:
    virtual uintptrj_t           getReferenceElement(uintptrj_t objectPointer, intptrj_t elementIndex);
 
    virtual TR_OpaqueClassBlock *getClassFromJavaLangClass(uintptrj_t objectPointer);
+   virtual TR_arrayTypeCode    getPrimitiveArrayTypeCode(TR_OpaqueClassBlock* clazz);
    virtual TR_OpaqueClassBlock * getSystemClassFromClassName(const char * name, int32_t length, bool callSiteVettedForAOT=false) { return 0; }
 
    virtual uintptrj_t         getOffsetOfLastITableFromClassField();
@@ -669,7 +674,7 @@ public:
 
    virtual bool               isInlineableNativeMethod( TR::Compilation *, TR::ResolvedMethodSymbol * methodSymbol);
    //receiverClass is for specifying a more specific receiver type. otherwise it is determined from the call.
-   virtual bool               maybeHighlyPolymorphic(TR::Compilation *, TR_ResolvedMethod *caller, int32_t cpIndex, TR_Method *callee, TR_OpaqueClassBlock *receiverClass = NULL);
+   virtual bool               maybeHighlyPolymorphic(TR::Compilation *, TR_ResolvedMethod *caller, int32_t cpIndex, TR::Method *callee, TR_OpaqueClassBlock *receiverClass = NULL);
    virtual bool isQueuedForVeryHotOrScorching(TR_ResolvedMethod *calleeMethod, TR::Compilation *comp);
 
    //getSymbolAndFindInlineTarget queries
@@ -711,13 +716,13 @@ public:
 
    virtual void *getJ2IThunk(char *signatureChars, uint32_t signatureLength,  TR::Compilation *comp);
    virtual void *setJ2IThunk(char *signatureChars, uint32_t signatureLength, void *thunkptr,  TR::Compilation *comp);
-   virtual void *setJ2IThunk(TR_Method *method, void *thunkptr, TR::Compilation *comp);  // DMDM: J9 now
+   virtual void *setJ2IThunk(TR::Method *method, void *thunkptr, TR::Compilation *comp);  // DMDM: J9 now
 
    // JSR292 {{{
 
    // J2I thunk support
    //
-   virtual void * getJ2IThunk(TR_Method *method, TR::Compilation *comp);  // DMDM: J9 now
+   virtual void * getJ2IThunk(TR::Method *method, TR::Compilation *comp);  // DMDM: J9 now
 
    virtual char    *getJ2IThunkSignatureForDispatchVirtual(char *invokeHandleSignature, uint32_t signatureLength,  TR::Compilation *comp);
    virtual TR::Node *getEquivalentVirtualCallNodeForDispatchVirtual(TR::Node *node,  TR::Compilation *comp);
@@ -772,7 +777,6 @@ public:
    virtual void restoreCompilationPhase(int32_t phase);
 
    virtual void reportPrexInvalidation(void * startPC);
-   virtual void traceAssumeFailure(int32_t line, const char * file);
 
    virtual bool compilationShouldBeInterrupted( TR::Compilation *, TR_CallingContext);
    bool checkForExclusiveAcquireAccessRequest( TR::Compilation *);
@@ -797,7 +801,7 @@ public:
    virtual bool               hasTwoWordObjectHeader();
    virtual int32_t *          getReferenceSlotsInClass( TR::Compilation *, TR_OpaqueClassBlock *classPointer);
    virtual void               initializeLocalObjectHeader( TR::Compilation *, TR::Node * allocationNode,  TR::TreeTop * allocationTreeTop);
-   virtual void               initializeLocalArrayHeader ( TR::Compilation *, TR::Node * allocationNode,  TR::TreeTop * allocaitonTreeTop);
+   virtual void               initializeLocalArrayHeader ( TR::Compilation *, TR::Node * allocationNode,  TR::TreeTop * allocationTreeTop);
    virtual TR::TreeTop*        initializeClazzFlagsMonitorFields(TR::Compilation*, TR::TreeTop* prevTree, TR::Node* allocationNode, TR::Node* classNode, J9Class* ramClass);
 
    bool shouldPerformEDO(TR::Block *catchBlock,  TR::Compilation * comp);

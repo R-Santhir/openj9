@@ -366,81 +366,33 @@ static const J9SignalMapping signalMap[] = {
 #if defined(SIGCONT)
 	J9_SIGNAL_MAP_ENTRY("CONT", SIGCONT),
 #endif /* defined(SIGCONT) */
-#if defined(SIGCPUFAIL)
-	J9_SIGNAL_MAP_ENTRY("CPUFAIL", SIGCPUFAIL),
-#endif /* defined(SIGCPUFAIL) */
-#if defined(SIGDANGER)
-	J9_SIGNAL_MAP_ENTRY("DANGER", SIGDANGER),
-#endif /* defined(SIGDANGER) */
-#if defined(SIGEMT)
-	J9_SIGNAL_MAP_ENTRY("EMT", SIGEMT),
-#endif /* defined(SIGEMT) */
 #if defined(SIGFPE)
 	J9_SIGNAL_MAP_ENTRY("FPE", SIGFPE),
 #endif /* defined(SIGFPE) */
-#if defined(SIGGRANT)
-	J9_SIGNAL_MAP_ENTRY("GRANT", SIGGRANT),
-#endif /* defined(SIGGRANT) */
 #if defined(SIGHUP)
 	J9_SIGNAL_MAP_ENTRY("HUP", SIGHUP),
 #endif /* defined(SIGHUP) */
 #if defined(SIGILL)
 	J9_SIGNAL_MAP_ENTRY("ILL", SIGILL),
 #endif /* defined(SIGILL) */
-#if defined(SIGINFO)
-	J9_SIGNAL_MAP_ENTRY("INFO", SIGINFO),
-#endif /* defined(SIGINFO) */
 #if defined(SIGINT)
 	J9_SIGNAL_MAP_ENTRY("INT", SIGINT),
 #endif /* defined(SIGINT) */
 #if defined(SIGIO)
 	J9_SIGNAL_MAP_ENTRY("IO", SIGIO),
 #endif /* defined(SIGIO) */
-#if defined(SIGKILL)
-	J9_SIGNAL_MAP_ENTRY("KILL", SIGKILL),
-#endif /* defined(SIGKILL) */
-#if defined(SIGMIGRATE)
-	J9_SIGNAL_MAP_ENTRY("MIGRATE", SIGMIGRATE),
-#endif /* defined(SIGMIGRATE) */
-#if defined(SIGMSG)
-	J9_SIGNAL_MAP_ENTRY("MSG", SIGMSG),
-#endif /* defined(SIGMSG) */
 #if defined(SIGPIPE)
 	J9_SIGNAL_MAP_ENTRY("PIPE", SIGPIPE),
 #endif /* defined(SIGPIPE) */
-#if defined(SIGPOLL)
-	J9_SIGNAL_MAP_ENTRY("POLL", SIGPOLL),
-#endif /* defined(SIGPOLL) */
-#if defined(SIGPRE)
-	J9_SIGNAL_MAP_ENTRY("PRE", SIGPRE),
-#endif /* defined(SIGPRE) */
 #if defined(SIGPROF)
 	J9_SIGNAL_MAP_ENTRY("PROF", SIGPROF),
 #endif /* defined(SIGPROF) */
-#if defined(SIGPWR)
-	J9_SIGNAL_MAP_ENTRY("PWR", SIGPWR),
-#endif /* defined(SIGPWR) */
 #if defined(SIGQUIT)
 	J9_SIGNAL_MAP_ENTRY("QUIT", SIGQUIT),
 #endif /* defined(SIGQUIT) */
-#if defined(SIGRETRACT)
-	J9_SIGNAL_MAP_ENTRY("RETRACT", SIGRETRACT),
-#endif /* defined(SIGRETRACT) */
-#if defined(SIGSAK)
-	J9_SIGNAL_MAP_ENTRY("SAK", SIGSAK),
-#endif /* defined(SIGSAK) */
 #if defined(SIGSEGV)
 	J9_SIGNAL_MAP_ENTRY("SEGV", SIGSEGV),
 #endif /* defined(SIGSEGV) */
-#if defined(SIGSOUND)
-	J9_SIGNAL_MAP_ENTRY("SOUND", SIGSOUND),
-#endif /* defined(SIGSOUND) */
-#if defined(SIGSTKFLT)
-	J9_SIGNAL_MAP_ENTRY("STKFLT", SIGSTKFLT),
-#endif /* defined(SIGSTKFLT) */
-#if defined(SIGSTOP)
-	J9_SIGNAL_MAP_ENTRY("STOP", SIGSTOP),
-#endif /* defined(SIGSTOP) */
 #if defined(SIGSYS)
 	J9_SIGNAL_MAP_ENTRY("SYS", SIGSYS),
 #endif /* defined(SIGSYS) */
@@ -459,9 +411,6 @@ static const J9SignalMapping signalMap[] = {
 #if defined(SIGTTOU)
 	J9_SIGNAL_MAP_ENTRY("TTOU", SIGTTOU),
 #endif /* defined(SIGTTOU) */
-#if defined(SIGUNUSED)
-	J9_SIGNAL_MAP_ENTRY("UNUSED", SIGUNUSED),
-#endif /* defined(SIGUNUSED) */
 #if defined(SIGURG)
 	J9_SIGNAL_MAP_ENTRY("URG", SIGURG),
 #endif /* defined(SIGURG) */
@@ -1346,7 +1295,7 @@ initialArgumentScan(JavaVMInitArgs *args, J9SpecialArguments *specialArgs)
 	}
 
 	if (TRUE == xCheckFound) {
-		/* scan backwards for -Xcheck:memory.  There may be multiple -Xcheck options, so check them all, stop when we hit -Xcheck:memeory */
+		/* scan backwards for -Xcheck:memory.  There may be multiple -Xcheck options, so check them all, stop when we hit -Xcheck:memory */
 		for( argCursor = args->nOptions - 1 ; argCursor >= 0; argCursor-- ) {
 			char* memcheckArgs[2];
 
@@ -2038,7 +1987,7 @@ exit:
 
 /**
  *	jint JNICALL JNI_GetCreatedJavaVMs(JavaVM **vmBuf, jsize bufLen, jsize *nVMs)
- *  Return pointers to all the virtual machine instances that hvae been
+ *  Return pointers to all the virtual machine instances that have been
  *  created.
  *	This provides an invocation API that runs the J9 VM in BFU/sidecar mode
  *
@@ -2083,7 +2032,7 @@ JNI_GetCreatedJavaVMs(JavaVM **vmBuf, jsize bufLen, jsize *nVMs)
 /**
  *	jint JNICALL JNI_GetDefaultJavaVMInitArgs(void *vm_args)
  *  Return a default configuration for the java virtual machine
- *  implementaiton.
+ *  implementation.
  *	This provides an invocation API that runs the J9 VM in BFU/sidecar mode
  *
  *  @param vm_args pointer to a vm-specific initialization structure
@@ -2228,7 +2177,7 @@ int isFileInDir(char *dir, char *file){
 	int foundFile = 0;
 
 	dirLength = strlen(dir);
-	/* Constuct 'full' path */
+	/* Construct 'full' path */
 	if (dir[dirLength-1] == DIR_SEPARATOR) {
 		/* remove trailing '/' */
 		dir[dirLength-1] = '\0';
@@ -2721,7 +2670,7 @@ deleteDirsFromLibpath(const char *const libpath, const char *const deleteStart, 
 
 	newPath = malloc(preLen + delim + postLen + 1);
 	if (NULL == newPath) {
-		fprintf(stderr, "deleteDirsFromLibpath: malloc(%d) failed, aborting\n", preLen + delim + postLen + 1);
+		fprintf(stderr, "deleteDirsFromLibpath: malloc(%zu) failed, aborting\n", preLen + delim + postLen + 1);
 		abort();
 	}
 
@@ -3181,8 +3130,8 @@ testBackupAndRestoreLibpath(void)
 		failed++;
 	}
 
-	/* The backup path is prefixed by mulitiple colons */
-	printf("TESTCASE_31: The backup path is prefixed by mulitiple colons\n");
+	/* The backup path is prefixed by multiple colons */
+	printf("TESTCASE_31: The backup path is prefixed by multiple colons\n");
 	setLibpath(":::abc");
 	backupLibpath(&bkp, strlen("abc"));
 	setLibpath("abc");
@@ -3415,7 +3364,7 @@ JVM_OnExit(void (*func)(void))
  *	Attempts to load the shared library specified by libName.  If
  *	successful, returns the file handle, otherwise returns NULL.
  *
- *	@param libName a null termintated string containing the libName.
+ *	@param libName a null terminated string containing the libName.
  *
  *	@return the shared library's handle if successful, throws java/lang/UnsatisfiedLinkError on failure
  */
@@ -3499,7 +3448,7 @@ JVM_LoadSystemLibrary(const char *libName)
  *	Attempts to load the shared library specified by libName.  If
  *	successful, returns the file handle, otherwise returns NULL.
  *
- *	@param libName a null termintated string containing the libName.
+ *	@param libName a null terminated string containing the libName.
  *
  *	@return the shared library's handle if successful, throws java/lang/UnsatisfiedLinkError on failure
  *
@@ -3599,7 +3548,7 @@ JVM_FindLibraryEntry(void* handle, const char *functionName)
 #elif defined(J9UNIX) || defined(J9ZOS390) /* defined(WIN32) */
 	result = (void*)dlsym( (void*)handle, (char *)functionName );
 #else /* defined(WIN32) */
-#error "Please implemente jvm.c:JVM_FindLibraryEntry(void* handle, const char *functionName)"
+#error "Please implement jvm.c:JVM_FindLibraryEntry(void* handle, const char *functionName)"
 #endif /* defined(WIN32) */
 
 	Trc_SC_FindLibraryEntry_Exit(result);
@@ -4239,18 +4188,6 @@ isSignalReservedByJVM(jint sigNum)
 #if defined(SIGBREAK)
 		(SIGBREAK == sigNum) ||
 #endif /* defined(SIGBREAK) */
-#if defined(SIGABRT)
-		(SIGABRT == sigNum) ||
-#endif /* defined(SIGABRT) */
-#if defined(SIGCHLD)
-		(SIGCHLD == sigNum) ||
-#endif /* defined(SIGCHLD) */
-#if defined(SIGRECONFIG)
-		(SIGRECONFIG == sigNum) ||
-#endif /* defined(SIGRECONFIG) */
-#if defined(J9ZOS390) && defined(SIGUSR1)
-		(SIGUSR1 == sigNum) ||
-#endif /* defined(J9ZOS390) && defined(SIGUSR1) */
 		FALSE;
 }
 
@@ -4661,7 +4598,7 @@ JVM_RawMonitorDestroy(void* mon)
 
 
 /**
- * Moniter enter
+ * Monitor enter
  *
  * @param mon pointer of the monitor
  * @return 0

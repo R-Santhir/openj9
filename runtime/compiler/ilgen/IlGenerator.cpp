@@ -21,6 +21,8 @@
  *******************************************************************************/
 
 #include "codegen/CodeGenerator.hpp"
+#include "compile/InlineBlock.hpp"
+#include "compile/Method.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
@@ -164,7 +166,7 @@ TR_J9ByteCodeIlGenerator::genIL()
     * the optimization that replaces df.format(bd.doubleValue()) and
     * df.format(bd.floatValue()) with, respectively,
     * DecimalFormatHelper.formatAsDouble(df, bd) and
-    * DecimalFormatHelper.formasAsFloat(df, bd) in which bd is a BigDecimal object
+    * DecimalFormatHelper.formatAsFloat(df, bd) in which bd is a BigDecimal object
     * and df is DecimalFormat object. The latter pair of calls are much faster than
     * the former ones because it avoids many of the conversions that the former
     * performs.
@@ -447,7 +449,7 @@ TR_J9ByteCodeIlGenerator::genILFromByteCodes()
       }
 
 
-   // Code perteining to the secondary/upgrade compilation queue
+   // Code pertaining to the secondary/upgrade compilation queue
    // If the method is small, doesn't have loops or calls, then do not try to upgrade it
    if (comp()->isOutermostMethod() && comp()->getOptimizationPlan()->shouldAddToUpgradeQueue())
       {
@@ -1366,7 +1368,7 @@ TR_J9ByteCodeIlGenerator::genDFPGetHWAvailable()
 
       bool is390DFP =
 #ifdef TR_TARGET_S390
-         TR::Compiler->target.cpu.isZ() && TR::Compiler->target.cpu.getS390SupportsDFP();
+         TR::Compiler->target.cpu.isZ() && TR::Compiler->target.cpu.getSupportsDecimalFloatingPointFacility();
 #else
          false;
 #endif
@@ -1809,13 +1811,13 @@ TR_J9ByteCodeIlGenerator::genDLTransfer(TR::Block *firstBlock)
 
       parmIteratorIdx = 1;
 
-      // We have 4 scenarioes to deal with:
+      // We have 4 scenarios to deal with:
       // slot0StillActive:  no matter if slot0Modified or not, we cannot touch slot0 itself.
       //                    By and large, these should account for the majority cases for DLT.
       //                    There is no difference from normal JIT in these cases;
       //                    For modified case, we need to refresh the syncObjectTemp;
       // slot0 not active and notModified either:
-      //                    This is the most likely errie scenario we can encounter. For exception
+      //                    This is the most likely error scenario we can encounter. For exception
       //                    handling purpose, we have to reinstate slot0, and we cannot go wrong.
       // slot0 not active but modified:
       //                    We cannot do much about it until METADATA can carry the receiver info
@@ -2203,7 +2205,7 @@ bool TR_J9ByteCodeIlGenerator::replaceMethods(TR::TreeTop *tt, TR::Node *node)
    {
    if (!node->getOpCode().isCall() || !node->getOpCode().hasSymbolReference()) return true;
    if (node->getSymbolReference()->getSymbol()->castToMethodSymbol()->isHelper()) return true;
-   TR_Method * method = node->getSymbolReference()->getSymbol()->castToMethodSymbol()->getMethod();
+   TR::Method * method = node->getSymbolReference()->getSymbol()->castToMethodSymbol()->getMethod();
    //I use heapAlloc because this function is called many times for a small set of methods.
    const char* nodeName = method->signature(trMemory(), heapAlloc);
    for (int i = 0; i < _numDecFormatRenames; i++)
@@ -2992,17 +2994,6 @@ void TR_J9ByteCodeIlGenerator::expandInvokeHandle(TR::TreeTop *tree)
    TR::Node * receiverHandle = callNode->getArgument(0);
    callNode->getByteCodeInfo().setDoNotProfile(true);
 
-   TR::SymbolReference *getTypeSymRef = comp()->getSymRefTab()->methodSymRefFromName(_methodSymbol, JSR292_MethodHandle, JSR292_getType, JSR292_getTypeSig, TR::MethodSymbol::Special); // TODO:JSR292: Too bad I can't do a more general lookup and let it optimize itself.  Virtual call doesn't seem to work
-   TR::Node* handleType = TR::Node::createWithSymRef(callNode, TR::acall, 1, receiverHandle, getTypeSymRef);
-   handleType->getByteCodeInfo().setDoNotProfile(true);
-   tree->insertBefore(TR::TreeTop::create(comp(), TR::Node::create(callNode, TR::treetop, 1, handleType)));
-
-   if (comp()->getOption(TR_TraceILGen))
-      {
-      traceMsg(comp(), "Inserted getType call n%dn %p\n", handleType->getGlobalIndex(), handleType);
-      }
-
-
    TR::Node* callSiteMethodType = loadCallSiteMethodType(callNode);
 
    if (callSiteMethodType->getSymbolReference()->isUnresolved())
@@ -3012,9 +3003,7 @@ void TR_J9ByteCodeIlGenerator::expandInvokeHandle(TR::TreeTop *tree)
       }
 
    // Generate zerochk
-   TR::Node* zerochkNode = TR::Node::createWithSymRef(callNode, TR::ZEROCHK, 1,
-                                                      TR::Node::create(callNode, TR::acmpeq, 2, callSiteMethodType, handleType),
-                                                      symRefTab()->findOrCreateMethodTypeCheckSymbolRef(_methodSymbol));
+   TR::Node* zerochkNode = genHandleTypeCheck(receiverHandle, callSiteMethodType);
    tree->insertBefore(TR::TreeTop::create(comp(), zerochkNode));
 
    if (comp()->getOption(TR_TraceILGen))
@@ -3201,9 +3190,29 @@ void TR_J9ByteCodeIlGenerator::expandInvokeExact(TR::TreeTop *tree)
    callNode->getByteCodeInfo().setDoNotProfile(true);
 
    // Get the method address
-   TR::SymbolReference *invokeExactTargetAddrSymRef = comp()->getSymRefTab()->methodSymRefFromName(_methodSymbol, JSR292_MethodHandle, JSR292_invokeExactTargetAddress, JSR292_invokeExactTargetAddressSig, TR::MethodSymbol::Special);
-   TR::Node *invokeExactTargetAddr = TR::Node::createWithSymRef(callNode, TR::lcall, 1, receiverHandle, invokeExactTargetAddrSymRef);
-   invokeExactTargetAddr->getByteCodeInfo().setDoNotProfile(true);
+   uint32_t offset = fej9()->getInstanceFieldOffsetIncludingHeader("Ljava/lang/invoke/MethodHandle;", "thunks", "Ljava/lang/invoke/ThunkTuple;", method());
+   TR::SymbolReference *thunksSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(_methodSymbol,
+                                                                                           TR::Symbol::Java_lang_invoke_MethodHandle_thunks,
+                                                                                           TR::Address,
+                                                                                           offset,
+                                                                                           false,
+                                                                                           false,
+                                                                                           false,
+                                                                                           "java/lang/invoke/MethodHandle.thunks Ljava/lang/invoke/ThunkTuple;");
+   TR::Node *thunksNode = TR::Node::createWithSymRef(callNode, comp()->il.opCodeForIndirectLoad(TR::Address), 1, receiverHandle, thunksSymRef);
+   thunksNode->setIsNonNull(true);
+
+
+   offset = fej9()->getInstanceFieldOffsetIncludingHeader("Ljava/lang/invoke/ThunkTuple;", "invokeExactThunk", "J", method());
+   TR::SymbolReference *invokeExactTargetAddrSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(_methodSymbol,
+                                                                                           TR::Symbol::Java_lang_invoke_ThunkTuple_invokeExactThunk,
+                                                                                           TR::Int64,
+                                                                                           offset,
+                                                                                           false,
+                                                                                           false,
+                                                                                           true,
+                                                                                           "java/lang/invoke/ThunkTuple.invokeExactThunk J");
+   TR::Node *invokeExactTargetAddr = TR::Node::createWithSymRef(callNode, comp()->il.opCodeForIndirectLoad(TR::Int64), 1, thunksNode, invokeExactTargetAddrSymRef);
    tree->insertBefore(TR::TreeTop::create(comp(), TR::Node::create(callNode, TR::treetop, 1, invokeExactTargetAddr)));
 
    if (comp()->getOption(TR_TraceILGen))
@@ -3280,6 +3289,16 @@ void TR_J9ByteCodeIlGenerator::expandMethodHandleInvokeCall(TR::TreeTop *tree)
    else
       {
       TR_ASSERT(comp(), "Unexpected MethodHandle invoke call at n%dn %p", callNode->getGlobalIndex(), callNode);
+      }
+
+   // Specialize MethodHandle.invokeExact if the receiver handle is a known object
+   TR::Node* methodHandle = callNode->getFirstArgument();
+   if (methodHandle->getOpCode().hasSymbolReference()
+       && methodHandle->getSymbolReference()->hasKnownObjectIndex())
+      {
+      TR::KnownObjectTable::Index index = methodHandle->getSymbolReference()->getKnownObjectIndex();
+      uintptrj_t* objectLocation = comp()->getKnownObjectTable()->getPointerLocation(index);
+      TR::TransformUtil::specializeInvokeExactSymbol(comp(), callNode,  objectLocation);
       }
 
    _bcIndex = oldBCIndex;

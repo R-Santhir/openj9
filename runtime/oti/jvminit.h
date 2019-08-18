@@ -114,7 +114,7 @@ extern "C" {
 #define FIND_NEXT_ARG_IN_VMARGS_FORWARD(match, optionName, optionValue, lastArgIndex) vm->internalVMFunctions->findArgInVMArgs(vm->portLibrary, vm->vmArgsArray, ((match | ((lastArgIndex+1) << STOP_AT_INDEX_SHIFT)) | SEARCH_FORWARD), optionName, optionValue, FALSE)
 #define FIND_AND_CONSUME_ARG_FORWARD(match, optionName, optionValue) vm->internalVMFunctions->findArgInVMArgs(vm->portLibrary, vm->vmArgsArray, (match | SEARCH_FORWARD), optionName, optionValue, TRUE)
 
-/* REMOVE - FOR BACKWARDS COMPATABILITY */
+/* REMOVE - FOR BACKWARDS COMPATIBILITY */
 #define FIND_AND_CONSUME_ARG2(match, optionName, optionValue) vm->internalVMFunctions->findArgInVMArgs(vm->portLibrary, vm->vmArgsArray, match, optionName, optionValue, TRUE)
 #define VMARGS_OPTION(element) vm->vmArgsArray->actualVMArgs->options[element].optionString
 #define GET_OPTION_VALUE2(element, delimChar, resultPtr) vm->internalVMFunctions->optionValueOperations(vm->portLibrary, vm->vmArgsArray, element, GET_OPTION, resultPtr, 0, delimChar, 0, NULL)
@@ -208,7 +208,6 @@ enum INIT_STAGE {
 #define VMOPT_XJCL_COLON "-Xjcl:"
 #define VMOPT_XFUTURE "-Xfuture"
 #define VMOPT_ALL "all"
-#define VMOPT_XVERIFY_ALL "-Xverify:" VMOPT_ALL
 #define VMOPT_XSIGQUITTOFILE "-XsigquitToFile"
 #define VMOPT_XDEBUG "-Xdebug"
 #define VMOPT_XNOAGENT "-Xnoagent"
@@ -421,8 +420,6 @@ enum INIT_STAGE {
 #define VMOPT_XLP_CODECACHE "-Xlp:codecache:"
 #define VMOPT_XTLHPREFETCH "-XtlhPrefetch"
 
-#define VMOPT_XDIAGNOSTICSCOLLECTOR "-Xdiagnosticscollector"
-
 #define VMOPT_XXALLOWNONVIRTUALCALLS "-XX:+AllowNonVirtualCalls"
 #define VMOPT_XXDONTALLOWNONVIRTUALCALLS "-XX:-AllowNonVirtualCalls"
 
@@ -445,6 +442,16 @@ enum INIT_STAGE {
 
 #define VMOPT_XXREADIPINFOFORRAS "-XX:+ReadIPInfoForRAS"
 #define VMOPT_XXNOREADIPINFOFORRAS "-XX:-ReadIPInfoForRAS"
+#define VMOPT_ENABLE_PREVIEW "--enable-preview"
+
+#define VMOPT_XXNLSMESSAGES "-XX:+NLSMessages"
+#define VMOPT_XXNONLSMESSAGES  "-XX:-NLSMessages"
+
+#define VMOPT_XCOMPRESSEDREFS "-Xcompressedrefs"
+#define VMOPT_XNOCOMPRESSEDREFS "-Xnocompressedrefs"
+
+#define VMOPT_XXTRANSPARENT_HUGEPAGE "-XX:+TransparentHugePage"
+#define VMOPT_XXNOTRANSPARENT_HUGEPAGE "-XX:-TransparentHugePage"
 
 #define MAPOPT_AGENTLIB_JDWP_EQUALS "-agentlib:jdwp="
 
@@ -472,11 +479,7 @@ enum INIT_STAGE {
 #define MAPOPT_XP "-Xp"
 #define MAPOPT_XHEALTHCENTER "-Xhealthcenter"
 #define MAPOPT_XHEALTHCENTER_COLON "-Xhealthcenter:"
-#define MAPOPT_XDIAGNOSTICSCOLLECTOR "-Xdiagnosticscollector"
-#define MAPOPT_XDIAGNOSTICSCOLLECTOR_COLON "-Xdiagnosticscollector:"
 #define MAPOPT_XSOFTREFTHRESHOLD "-Xsoftrefthreshold"
-#define MAPOPT_XCOMPRESSEDREFS "-Xcompressedrefs"
-#define MAPOPT_XNOCOMPRESSEDREFS "-Xnocompressedrefs"
 #define MAPOPT_XXJITDIRECTORY "-XXjitdirectory="
 #define MAPOPT_XSHARE_ON "-Xshare:on"
 #define MAPOPT_XSHARE_OFF "-Xshare:off"

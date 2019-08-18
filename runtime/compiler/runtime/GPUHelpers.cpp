@@ -646,7 +646,7 @@ int getGpuDeviceCount(TR::PersistentInfo * persistentInfo, int tracing)
    int deviceLoopLimit = nDevices > MAX_DEVICE_NUM ? MAX_DEVICE_NUM : nDevices;
    for (int deviceId = 0; deviceId < deviceLoopLimit; deviceId++)
       {
-      cudaDeviceProp prop[3];   // workaround to avoid memory collapsion since recent CUDA version requires large size for cudeDeviceProp (by Keith)
+      cudaDeviceProp prop[3];   // workaround to avoid memory collapsing since recent CUDA version requires large size for cudeDeviceProp (by Keith)
 
       cudaError = jitCudaGetDeviceProperties(&prop[0], deviceId);
       if (cudaError != cudaSuccess)
@@ -883,8 +883,8 @@ cudaInfoHashRemove(CudaInfo *cudaInfo, void **hostref, int32_t elementSize)
    return NULL_DEVICE_PTR;
    }
 
-#define OBJECT_HEADER_SIZE sizeof(J9IndexableObjectContiguous)
-#define OBJECT_ARRAY_LENGTH_OFFSET (TMP_OFFSETOF_J9INDEXABLEOBJECTCONTIGUOUS_SIZE)
+#define OBJECT_HEADER_SIZE (TR::Compiler->om.compressObjectReferences() ? sizeof(J9IndexableObjectContiguousCompressed) : sizeof(J9IndexableObjectContiguousFull))
+#define OBJECT_ARRAY_LENGTH_OFFSET (TR::Compiler->om.offsetOfContiguousArraySizeField())
 #define HEADER_PADDING  (TR::CodeGenerator::GPUAlignment - OBJECT_HEADER_SIZE)
 
 #define     LOGSIZE     8192
@@ -2196,7 +2196,7 @@ copyGPUtoHost(CudaInfo *cudaInfo, void **hostRef, CUdeviceptr deviceArray, int32
    CUdeviceptr deviceArrayInHash = parm_entry->deviceArray;
    bool isPinned = parm_entry->accessMode & ACCESS_PINNED;
 
-   // do copy only if (entry not valid OR overriden by forceCopy) AND data is modified in the GPU
+   // do copy only if (entry not valid OR overridden by forceCopy) AND data is modified in the GPU
    bool doCopy = ((!parm_entry->valid || forceCopy) && isNoCopyDtoH == 0)                       
                  && (deviceArrayInHash != NULL_DEVICE_PTR) && (deviceArrayInHash != BAD_DEVICE_PTR); // only when pointers are valid
 

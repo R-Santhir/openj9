@@ -54,6 +54,7 @@ TR_VMField::TR_VMField(TR::Compilation * comp, J9Class *aClazz, J9ROMFieldShape 
    ramClass = aClazz;
    modifiers = fieldShape->modifiers;
 
+   shape = fieldShape;
    nameUtf8 = J9ROMFIELDSHAPE_NAME(fieldShape);
    nPtr = (char *) J9UTF8_DATA(nameUtf8);
    sigUtf8 =  J9ROMFIELDSHAPE_SIGNATURE(fieldShape);
@@ -262,7 +263,7 @@ void TR_VMFieldsInfo::print(TR::FILE *outFile)
 {
    int i=0;
 
-   // iterate through the list invoking print on each elemnt
+   // iterate through the list invoking print on each element
    if ( _fields != NULL )
       {
       ListIterator <TR_VMField> iter(_fields);

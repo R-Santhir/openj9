@@ -25,6 +25,7 @@
 
 #include "codegen/FrontEnd.hpp"
 #include "compile/Compilation.hpp"
+#include "compile/Method.hpp"
 #include "compile/ResolvedMethod.hpp"
 #include "env/TRMemory.hpp"
 #include "env/jittypes.h"
@@ -95,7 +96,7 @@ private:
    friend class TR_J9MethodBase;
    };
 
-class TR_J9MethodBase : public TR_Method
+class TR_J9MethodBase : public TR::Method
    {
 public:
    TR_ALLOC(TR_Memory::Method)
@@ -112,6 +113,7 @@ public:
    bool                          isBigDecimalConvertersMethod( TR::Compilation * comp = NULL);
 
    static bool                   isUnsafeGetPutWithObjectArg(TR::RecognizedMethod rm);
+   static bool                   isUnsafeGetPutBoolean(TR::RecognizedMethod rm);
    static bool                   isUnsafePut(TR::RecognizedMethod rm);
    static bool                   isVolatileUnsafe(TR::RecognizedMethod rm);
    static TR::DataType           unsafeDataTypeForArray(TR::RecognizedMethod rm);
@@ -260,7 +262,7 @@ public:
    J9ClassLoader *         getClassLoader();
 
    virtual J9ConstantPool *      cp();
-   virtual TR_Method *           convertToMethod();
+   virtual TR::Method *           convertToMethod();
 
    virtual uint32_t              numberOfParameters();
    virtual uint32_t              numberOfExplicitParameters();
@@ -343,7 +345,7 @@ public:
    virtual void *                stringConstant(int32_t cpIndex);
    virtual bool                  isUnresolvedString(int32_t cpIndex, bool optimizeForAOT = false);
    /** \brief
-    *     Retrieves the underlying type infomation for a given constant dynamic.
+    *     Retrieves the underlying type information for a given constant dynamic.
     *
     *  \param cpIndex
     *     The constant pool index of the constant dynamic.
@@ -373,13 +375,13 @@ public:
     */
    virtual bool                  isUnresolvedConstantDynamic(int32_t cpIndex);
    /** \brief
-    *     Retrieve the adress of the slot containing the constant dynamic.
+    *     Retrieve the address of the slot containing the constant dynamic.
     *
     *  \param cpIndex
     *     The constant pool index of the constant dynamic.
     *
     *  \return
-    *     Opauqe pointer to the slot containing the resolved constant dynamic value.
+    *     Opaque pointer to the slot containing the resolved constant dynamic value.
     */
    virtual void *                dynamicConstant(int32_t cpIndex);
    virtual void *                methodTypeConstant(int32_t cpIndex);
@@ -467,6 +469,14 @@ public:
    char *fieldOrStaticNameChars      (int32_t cpIndex, int32_t & len);
    char *fieldOrStaticSignatureChars (int32_t cpIndex, int32_t & len);
 
+   /**
+    * @brief Create TR::ParameterSymbols from the signature of a method, and add them
+    *        to the ParameterList on the ResolvedMethodSymbol.
+    *
+    * @param[in] methodSym : the ResolvedMethodSymbol to create the parameter list for
+    */
+   virtual void makeParameterList(TR::ResolvedMethodSymbol *methodSym);
+
 protected:
    virtual TR_J9MethodBase *asJ9Method(){ return this; }
 
@@ -495,7 +505,7 @@ class TR_ResolvedRelocatableJ9Method : public TR_ResolvedJ9Method
 public:
    TR_ResolvedRelocatableJ9Method(TR_OpaqueMethodBlock * aMethod, TR_FrontEnd *, TR_Memory *, TR_ResolvedMethod * owningMethod = 0, uint32_t vTableSlot = 0);
 
-   virtual TR_Method *           convertToMethod();
+   virtual TR::Method *           convertToMethod();
 
    virtual void *                constantPool();
 

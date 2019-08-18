@@ -98,14 +98,16 @@ ADD \
     http://ftp.us.debian.org/debian/pool/main/libp/libpng1.6/libpng16-16_1.6.28-1_arm64.deb          \
     http://ftp.us.debian.org/debian/pool/main/libp/libpng1.6/libpng-dev_1.6.28-1_arm64.deb           \
     http://ftp.us.debian.org/debian/pool/main/libs/libsm/libsm-dev_1.2.2-1+b3_arm64.deb              \
-    http://ftp.us.debian.org/debian/pool/main/o/openssl/libssl1.1_1.1.1b-2_arm64.deb                 \
-    http://ftp.us.debian.org/debian/pool/main/o/openssl/libssl-dev_1.1.1b-2_arm64.deb                \
+    http://ftp.us.debian.org/debian/pool/main/o/openssl/libssl1.1_1.1.1c-1_arm64.deb                 \
+    http://ftp.us.debian.org/debian/pool/main/o/openssl/libssl-dev_1.1.1c-1_arm64.deb                \
     http://ftp.us.debian.org/debian/pool/main/libx/libx11/libx11-6_1.6.4-3%2bdeb9u1_arm64.deb        \
     http://ftp.us.debian.org/debian/pool/main/libx/libx11/libx11-dev_1.6.4-3%2bdeb9u1_arm64.deb      \
     http://ftp.us.debian.org/debian/pool/main/libx/libxext/libxext6_1.3.3-1+b2_arm64.deb             \
     http://ftp.us.debian.org/debian/pool/main/libx/libxext/libxext-dev_1.3.3-1+b2_arm64.deb          \
     http://ftp.us.debian.org/debian/pool/main/libx/libxi/libxi6_1.7.9-1_arm64.deb                    \
     http://ftp.us.debian.org/debian/pool/main/libx/libxi/libxi-dev_1.7.9-1_arm64.deb                 \
+    http://ftp.us.debian.org/debian/pool/main/libx/libxrandr/libxrandr-dev_1.5.1-1_arm64.deb         \
+    http://ftp.us.debian.org/debian/pool/main/libx/libxrandr/libxrandr2_1.5.1-1_arm64.deb            \
     http://ftp.us.debian.org/debian/pool/main/libx/libxrender/libxrender1_0.9.10-1_arm64.deb         \
     http://ftp.us.debian.org/debian/pool/main/libx/libxrender/libxrender-dev_0.9.10-1_arm64.deb      \
     http://ftp.us.debian.org/debian/pool/main/libx/libxt/libxt-dev_1.1.5-1_arm64.deb                 \
@@ -114,6 +116,7 @@ ADD \
     http://ftp.us.debian.org/debian/pool/main/x/x11proto-core/x11proto-core-dev_7.0.31-1_all.deb     \
     http://ftp.us.debian.org/debian/pool/main/x/x11proto-input/x11proto-input-dev_2.3.2-1_all.deb    \
     http://ftp.us.debian.org/debian/pool/main/x/x11proto-kb/x11proto-kb-dev_1.0.7-1_all.deb          \
+    http://ftp.us.debian.org/debian/pool/main/x/x11proto-randr/x11proto-randr-dev_1.5.0-1_all.deb    \
     http://ftp.us.debian.org/debian/pool/main/x/x11proto-render/x11proto-render-dev_0.11.1-2_all.deb \
     http://ftp.us.debian.org/debian/pool/main/x/x11proto-xext/x11proto-xext-dev_7.3.0-1_all.deb      \
     http://ftp.us.debian.org/debian/pool/main/z/zlib/zlib1g_1.2.8.dfsg-5_arm64.deb                   \
@@ -127,7 +130,7 @@ RUN cd /root/debs \
   && cp lib/aarch64-linux-gnu/* ../gcc-linaro-7.3.1-2018.05-x86_64_aarch64-linux-gnu/aarch64-linux-gnu/libc/lib/ \
   && rm -rf /root/debs
 
-# Env vars set here will be visibile in the running container, so can be
+# Env vars set here will be visible in the running container, so can be
 # used to convey configuration information to the build scripts.
 
 # Set environment variable JAVA_HOME, and prepend $JAVA_HOME/bin to PATH

@@ -61,6 +61,9 @@ class MM_ParallelSweepScheme;
  */
 class MM_ScavengerDelegate : public MM_BaseNonVirtual {
 private:
+#if defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS)
+	bool _compressObjectReferences;
+#endif /* defined(OMR_GC_COMPRESSED_POINTERS) && defined(OMR_GC_FULL_POINTERS) */
 	OMR_VM *_omrVM;
 	J9JavaVM *_javaVM;
 	MM_GCExtensions *_extensions;
@@ -128,6 +131,24 @@ public:
 	bool shouldYield();
 #endif /* OMR_GC_CONCURRENT_SCAVENGER */
 
+	/**
+	 * Return back true if object references are compressed
+	 * @return true, if object references are compressed
+	 */
+	MMINLINE bool
+	compressObjectReferences()
+	{
+#if defined(OMR_GC_COMPRESSED_POINTERS)
+#if defined(OMR_GC_FULL_POINTERS)
+		return _compressObjectReferences;
+#else /* OMR_GC_FULL_POINTERS */
+		return true;
+#endif /* OMR_GC_FULL_POINTERS */
+#else /* OMR_GC_COMPRESSED_POINTERS */
+		return false;
+#endif /* OMR_GC_COMPRESSED_POINTERS */
+	}
+
 	void setShouldScavengeUnfinalizedObjects(bool shouldScavenge) { _shouldScavengeUnfinalizedObjects = shouldScavenge; }
 
 	volatile bool getShouldScavengeFinalizableObjects() { return _shouldScavengeFinalizableObjects; }
@@ -153,4 +174,4 @@ public:
 };
 
 #endif /* OMR_GC_MODRON_SCAVENGER */
-#endif /* SCAVENGERDELETAGEJAVA_HPP_ */
+#endif /* SCAVENGERDELEGATEJAVA_HPP_ */

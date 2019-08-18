@@ -43,6 +43,10 @@
 #include <unistd.h>
 #endif
 
+#if defined(LINUX) && !defined(J9ZTPF)
+#include <pthread.h>
+#endif /* defined(LINUX) && !defined(J9ZTPF) */
+
 /**
  * @name Port library access
  * @anchor PortAccess
@@ -253,7 +257,8 @@ typedef struct  J9PortShSemParameters {
  	const char* controlFileDir; /* Directory in which to create control files (SysV semaphores only) */
  	uint8_t proj_id; /* parameter used with semName to generate semaphore key */
  	uint32_t deleteBasefile : 1; /* delete the base file (used to generate the semaphore key) when destroying the semaphore */
- } J9PortShSemParameters;
+ 	uint32_t global : 1; /* Windows only: use the global namespace for the sempahore */
+} J9PortShSemParameters;
 /**
  * @name Process Handle
  * J9ProcessHandle is a pointer to the opaque structure J9ProcessHandleStruct.
@@ -401,7 +406,7 @@ typedef struct J9ProcessorDesc {
 } J9ProcessorDesc;
 
 /* PowerPC features
- * Auxlliary Vector Hardware Capability (AT_HWCAP) features for PowerPC.
+ * Auxiliary Vector Hardware Capability (AT_HWCAP) features for PowerPC.
  */
 #define J9PORT_PPC_FEATURE_32                    31 /* 32-bit mode.  */
 #define J9PORT_PPC_FEATURE_64                    30 /* 64-bit mode.  */
@@ -733,6 +738,7 @@ typedef struct J9CacheInfoQuery {
 #define J9PORT_CTLDATA_NOSUBALLOC32BITMEM OMRPORT_CTLDATA_NOSUBALLOC32BITMEM
 #define J9PORT_CTLDATA_VMEM_ADVISE_OS_ONFREE OMRPORT_CTLDATA_VMEM_ADVISE_OS_ONFREE
 #define J9PORT_CTLDATA_VECTOR_REGS_SUPPORT_ON OMRPORT_CTLDATA_VECTOR_REGS_SUPPORT_ON
+#define J9PORT_CTLDATA_VMEM_ADVISE_HUGEPAGE OMRPORT_CTLDATA_VMEM_ADVISE_HUGEPAGE
 
 #define J9PORT_CPU_ONLINE OMRPORT_CPU_ONLINE
 #define J9PORT_CPU_TARGET OMRPORT_CPU_TARGET

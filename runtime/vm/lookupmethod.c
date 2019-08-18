@@ -577,7 +577,7 @@ doneItableSearch:
  *		J9_LOOK_ALLOW_FWD						Allow lookup to follow the forwarding chain
  *		J9_LOOK_NO_VISIBILITY_CHECK				Do not perform any visilbity checking
  *		J9_LOOK_NO_JLOBJECT						When doing an interface lookup, do not consider method in java.lang.Object
- *		J9_LOOK_REFLECT_CALL					Use reflection behaviour when dealing with module visilibity
+ *		J9_LOOK_REFLECT_CALL					Use reflection behaviour when dealing with module visibility
  *		J9_LOOK_HANDLE_DEFAULT_METHOD_CONFLICTS	Handle default method conflicts
  *		J9_LOOK_IGNORE_INCOMPATIBLE_METHODS		If a static/virtual conflict occurs, ignore and move on to the next class
  *
@@ -939,7 +939,7 @@ defaultMethodConflictExceptionMessage(J9VMThread *currentThread, J9Class *target
 	Assert_VM_true(methodsLength > 1);
 
 	errorMsg = j9nls_lookup_message(J9NLS_DO_NOT_PRINT_MESSAGE_TAG | J9NLS_DO_NOT_APPEND_NEWLINE,
-			J9NLS_VM_DEFAULT_METHOD_CONFLICT_LIST, "conflicting default methods for '%2$s%4$s' in %6$s from classes [%7$s]");
+			J9NLS_VM_DEFAULT_METHOD_CONFLICT_LIST, "conflicting default methods for '%.*s%.*s' in %.*s from classes [%s]");
 	
 	/* Construct class list string */
 	for (i = 0; i < methodsLength; i++) {
@@ -960,7 +960,7 @@ defaultMethodConflictExceptionMessage(J9VMThread *currentThread, J9Class *target
 		memcpy(listString + offset, J9UTF8_DATA(className), J9UTF8_LENGTH(className));
 		offset += J9UTF8_LENGTH(className);
 	}
-	listString[listLength] = '\0'; /* Overalloced by 1 to enable null termination */
+	listString[listLength] = '\0'; /* Overallocated by 1 to enable null termination */
 
 	/* Write error message to buffer */
 	bufLen = j9str_printf(PORTLIB, NULL, 0, errorMsg,

@@ -104,6 +104,19 @@ void J9::RecognizedCallTransformer::process_java_lang_StringUTF16_toBytes(TR::Tr
    treetop->insertAfter(TR::TreeTop::create(comp(), TR::Node::create(node, TR::treetop, 1, newCallNode)));
    }
 
+void J9::RecognizedCallTransformer::process_java_lang_StrictMath_and_Math_sqrt(TR::TreeTop* treetop, TR::Node* node)
+   {
+   TR::Node* valueNode = node->getLastChild();
+
+   anchorAllChildren(node, treetop);
+   prepareToReplaceNode(node);
+
+   TR::Node::recreate(node, TR::dsqrt);
+   node->setNumChildren(1);
+   node->setAndIncChild(0, valueNode);
+
+   TR::TransformUtil::removeTree(comp(), treetop);
+   }
 /*
 Transform an Unsafe atomic call to diamonds with equivalent semantics
 
@@ -214,7 +227,7 @@ void J9::RecognizedCallTransformer::processUnsafeAtomicCall(TR::TreeTop* treetop
 
    if (isNotStaticField)
       {
-      // It is safe to skip diamond, the address can be calaulated directly via [object+offset]
+      // It is safe to skip diamond, the address can be calculated directly via [object+offset]
       address = TR::Compiler->target.is32Bit() ? TR::Node::create(TR::aiadd, 2, objectNode, TR::Node::create(TR::l2i, 1, offsetNode)) :
                                               TR::Node::create(TR::aladd, 2, objectNode, offsetNode);
       if (enableTrace)
@@ -367,6 +380,9 @@ bool J9::RecognizedCallTransformer::isInlineable(TR::TreeTop* treetop)
          return !comp()->getOption(TR_DisableMaxMinOptimization);
       case TR::java_lang_StringUTF16_toBytes:
          return !comp()->compileRelocatableCode();
+      case TR::java_lang_StrictMath_sqrt:
+      case TR::java_lang_Math_sqrt:
+         return TR::Compiler->target.cpu.getSupportsHardwareSQRT();;
       default:
          return false;
       }
@@ -420,6 +436,10 @@ void J9::RecognizedCallTransformer::transform(TR::TreeTop* treetop)
          break;
       case TR::java_lang_StringUTF16_toBytes:
          process_java_lang_StringUTF16_toBytes(treetop, node);
+         break;
+      case TR::java_lang_StrictMath_sqrt:
+      case TR::java_lang_Math_sqrt:
+         process_java_lang_StrictMath_and_Math_sqrt(treetop, node);
          break;
       default:
          break;

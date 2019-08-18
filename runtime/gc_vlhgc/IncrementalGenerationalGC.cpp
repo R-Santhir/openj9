@@ -1,4 +1,3 @@
-
 /*******************************************************************************
  * Copyright (c) 1991, 2019 IBM Corp. and others
  *
@@ -694,7 +693,7 @@ MM_IncrementalGenerationalGC::collectorShutdown(MM_GCExtensionsBase *extensions)
 
 /**
  * Determine if a  expand is required 
- * @return expand size if rator expand required or 0 otheriwse
+ * @return expand size if rator expand required or 0 otherwise
  */
 U_32
 MM_IncrementalGenerationalGC::getGCTimePercentage(MM_EnvironmentBase *env)
@@ -1238,8 +1237,8 @@ MM_IncrementalGenerationalGC::partialGarbageCollect(MM_EnvironmentVLHGC *env, MM
 		_schedulingDelegate.setAutomaticDefragmentEmptinessThreshold(optimalEmptinessRegionThreshold);
 	}
 
-	/* For Non CopyForwardHybrid mode, we don't allow any eden rgions with jniCritical for copyforward, if there is any, would switch MarkCompact PGC mode
-	 * For CopyForwardHybrid mode, we do not care about jniCritical eden regions, the eden rgions with jniCritical would be marked instead copyforwarded during collection.*/
+	/* For Non CopyForwardHybrid mode, we don't allow any eden regions with jniCritical for copyforward, if there is any, would switch MarkCompact PGC mode
+	 * For CopyForwardHybrid mode, we do not care about jniCritical eden regions, the eden regions with jniCritical would be marked instead copyforwarded during collection.*/
 	if (!_extensions->tarokEnableCopyForwardHybrid && (0 == _extensions->fvtest_forceCopyForwardHybridRatio)) {
 		if (env->_cycleState->_shouldRunCopyForward) {
 			MM_HeapRegionDescriptorVLHGC *region = NULL;
@@ -1620,7 +1619,7 @@ MM_IncrementalGenerationalGC::incrementRegionAges(MM_EnvironmentVLHGC *env, UDAT
 	}
 
 	/* Overflowing stable regions releases buffers to thread local pool. Move them now to the locked global pool.
-	 * (if this is run in context of non-GC thread there will be not further opportinities to do it).
+	 * (if this is run in context of non-GC thread there will be not further opportunities to do it).
 	 */
 	_interRegionRememberedSet->releaseCardBufferControlBlockListForThread(env, env);
 }
@@ -1774,7 +1773,7 @@ MM_IncrementalGenerationalGC::verifyMarkMapClosure(MM_EnvironmentVLHGC *env, MM_
 			J9Object *object = NULL;
 			while (NULL != (object = iterator.nextObject())) {
 				/* first, check the validity of the object's class */
-				J9Class *clazz = J9GC_J9OBJECT_CLAZZ(object);
+				J9Class *clazz = J9GC_J9OBJECT_CLAZZ(object, env);
 				Assert_MM_true((UDATA)0x99669966 == clazz->eyecatcher);
 				/* second, verify that it is an instance of a marked class */
 				J9Object *classObject = (J9Object *)clazz->classObject;
@@ -1785,6 +1784,7 @@ MM_IncrementalGenerationalGC::verifyMarkMapClosure(MM_EnvironmentVLHGC *env, MM_
 				case GC_ObjectModel::SCAN_REFERENCE_MIXED_OBJECT:
 					Assert_MM_true(GC_ObjectModel::REF_STATE_REMEMBERED != J9GC_J9VMJAVALANGREFERENCE_STATE(env, object));
 					/* fall through */
+				case GC_ObjectModel::SCAN_MIXED_OBJECT_LINKED:
 				case GC_ObjectModel::SCAN_ATOMIC_MARKABLE_REFERENCE_OBJECT:
 				case GC_ObjectModel::SCAN_MIXED_OBJECT:
 				case GC_ObjectModel::SCAN_CLASS_OBJECT:
@@ -1954,15 +1954,6 @@ MM_IncrementalGenerationalGC::triggerGlobalGCEndHook(MM_EnvironmentVLHGC *env)
 	/* these are assigned to temporary variable out-of-line since some preprocessors get confused if you have directives in macros */
 	UDATA approximateActiveFreeMemorySize = 0;
 	UDATA activeMemorySize = 0;
-
-	Assert_MM_true(!_extensions->isMetronomeGC());
-	TRIGGER_J9HOOK_MM_PRIVATE_REPORT_MEMORY_USAGE(
-		_extensions->privateHookInterface,
-		env->getOmrVMThread(), 
-		j9time_hires_clock(), 
-		J9HOOK_MM_PRIVATE_REPORT_MEMORY_USAGE,
-		_extensions->getForge()->getCurrentStatistics()
-	);
 	
 	TRIGGER_J9HOOK_MM_OMR_GLOBAL_GC_END(
 		_extensions->omrHookInterface,

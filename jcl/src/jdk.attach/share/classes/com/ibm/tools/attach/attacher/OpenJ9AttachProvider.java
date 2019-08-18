@@ -25,17 +25,22 @@ package com.ibm.tools.attach.attacher;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
+import java.security.PrivilegedActionException;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
-import com.sun.tools.attach.AttachNotSupportedException;
-import com.sun.tools.attach.AttachPermission;
-import com.sun.tools.attach.VirtualMachineDescriptor;
-import com.sun.tools.attach.spi.AttachProvider;
+
 import com.ibm.tools.attach.target.Advertisement;
 import com.ibm.tools.attach.target.AttachHandler;
 import com.ibm.tools.attach.target.CommonDirectory;
 import com.ibm.tools.attach.target.IPC;
 import com.ibm.tools.attach.target.TargetDirectory;
+import com.sun.tools.attach.AttachNotSupportedException;
+import com.sun.tools.attach.AttachPermission;
+import com.sun.tools.attach.VirtualMachineDescriptor;
+import com.sun.tools.attach.spi.AttachProvider;
 
 /**
  * Concrete subclass of the class that lists the available target VMs
@@ -87,7 +92,24 @@ public class OpenJ9AttachProvider extends AttachProvider {
 
 	@Override
 	public List<VirtualMachineDescriptor> listVirtualMachines() {
+		List<VirtualMachineDescriptor> ret = null;
+		PrivilegedExceptionAction<List<VirtualMachineDescriptor>> action = () -> listVirtualMachinesImp();
+		try {
+			ret = AccessController.doPrivileged(action);
+		} catch (PrivilegedActionException e) {
+			Throwable cause = e.getCause();
+			if (cause instanceof RuntimeException) {
+				throw (RuntimeException) cause;
+			} else if (cause instanceof Error) {
+				throw (Error) cause;
+			} else {
+				throw new RuntimeException(cause);
+			}
+		}
+		return ret;
+	}
 
+	private List<VirtualMachineDescriptor> listVirtualMachinesImp() {
 		AttachHandler.waitForAttachApiInitialization(); /* ignore result: we can list targets if API is disabled */
 		/* Figure out where the IPC metadata lives and validate */
 		File commonDir = CommonDirectory.getCommonDirFileObject();
@@ -130,10 +152,10 @@ public class OpenJ9AttachProvider extends AttachProvider {
 				}
 
 				boolean staleDirectory = true;
-				File advertisment = new File(f, Advertisement.getFilename());
+				File advertisement = new File(f, Advertisement.getFilename());
 				long uid = 0;
-				if (advertisment.exists()) {
-					OpenJ9VirtualMachineDescriptor descriptor = OpenJ9VirtualMachineDescriptor.fromAdvertisement(this, advertisment);
+				if (advertisement.exists()) {
+					OpenJ9VirtualMachineDescriptor descriptor = OpenJ9VirtualMachineDescriptor.fromAdvertisement(this, advertisement);
 					if (null != descriptor) {
 						long pid = descriptor.getProcessId();
 						uid = descriptor.getUid();
@@ -149,7 +171,7 @@ public class OpenJ9AttachProvider extends AttachProvider {
 						 * If getFileOwner fails, the uid will appear to be -1, and non-root users will ignore it.
 						 * CommonDirectory.deleteStaleDirectories() will handle the case of a target directory which does not have an advertisement directory.
 						 */
-						uid = CommonDirectory.getFileOwner(advertisment.getAbsolutePath());
+						uid = CommonDirectory.getFileOwner(advertisement.getAbsolutePath());
 					}
 				}
 

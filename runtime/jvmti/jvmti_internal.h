@@ -1176,7 +1176,7 @@ prepareForEvent(J9JVMTIEnv * j9env, J9VMThread * currentThread, J9VMThread * eve
 /**
  * Switch away from the zAAP processor if running there.
  *
- * @param[in] *j9env - pointer the current JVMTI enviroment
+ * @param[in] *j9env - pointer the current JVMTI environment
  * @param[in] *currentThread - current thread
  * @param[in] eventNumber - the event ID
  * @param[in] *javaOffloadOldState - the old offload state of current thread
@@ -2575,7 +2575,7 @@ jvmtiIsModifiableModule(jvmtiEnv* env,
 /* ---------------- suspendhelper.cpp ---------------- */
 /**
 * @brief
-* @param currentThreasd
+* @param currentThread
 * @param thread
 * @param allowNull
 * @param currentThreadSuspended

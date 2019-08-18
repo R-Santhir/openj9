@@ -39,6 +39,7 @@ namespace J9 { typedef J9::CodeGenerator CodeGeneratorConnector; }
 #include "env/IO.hpp"
 #include "env/jittypes.h"
 #include "infra/List.hpp"
+#include "infra/HashTab.hpp"
 #include "codegen/RecognizedMethods.hpp"
 #include "control/Recompilation.hpp"
 #include "control/RecompilationInfo.hpp"
@@ -85,6 +86,8 @@ public:
 
    void createReferenceReadBarrier(TR::TreeTop* treeTop, TR::Node* parent);
 
+   TR::list<TR_Pair<TR_ResolvedMethod,TR::Instruction> *> &getJNICallSites() { return _jniCallSites; }  // registerAssumptions()
+
    // OSR, not code generator
    void populateOSRBuffer();
 
@@ -103,6 +106,20 @@ public:
    void allocateLinkageRegisters();
 
    void fixUpProfiledInterfaceGuardTest();
+
+   /**
+    * \brief
+    *      This query is used by both fixUpProfiledInterfaceGuardTest (a codegen level optimization) and virtual guard evaluators
+    *      to decide whether a NOP guard should be generated. It's used on all platforms and compilation phases so that the decision
+    *      of generating VG NOPs is made in a consistent way.
+    *
+    * \param node
+    *      the virtual guard node
+    *
+    * \return
+    *      true if a NOP virtual guard should be generated. Otherwise, false.
+   */
+   bool willGenerateNOPForVirtualGuard(TR::Node* node);
 
    void zeroOutAutoOnEdge(TR::SymbolReference * liveAutoSym, TR::Block *block, TR::Block *succBlock, TR::list<TR::Block*> *newBlocks, TR_ScratchList<TR::Node> *fsdStores);
 
@@ -152,6 +169,7 @@ public:
    bool needRelocationsForStatics();
 
    // ----------------------------------------
+   TR::Node *createOrFindClonedNode(TR::Node *node, int32_t numChildren);
 
    void jitAddUnresolvedAddressMaterializationToPatchOnClassRedefinition(void *firstInstruction);
 
@@ -268,6 +286,12 @@ public:
 
 private:
 
+   TR_HashTabInt _uncommonedNodes;               // uncommoned nodes keyed by the original nodes
+   
+   TR::list<TR::Node*> _nodesSpineCheckedList;
+   
+   TR::list<TR_Pair<TR_ResolvedMethod, TR::Instruction> *> _jniCallSites; // list of instrutions representing direct jni call sites
+
    uint16_t changeParmLoadsToRegLoads(TR::Node*node, TR::Node **regLoads, TR_BitVector *globalRegsWithRegLoad, TR_BitVector &killedParms, vcount_t visitCount); // returns number of RegLoad nodes created
 
    static bool wantToPatchClassPointer(TR::Compilation *comp,
@@ -321,6 +345,11 @@ private:
 
    TR_BitVector *_liveMonitors;
 
+protected:
+
+   // isTemporaryBased storageReferences just have a symRef but some other routines expect a node so use the below to fill in this symRef on this node
+   TR::Node *_dummyTempStorageRefNode;
+
 public:
 
    static bool wantToPatchClassPointer(TR::Compilation *comp,
@@ -330,6 +359,17 @@ public:
    bool wantToPatchClassPointer(const TR_OpaqueClassBlock *allegedClassPointer, const uint8_t *inCodeAt);
 
    bool wantToPatchClassPointer(const TR_OpaqueClassBlock *allegedClassPointer, const TR::Node *forNode);
+
+   bool getSupportsBigDecimalLongLookasideVersioning() { return _flags3.testAny(SupportsBigDecimalLongLookasideVersioning);}
+   void setSupportsBigDecimalLongLookasideVersioning() { _flags3.set(SupportsBigDecimalLongLookasideVersioning);}
+
+   bool constLoadNeedsLiteralFromPool(TR::Node *node) { return false; }
+   
+   // Java, likely Z
+   bool supportsTrapsInTMRegion() { return true; }
+
+   // J9	
+   int32_t getInternalPtrMapBit() { return 31;}
 
    // --------------------------------------------------------------------------
    // GPU
@@ -472,12 +512,13 @@ private:
 
    enum // Flags
       {
-      HasFixedFrameC_CallingConvention    = 0x00000001,
-      SupportsMaxPrecisionMilliTime       = 0x00000002,
-      SupportsInlineStringCaseConversion  = 0x00000004, /*! codegen inlining of Java string case conversion */
-      SupportsInlineStringIndexOf         = 0x00000008, /*! codegen inlining of Java string index of */
-      SupportsInlineStringHashCode        = 0x00000010, /*! codegen inlining of Java string hash code */
-      SupportsInlineConcurrentLinkedQueue = 0x00000020,
+      HasFixedFrameC_CallingConvention                    = 0x00000001,
+      SupportsMaxPrecisionMilliTime                       = 0x00000002,
+      SupportsInlineStringCaseConversion                  = 0x00000004, /*! codegen inlining of Java string case conversion */
+      SupportsInlineStringIndexOf                         = 0x00000008, /*! codegen inlining of Java string index of */
+      SupportsInlineStringHashCode                        = 0x00000010, /*! codegen inlining of Java string hash code */
+      SupportsInlineConcurrentLinkedQueue                 = 0x00000020,
+      SupportsBigDecimalLongLookasideVersioning           = 0x00000040, 
       };
 
    flags32_t _j9Flags;
